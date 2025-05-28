@@ -83,7 +83,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.101",
 ]
 
 [[package]]
@@ -97,6 +97,32 @@ name = "colorchoice"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
+
+[[package]]
+name = "enum-tags"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88ef15a1e858bac2fe97690a2615e9a979be1284e9b8beb8078bd6117f3b5549"
+dependencies = [
+ "enum-tags-macros",
+ "enum-tags-traits",
+]
+
+[[package]]
+name = "enum-tags-macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a40f06be7b553c15a464b88ad7da00614b2440bddb990c6e1f13108b535bc2a7"
+dependencies = [
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "enum-tags-traits"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdc5689518c99f8b19adeb125ccacfeb6aa2d5d67ee56000762cb055880220fd"
 
 [[package]]
 name = "heck"
@@ -139,6 +165,8 @@ name = "rustaml"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "enum-tags",
+ "enum-tags-traits",
 ]
 
 [[package]]
@@ -146,6 +174,17 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "syn"
+version = "1.0.109"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
 
 [[package]]
 name = "syn"

@@ -1,6 +1,8 @@
 use std::vec;
 
-#[derive(Debug)]
+use enum_tags::Tag;
+
+#[derive(Debug, Clone)]
 pub enum Operator {
     Plus,
     Minus,
@@ -17,7 +19,7 @@ impl Operator {
 }
 
 // TODO : replace all the Vec<char> with slices
-#[derive(Debug)]
+#[derive(Debug, Clone, Tag)]
 pub enum Token {
     Let,
     Equal,

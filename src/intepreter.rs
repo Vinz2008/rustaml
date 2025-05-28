@@ -1,6 +1,6 @@
-use crate::ast::AST;
+use crate::ast::ASTNode;
 
 
-pub fn interpret(ast : AST){
+pub fn interpret(ast : ASTNode){
     
 }
