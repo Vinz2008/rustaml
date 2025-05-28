@@ -5,3 +5,8 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4.5.39", features = ["derive"] }
+
+[profile.release]
+lto = "fat"
+panic = "abort"
+strip = "debuginfo"
