@@ -1,12 +1,10 @@
-
-use std::{path::PathBuf, fs};
+use std::{fs, path::PathBuf};
 
 use clap::{Parser, Subcommand};
 
+mod ast;
 mod intepreter;
 mod lexer;
-mod ast;
-
 
 #[derive(Subcommand, Debug)]
 enum Commands {
@@ -25,12 +23,8 @@ enum Commands {
 #[derive(Parser, Default, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    
-
     #[command(subcommand)]
     command: Option<Commands>,
-
-    
 }
 
 fn main() {
@@ -38,16 +32,20 @@ fn main() {
 
     match args.command.expect("No subcommand specified!") {
         Commands::Interpret { filename } => {
-            let content = fs::read_to_string(&filename).unwrap_or_else(|err| panic!("Error when opening {} : {}", filename.display(), err));
+            let content = fs::read_to_string(&filename).unwrap_or_else(|err| {
+                panic!("Error when opening {} : {}", filename.display(), err)
+            });
             let tokens = lexer::lex(content.chars().collect());
             let ast = ast::parse(tokens);
             intepreter::interpret(ast)
-        },
+        }
         Commands::Compile { filename } => {
-            let content = fs::read_to_string(&filename).unwrap_or_else(|err| panic!("Error when opening {} : {}", filename.display(), err));
+            let content = fs::read_to_string(&filename).unwrap_or_else(|err| {
+                panic!("Error when opening {} : {}", filename.display(), err)
+            });
             let tokens = lexer::lex(content.chars().collect());
             let ast = ast::parse(tokens);
             todo!()
-        } 
+        }
     }
 }
