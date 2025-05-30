@@ -1,4 +1,3 @@
-use lazy_static::lazy_static;
 use std::collections::HashMap;
 
 use enum_tags::TaggedEnum;
@@ -72,21 +71,21 @@ impl ASTNode {
     }
 }
 
-lazy_static! {
-    static ref PRECEDENCES: HashMap<Operator, i32> = {
-        let mut p = HashMap::new();
-        p.insert(Operator::Plus, 20);
-        p.insert(Operator::Minus, 20);
-        p.insert(Operator::Mult, 30);
-        p.insert(Operator::Div, 30);
-        p
-    };
+
+fn init_precedences() -> HashMap<Operator, i32> {
+    let mut p = HashMap::new();
+    p.insert(Operator::Plus, 20);
+    p.insert(Operator::Minus, 20);
+    p.insert(Operator::Mult, 30);
+    p.insert(Operator::Div, 30);
+    p
 }
 
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     vars : HashMap<String, Type>, // include functions (which are just vars with function types)
+    precedences : HashMap<Operator, i32>,
 }
 
 #[derive(Debug)]
@@ -261,7 +260,7 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTNode, min_precedence: i32) -> A
             Some(Token::Op(op)) => op.clone(),
             Some(_) | None => break,
         };
-        let first_precedence = *PRECEDENCES.get(&operator).unwrap();
+        let first_precedence = *parser.precedences.get(&operator).unwrap();
         if first_precedence < min_precedence {
             break;
         }
@@ -274,7 +273,7 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTNode, min_precedence: i32) -> A
                 Some(Token::Op(op)) => op,
                 Some(_) | None => break,
             };
-            let precedence = *PRECEDENCES.get(new_operator).unwrap();
+            let precedence = *parser.precedences.get(new_operator).unwrap();
             if precedence <= first_precedence {
                 break;
             }
@@ -319,6 +318,7 @@ pub fn parse(tokens: Vec<Token>) -> ASTNode {
         tokens, 
         pos: 0,
         vars: HashMap::new(),
+        precedences: init_precedences(),
     };
     let root_node = parse_top_level_node(&mut parser);
     dbg!(&root_node);
