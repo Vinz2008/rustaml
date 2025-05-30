@@ -44,8 +44,8 @@ pub enum ASTNode {
     }
 }
 
-#[derive(Debug, Clone)]
-enum Type {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Type {
     Number,
     Bool,
     Function(Vec<Type>, Box<Type>),
@@ -57,7 +57,7 @@ impl ASTNode {
         match self {
             ASTNode::Boolean { b: _ } => Type::Bool,
             ASTNode::Number { nb: _ } => Type::Number,
-            ASTNode::BinaryOp { op: _, lhs: _, rhs: _ } => Type::Number, // TODO
+            ASTNode::BinaryOp { op, lhs: _, rhs: _ } => op.get_type(), // TODO
             ASTNode::VarDecl { name: _, val: _ } => Type::Unit, // TODO
             ASTNode::FunctionCall { name, args: _ } => parser.vars.get(name).unwrap().clone(), // need to create a hashmap for function types, in parser context ?
             ASTNode::VarUse { name} => match parser.vars.get(name){
@@ -74,6 +74,7 @@ impl ASTNode {
 
 fn init_precedences() -> HashMap<Operator, i32> {
     let mut p = HashMap::new();
+    p.insert(Operator::IsEqual, 10);
     p.insert(Operator::Plus, 20);
     p.insert(Operator::Minus, 20);
     p.insert(Operator::Mult, 30);
@@ -147,7 +148,11 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
             parser.vars.insert(arg_name.clone(), arg_type.clone());
         }
 
-        parser.eat_tok(Some(TokenTag::Equal)).unwrap();
+        match parser.eat_tok(Some(TokenTag::Op)) {
+            Ok(Token::Op(Operator::Equal)) => {},
+            Ok(t) => panic!("expected equal in let expr, got {:?}", t),
+            Err(e) => panic!("Error when expecting equal in let expr : {:?}", e),
+        };
 
         let body = parse_node(parser);
 
@@ -166,7 +171,11 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
             body: Box::new(body),
         }
     } else {
-        parser.eat_tok(Some(TokenTag::Equal)).unwrap();
+        match parser.eat_tok(Some(TokenTag::Op)) {
+            Ok(Token::Op(Operator::Equal)) => {},
+            Ok(t) => panic!("expected equal in let expr, got {:?}", t),
+            Err(e) => panic!("Error when expecting equal in let expr : {:?}", e),
+        };
 
         let val_node = parse_node(parser);
         parser.vars.insert(name.clone(), val_node.get_type(&parser));

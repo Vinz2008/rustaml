@@ -1,5 +1,6 @@
 use core::panic;
 use std::vec;
+use crate::ast::Type;
 
 use enum_tags::Tag;
 
@@ -9,16 +10,34 @@ pub enum Operator {
     Minus,
     Mult,
     Div,
+    Equal,
+    IsEqual,
 }
 
 impl Operator {
-    // TODO : pass char slice to support multi chars op
-    pub fn char_to_op(c: char) -> Operator {
+    pub fn get_type(&self) -> Type {
+        match self {
+            Self::IsEqual => Type::Bool,
+            _ => Type::Number,
+        }
+    }
+
+    fn is_char_op(c : char) -> bool {
         match c {
-            '+' => Operator::Plus,
-            '-' => Operator::Minus,
-            '*' => Operator::Mult,
-            '/' => Operator::Div,
+            '+' | '-' | '*' | '/' | '=' => true,
+            _ => false, 
+        }
+    }
+
+    // TODO : pass char slice to support multi chars op
+    pub fn str_to_op(s: &str) -> Operator {
+        match s {
+            "+" => Operator::Plus,
+            "-" => Operator::Minus,
+            "*" => Operator::Mult,
+            "/" => Operator::Div,
+            "=" => Operator::Equal,
+            "==" => Operator::IsEqual,
             _ => unreachable!(),
         }
     }
@@ -36,7 +55,6 @@ pub enum Token {
     Else,
     True,
     False,
-    Equal,
     ParenOpen,
     ParenClose,
     EndOfExpr,
@@ -75,6 +93,8 @@ impl Lexer {
         Some(c)
     }
 }
+
+
 
 fn lex_nb(lexer: &mut Lexer) -> Token {
     // TODO : floats
@@ -136,6 +156,25 @@ fn lex_alphabetic(lexer: &mut Lexer) -> Token {
     }
 }
 
+fn lex_op(lexer: &mut Lexer) -> Token {
+    fn continue_op(c: char) -> bool {
+        Operator::is_char_op(c)
+    }
+
+    let start_pos = lexer.pos - 1;
+
+    while lexer.pos < lexer.content.len() && continue_op(lexer.current_char().unwrap()) {
+        lexer.read_char();
+    }
+
+    let buf = lexer.content[start_pos..lexer.pos].to_vec();
+
+    dbg!(&buf);
+
+    let op_str = buf.iter().collect::<String>();
+    Token::Op(Operator::str_to_op(&op_str))
+}
+
 // TODO : replace String with &str ?
 pub fn lex(content: Vec<char>) -> Vec<Token> {
     dbg!(&content);
@@ -146,7 +185,6 @@ pub fn lex(content: Vec<char>) -> Vec<Token> {
     while let Some(c) = lexer.read_char() {
         let tok: Option<Token> = match c {
             ' ' | '\t' | '\n' => None,
-            '=' => Some(Token::Equal),
             '(' => Some(Token::ParenOpen),
             ')' => Some(Token::ParenClose),
             ';' => {
@@ -155,7 +193,7 @@ pub fn lex(content: Vec<char>) -> Vec<Token> {
                     _ => panic!("Not complete \";;\" token"),
                 }
             },
-            '+' | '-' | '*' | '/' => Some(Token::Op(Operator::char_to_op(c))),
+            op_char if Operator::is_char_op(op_char) => Some(lex_op(&mut lexer)),
             '0'..'9' => Some(lex_nb(&mut lexer)),
             'a'..'z' | 'A'..'Z' | '_' => Some(lex_alphabetic(&mut lexer)),
             _ => panic!("ERROR : unexpected char {}", c),

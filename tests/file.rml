@@ -2,5 +2,5 @@ let fib i = 2 ;;
 let a = fib 3 ;;
 let b = true ;;
 let fib2 i = 2 ;;
-let fib3 i = if true then i + 3 else 2 ;;
+let fib3 i = if i == 4 then i + 3 else 2 ;;
 let c = fib3 4 ;;

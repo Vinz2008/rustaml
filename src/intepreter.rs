@@ -1,13 +1,23 @@
 use core::panic;
 use std::collections::HashMap;
 
-use crate::{ast::ASTNode, lexer::Operator};
+use crate::{ast::{ASTNode, Type}, lexer::Operator};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Val {
     Number(i64),
     Bool(bool),
     Unit,
+}
+
+impl Val {
+    fn get_type(&self) -> Type {
+        match self {
+            Val::Number(_) => Type::Number,
+            Val::Bool(_) => Type::Bool,
+            Val::Unit => Type::Unit, 
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -25,10 +35,7 @@ struct InterpretContext {
 
 // TODO : gc allocator (https://crates.io/crates/gc)
 
-fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : Box<ASTNode>, rhs : Box<ASTNode>) -> Val {
-    let lhs_val = interpret_node(context, *lhs);
-    let rhs_val = interpret_node(context, *rhs);
-
+fn interpret_binop_nb(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let lhs_nb = match lhs_val {
         Val::Number(nb) => nb,
         _ => panic!("Expected number in left-side of binary operation"),
@@ -51,10 +58,38 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : Box<ASTN
         },
         Operator::Div => {
             lhs_nb / rhs_nb
-        }
+        },
+        Operator::IsEqual => todo!(),
+        Operator::Equal => unreachable!(), // impossible to have a alone equal, because it is only in let exprs
     };
 
     Val::Number(res_nb)
+}
+
+fn interpret_binop_bool(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+    let lhs_val_type = lhs_val.get_type();
+    let rhs_val_type = rhs_val.get_type();
+    if rhs_val.get_type() != lhs_val.get_type() {
+        panic!("Not the same types around operators (lhs : {:?}, rhs : {:?})", lhs_val_type, rhs_val_type)
+    }
+    
+    match op {
+        Operator::IsEqual => Val::Bool(lhs_val == rhs_val),
+        _ => unreachable!()
+    }
+}
+
+fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : Box<ASTNode>, rhs : Box<ASTNode>) -> Val {
+    let lhs_val = interpret_node(context, *lhs);
+    let rhs_val = interpret_node(context, *rhs);
+
+    match op.get_type() {
+        Type::Number => interpret_binop_nb(context, op, lhs_val, rhs_val),
+        Type::Bool => interpret_binop_bool(context, op, lhs_val, rhs_val),
+        _ => unreachable!(),
+    }
+
+    
 }
 
 fn interpret_function_call(context: &mut InterpretContext, name : String, args : Vec<ASTNode>) -> Val {
