@@ -6,7 +6,7 @@ use enum_tags::TaggedEnum;
 use crate::lexer::{Operator, Token, TokenTag};
 
 // TODO : flatten AST nodes (https://www.cs.cornell.edu/~asampson/blog/flattening.html)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ASTNode {
     TopLevel {
         nodes: Vec<ASTNode>,
@@ -226,4 +226,19 @@ pub fn parse(tokens: Vec<Token>) -> ASTNode {
     let root_node = parse_top_level_node(&mut parser);
     dbg!(&root_node);
     root_node
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parser_simple() {
+        let input = vec![Token::Let, Token::Identifier(vec!['a']), Token::Equal, Token::Number(2), Token::EndOfExpr];
+        let result = parse(input);
+        let expected =  ASTNode::VarDecl { name: "a".to_string(), val: Box::new(ASTNode::Number { nb: 2 }) };
+        let expected_toplevel = ASTNode::TopLevel { nodes: vec![expected] };
+        assert_eq!(result,  expected_toplevel);
+    }
 }

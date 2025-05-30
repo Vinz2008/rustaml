@@ -25,7 +25,7 @@ impl Operator {
 }
 
 // TODO : replace all the Vec<char> with slices
-#[derive(Debug, Clone, Tag)]
+#[derive(Debug, Clone, Tag, PartialEq)]
 pub enum Token {
     Let,
     Equal,
@@ -157,4 +157,17 @@ pub fn lex(content: Vec<char>) -> Vec<Token> {
     dbg!(&tokens);
 
     tokens
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lexer_simple() {
+        let input = "let a = 2 ;;".to_string().chars().collect();
+        let result = lex(input);
+        let expected = vec![Token::Let, Token::Identifier(vec!['a']), Token::Equal, Token::Number(2), Token::EndOfExpr];
+        assert_eq!(result, expected);
+    }
 }
