@@ -12,19 +12,20 @@ pub enum Operator {
     Div,
     Equal,
     IsEqual,
+    InferiorOrEqual,
 }
 
 impl Operator {
     pub fn get_type(&self) -> Type {
         match self {
-            Self::IsEqual => Type::Bool,
+            Self::IsEqual | Self::InferiorOrEqual => Type::Bool,
             _ => Type::Number,
         }
     }
 
     fn is_char_op(c : char) -> bool {
         match c {
-            '+' | '-' | '*' | '/' | '=' => true,
+            '+' | '-' | '*' | '/' | '=' | '<' => true,
             _ => false, 
         }
     }
@@ -38,7 +39,8 @@ impl Operator {
             "/" => Operator::Div,
             "=" => Operator::Equal,
             "==" => Operator::IsEqual,
-            _ => unreachable!(),
+            "<=" => Operator::InferiorOrEqual,
+            _ => panic!("Invalid operator {}", s),
         }
     }
 }
@@ -57,7 +59,8 @@ pub enum Token {
     False,
     ParenOpen,
     ParenClose,
-    EndOfExpr,
+    Colon,
+    EndOfExpr, // ;;
 }
 
 struct Lexer {
@@ -101,7 +104,7 @@ fn lex_nb(lexer: &mut Lexer) -> Token {
 
     fn continue_nb(c: char) -> bool {
         match c {
-            '0'..'9' => true,
+            '0'..='9' => true,
             _ => false,
         }
     }
@@ -169,13 +172,12 @@ fn lex_op(lexer: &mut Lexer) -> Token {
 
     let buf = lexer.content[start_pos..lexer.pos].to_vec();
 
-    dbg!(&buf);
+    //dbg!(&buf);
 
     let op_str = buf.iter().collect::<String>();
     Token::Op(Operator::str_to_op(&op_str))
 }
 
-// TODO : replace String with &str ?
 pub fn lex(content: Vec<char>) -> Vec<Token> {
     dbg!(&content);
     let mut lexer = Lexer { content, pos: 0 };
@@ -187,6 +189,7 @@ pub fn lex(content: Vec<char>) -> Vec<Token> {
             ' ' | '\t' | '\n' => None,
             '(' => Some(Token::ParenOpen),
             ')' => Some(Token::ParenClose),
+            ':' => Some(Token::Colon),
             ';' => {
                 match lexer.read_char(){
                     Some(';') => Some(Token::EndOfExpr),
@@ -194,8 +197,8 @@ pub fn lex(content: Vec<char>) -> Vec<Token> {
                 }
             },
             op_char if Operator::is_char_op(op_char) => Some(lex_op(&mut lexer)),
-            '0'..'9' => Some(lex_nb(&mut lexer)),
-            'a'..'z' | 'A'..'Z' | '_' => Some(lex_alphabetic(&mut lexer)),
+            '0'..='9' => Some(lex_nb(&mut lexer)),
+            'a'..='z' | 'A'..='Z' | '_' => Some(lex_alphabetic(&mut lexer)),
             _ => panic!("ERROR : unexpected char {}", c),
         };
         if let Some(t) = tok {
@@ -216,7 +219,7 @@ mod tests {
     fn lexer_simple() {
         let input = "let a = 2 ;;".to_string().chars().collect();
         let result = lex(input);
-        let expected = vec![Token::Let, Token::Identifier(vec!['a']), Token::Equal, Token::Number(2), Token::EndOfExpr];
+        let expected = vec![Token::Let, Token::Identifier(vec!['a']), Token::Op(Operator::Equal), Token::Number(2), Token::EndOfExpr];
         assert_eq!(result, expected);
     }
 }

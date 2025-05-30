@@ -4,6 +4,12 @@ use enum_tags::TaggedEnum;
 
 use crate::lexer::{Operator, Token, TokenTag};
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Arg {
+    pub name : String,
+    arg_type : Option<Type>,
+}
+
 // TODO : flatten AST nodes (https://www.cs.cornell.edu/~asampson/blog/flattening.html)
 #[derive(Debug, Clone, PartialEq)]
 pub enum ASTNode {
@@ -12,8 +18,9 @@ pub enum ASTNode {
     },
     FunctionDefinition {
         name : String,
-        args : Vec<String>,
+        args : Vec<Arg>,
         body : Box<ASTNode>,
+        return_type : Type,
     },
     VarDecl {
         name: String,
@@ -66,7 +73,7 @@ impl ASTNode {
              },
             ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get_type(parser), // no need for typechecking the two branches because it is done when constructing the IfExpr
             ASTNode::TopLevel { nodes: _ } => Type::Unit,
-            ASTNode::FunctionDefinition { name: _, args: _, body: _ } => Type::Unit,
+            ASTNode::FunctionDefinition { name: _, args: _, body: _, return_type: _ } => Type::Unit,
         }
     }
 }
@@ -75,6 +82,7 @@ impl ASTNode {
 fn init_precedences() -> HashMap<Operator, i32> {
     let mut p = HashMap::new();
     p.insert(Operator::IsEqual, 10);
+    p.insert(Operator::InferiorOrEqual, 10);
     p.insert(Operator::Plus, 20);
     p.insert(Operator::Minus, 20);
     p.insert(Operator::Mult, 30);
@@ -122,6 +130,26 @@ fn parse_number(nb: i64) -> ASTNode {
     ASTNode::Number { nb }
 }
 
+// TODO : add type system (Hindley–Milner ?) (and move type checking to after building the AST ?)
+fn parse_type_annotation(parser: &mut Parser) -> Type {
+    parser.eat_tok(Some(TokenTag::Colon)).unwrap();
+    match parser.eat_tok(None){
+        Ok(Token::Identifier(b)) => {
+            match b.iter().collect::<String>().as_str() {
+                "int" => Type::Number,
+                "bool" => Type::Bool,
+                _ => panic!("Unknown type"),
+            }
+        },
+        Ok(Token::ParenOpen) => {
+            parser.eat_tok(Some(TokenTag::ParenClose)).unwrap();
+            Type::Unit
+        },
+        Ok(_) => panic!("Unexpected token when encontering type"),
+        Err(e) =>  panic!("error when parsing type annotation : {:?}", e),
+    }
+}
+
 fn parse_let(parser: &mut Parser) -> ASTNode {
     // TODO : pass error handling (by making all parse functions return results, than handling in the main function)
     let name_tok = parser.eat_tok(Some(TokenTag::Identifier)).unwrap();
@@ -134,18 +162,26 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
         let mut args = Vec::new();
         while matches!(parser.current_tok(), Some(Token::Identifier(_))) {
             let arg_identifier = parser.eat_tok(Some(TokenTag::Identifier)).unwrap();
-            let arg = match arg_identifier {
+            let arg_name = match arg_identifier {
                 Token::Identifier(s) => s,
                 _ => unreachable!(),
             }.iter().collect::<String>();
-            args.push(arg);
+
+            let arg_type = match parser.current_tok() {
+                Some(Token::Colon) => Some(parse_type_annotation(parser)),
+                Some(_) | None => None,
+            };
+
+            args.push(Arg {name: arg_name, arg_type});
         }
 
-        let arg_types = vec![Type::Number; args.len()];
+        //let arg_types = vec![Type::Number; args.len()];
 
+        let arg_types = args.iter().map(|arg| arg.arg_type.clone().unwrap()).collect::<Vec<Type>>();
+        parser.vars.insert(name.clone(),  Type::Function(arg_types.clone(), Box::new(Type::Unit))); // unit is a placeholder (change it to 'a in the future ?)
 
-        for (arg_name, arg_type) in (&args).iter().zip(&arg_types) {
-            parser.vars.insert(arg_name.clone(), arg_type.clone());
+        for Arg { name, arg_type} in &args {
+            parser.vars.insert(name.clone(), arg_type.clone().unwrap()); // TODO : remove unwrap ?
         }
 
         match parser.eat_tok(Some(TokenTag::Op)) {
@@ -159,18 +195,26 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
         
         let body_type = body.get_type(&parser);
 
-        for arg_name in &args {
-            parser.vars.remove(arg_name);
+        for Arg {name, arg_type} in &args {
+            parser.vars.remove(name);
         }
 
-        parser.vars.insert(name.clone(),  Type::Function(arg_types, Box::new(body_type)));
+
+        parser.vars.insert(name.clone(),  Type::Function(arg_types, Box::new(body_type.clone())));
         
         ASTNode::FunctionDefinition { 
             name, 
             args, 
             body: Box::new(body),
+            return_type: body_type,
         }
     } else {
+        let mut var_type = match parser.current_tok() {
+            Some(Token::Colon) => Some(parse_type_annotation(parser)),
+            Some(_) | None => None,
+        };
+
+
         match parser.eat_tok(Some(TokenTag::Op)) {
             Ok(Token::Op(Operator::Equal)) => {},
             Ok(t) => panic!("expected equal in let expr, got {:?}", t),
@@ -178,7 +222,10 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
         };
 
         let val_node = parse_node(parser);
-        parser.vars.insert(name.clone(), val_node.get_type(&parser));
+        if var_type.is_none() {
+            var_type = Some(val_node.get_type(&parser))
+        }
+        parser.vars.insert(name.clone(), var_type.unwrap());
 
         ASTNode::VarDecl {
             name: name,
@@ -196,12 +243,13 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
 
 // for parsing operators https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
 
-// TODO : parse parenthessis
+
 
 fn parse_function_call(parser: &mut Parser, function_name : String) -> ASTNode {
     let mut args = Vec::new();
-    while parser.has_tokens_left() && !matches!(parser.current_tok(), Some(Token::EndOfExpr)) {
-        let arg = parse_node(parser);
+
+    while parser.has_tokens_left() &&  !matches!(parser.current_tok(), Some(Token::EndOfExpr)) && !matches!(parser.current_tok(), Some(Token::Op(_))) {
+        let arg = parse_primary(parser);
         args.push(arg);
     }
     dbg!(&args);
@@ -245,6 +293,12 @@ fn parse_if(parser: &mut Parser) -> ASTNode {
     ASTNode::IfExpr { cond_expr: Box::new(cond_expr), then_body: Box::new(then_body), else_body: Box::new(else_body) }
 }
 
+fn parse_parenthesis(parser: &mut Parser) -> ASTNode {
+    let expr = parse_node(parser);
+    parser.eat_tok(Some(TokenTag::ParenClose)).unwrap();
+    expr
+}
+
 fn parse_primary(parser: &mut Parser) -> ASTNode {
     let tok = parser.eat_tok(None).unwrap();
     let node = match tok {
@@ -254,6 +308,7 @@ fn parse_primary(parser: &mut Parser) -> ASTNode {
         Token::Identifier(buf) => parse_identifier_expr(parser, buf),
         Token::True => ASTNode::Boolean { b: true },
         Token::False => ASTNode::Boolean { b: false },
+        Token::ParenOpen => parse_parenthesis(parser),
         t => panic!("Unexpected token : {:?}", t),
     };
 

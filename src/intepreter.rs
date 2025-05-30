@@ -1,5 +1,5 @@
 use core::panic;
-use std::collections::HashMap;
+use std::{cmp::Ordering, collections::HashMap};
 
 use crate::{ast::{ASTNode, Type}, lexer::Operator};
 
@@ -8,6 +8,21 @@ enum Val {
     Number(i64),
     Bool(bool),
     Unit,
+}
+
+impl Ord for Val {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Val::Number(nb_self), Val::Number(nb_other)) => nb_self.cmp(nb_other),
+            _ => unreachable!(), // should do typechecking to avoid this
+        }
+    }
+}
+
+impl PartialOrd for Val {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Val {
@@ -25,6 +40,7 @@ struct FunctionDef {
     name : String,
     args : Vec<String>,
     body : Box<ASTNode>,
+    return_type : Type,
 }
 
 #[derive(Debug)]
@@ -59,8 +75,7 @@ fn interpret_binop_nb(context: &mut InterpretContext, op : Operator, lhs_val : V
         Operator::Div => {
             lhs_nb / rhs_nb
         },
-        Operator::IsEqual => todo!(),
-        Operator::Equal => unreachable!(), // impossible to have a alone equal, because it is only in let exprs
+        Operator::Equal | Operator::InferiorOrEqual | Operator::IsEqual => unreachable!(), // impossible to have a alone equal, because it is only in let exprs
     };
 
     Val::Number(res_nb)
@@ -75,6 +90,7 @@ fn interpret_binop_bool(context: &mut InterpretContext, op : Operator, lhs_val :
     
     match op {
         Operator::IsEqual => Val::Bool(lhs_val == rhs_val),
+        Operator::InferiorOrEqual => Val::Bool(lhs_val <= rhs_val),
         _ => unreachable!()
     }
 }
@@ -96,7 +112,11 @@ fn interpret_function_call(context: &mut InterpretContext, name : String, args :
     let args_val = args.into_iter().map(|e| interpret_node(context, e)).collect::<Vec<_>>();
     // TODO : remove clone
     let func_def = context.functions.get(&name).unwrap().clone();
+    let mut old_vals : Vec<(String, Val)> = Vec::new();
     for (arg_name, arg_val) in (&func_def.args).iter().zip(&args_val) {
+        if let Some(old_val) = context.vars.get(arg_name) {
+            old_vals.push((arg_name.clone(), old_val.clone()));
+        }
         context.vars.insert(arg_name.clone(), arg_val.clone());
     }
 
@@ -104,6 +124,9 @@ fn interpret_function_call(context: &mut InterpretContext, name : String, args :
 
     for arg_name in &func_def.args {
         context.vars.remove(arg_name);
+    }
+    for (old_name, old_val) in old_vals {
+        context.vars.insert(old_name, old_val);
     }
     res_val
 }
@@ -129,11 +152,12 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTNode) -> Val {
             }
             Val::Unit
         }
-        ASTNode::FunctionDefinition { name, args, body } => {
+        ASTNode::FunctionDefinition { name, args, body, return_type } => {
             let func_def = FunctionDef { 
                 name: name.clone(), 
-                args, 
-                body, 
+                args: args.into_iter().map(|arg| arg.name).collect(),
+                body,
+                return_type,
             };
             context.functions.insert(name, func_def);
             Val::Unit
@@ -145,7 +169,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTNode) -> Val {
             context.vars.insert(name, val_node);
             Val::Unit
         },
-        ASTNode::VarUse { name } => context.vars.get(&name).unwrap().clone(),
+        ASTNode::VarUse { name } => context.vars.get(&name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", &name)).clone(),
         ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, op, lhs, rhs),
         ASTNode::FunctionCall { name, args } => interpret_function_call(context, name, args),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, cond_expr, then_body, else_body),

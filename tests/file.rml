@@ -1,6 +1,6 @@
-let fib i = 2 ;;
-let a = fib 3 ;;
-let b = true ;;
-let fib2 i = 2 ;;
-let fib3 i = if i == 4 then i + 3 else 2 ;;
-let c = fib3 4 ;;
+let test i : int = 2 ;;
+let a : int = test 3 ;;
+let b : bool = true ;;
+let test2 i : int = 2 ;;
+let fib i : int = if i <= 1 then i else fib (i - 1) + fib (i - 2)   ;;
+let c = fib 14 ;;
