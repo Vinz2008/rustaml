@@ -27,11 +27,16 @@ impl Operator {
 // TODO : replace all the Vec<char> with slices
 #[derive(Debug, Clone, Tag, PartialEq)]
 pub enum Token {
-    Let,
-    Equal,
     Identifier(Vec<char>),
     Op(Operator),
     Number(i64),
+    Let,
+    If,
+    Then,
+    Else,
+    True,
+    False,
+    Equal,
     ParenOpen,
     ParenClose,
     EndOfExpr,
@@ -119,8 +124,14 @@ fn lex_alphabetic(lexer: &mut Lexer) -> Token {
 
     //dbg!(&buf);
 
+    // TODO : replace the match with a global keyword hashmap access, if not there,it is identifier
     match buf.iter().collect::<String>().as_str() {
         "let" => Token::Let,
+        "if" => Token::If,
+        "then" => Token::Then,
+        "else" => Token::Else,
+        "true" => Token::True,
+        "false" => Token::False,
         _ => Token::Identifier(buf),
     }
 }

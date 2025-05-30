@@ -27,6 +27,8 @@ struct Args {
     command: Option<Commands>,
 }
 
+// TODO : use https://crates.io/crates/ariadne for printing errors
+
 fn main() {
     let args = Args::parse();
 

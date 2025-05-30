@@ -6,8 +6,8 @@ use crate::{ast::ASTNode, lexer::Operator};
 #[derive(Debug, Clone)]
 enum Val {
     Number(i64),
-    // for now have a void expr, TODO : remove it, because let will have a in expr that it will return (see ocaml)
-    Void,
+    Bool(bool),
+    Unit,
 }
 
 #[derive(Debug, Clone)]
@@ -19,16 +19,11 @@ struct FunctionDef {
 
 #[derive(Debug)]
 struct InterpretContext {
-    vars: HashMap<String, Val>,
     functions : HashMap<String, FunctionDef>,
+    vars: HashMap<String, Val>,
 }
 
-fn is_number(val : &Val) -> bool {
-    match val {
-        Val::Number(_) => true,
-        _ => false,
-    }
-}
+// TODO : gc allocator (https://crates.io/crates/gc)
 
 fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : Box<ASTNode>, rhs : Box<ASTNode>) -> Val {
     let lhs_val = interpret_node(context, *lhs);
@@ -78,13 +73,26 @@ fn interpret_function_call(context: &mut InterpretContext, name : String, args :
     res_val
 }
 
+fn interpret_if_expr(context: &mut InterpretContext, cond_expr : Box<ASTNode>, then_body : Box<ASTNode>, else_body : Box<ASTNode>) -> Val {
+    let cond_expr_val = match interpret_node(context, *cond_expr) {
+        Val::Bool(b) => b,
+        _ => unreachable!(),
+    };
+
+    if cond_expr_val {
+        interpret_node(context, *then_body)
+    } else {
+        interpret_node(context, *else_body)
+    }
+}
+
 fn interpret_node(context: &mut InterpretContext, ast: ASTNode) -> Val {
     match ast {
         ASTNode::TopLevel { nodes } => {
             for node in nodes {
                 interpret_node(context, node);
             }
-            Val::Void
+            Val::Unit
         }
         ASTNode::FunctionDefinition { name, args, body } => {
             let func_def = FunctionDef { 
@@ -93,16 +101,19 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTNode) -> Val {
                 body, 
             };
             context.functions.insert(name, func_def);
-            Val::Void
+            Val::Unit
         },
         ASTNode::Number { nb } => Val::Number(nb),
+        ASTNode::Boolean { b } => Val::Bool(b),
         ASTNode::VarDecl { name, val } => {
             let val_node = interpret_node(context, *val);
             context.vars.insert(name, val_node);
-            Val::Void
+            Val::Unit
         },
+        ASTNode::VarUse { name } => context.vars.get(&name).unwrap().clone(),
         ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, op, lhs, rhs),
         ASTNode::FunctionCall { name, args } => interpret_function_call(context, name, args),
+        ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, cond_expr, then_body, else_body),
         //n => panic!("unexpected ast node when interpreting : {:?}", n),
     }
 }

@@ -20,8 +20,19 @@ pub enum ASTNode {
         name: String,
         val: Box<ASTNode>,
     },
+    VarUse {
+        name : String,
+    },
+    IfExpr {
+        cond_expr : Box<ASTNode>,
+        then_body : Box<ASTNode>,
+        else_body : Box<ASTNode>,
+    },
     Number {
         nb: i64,
+    },
+    Boolean {
+        b : bool,
     },
     BinaryOp {
         op: Operator,
@@ -31,6 +42,33 @@ pub enum ASTNode {
     FunctionCall {
         name : String,
         args : Vec<ASTNode>,
+    }
+}
+
+#[derive(Debug, Clone)]
+enum Type {
+    Number,
+    Bool,
+    Function(Vec<Type>, Box<Type>),
+    Unit,
+}
+
+impl ASTNode {
+    fn get_type(&self, parser: &Parser) -> Type {
+        match self {
+            ASTNode::Boolean { b: _ } => Type::Bool,
+            ASTNode::Number { nb: _ } => Type::Number,
+            ASTNode::BinaryOp { op: _, lhs: _, rhs: _ } => Type::Number, // TODO
+            ASTNode::VarDecl { name: _, val: _ } => Type::Unit, // TODO
+            ASTNode::FunctionCall { name, args: _ } => parser.vars.get(name).unwrap().clone(), // need to create a hashmap for function types, in parser context ?
+            ASTNode::VarUse { name} => match parser.vars.get(name){
+                Some(t) => t.clone(),
+                None => panic!("expected var {}", &name)
+             },
+            ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get_type(parser), // no need for typechecking the two branches because it is done when constructing the IfExpr
+            ASTNode::TopLevel { nodes: _ } => Type::Unit,
+            ASTNode::FunctionDefinition { name: _, args: _, body: _ } => Type::Unit,
+        }
     }
 }
 
@@ -48,6 +86,7 @@ lazy_static! {
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    vars : HashMap<String, Type>, // include functions (which are just vars with function types)
 }
 
 #[derive(Debug)]
@@ -102,9 +141,25 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
             args.push(arg);
         }
 
+        let arg_types = vec![Type::Number; args.len()];
+
+
+        for (arg_name, arg_type) in (&args).iter().zip(&arg_types) {
+            parser.vars.insert(arg_name.clone(), arg_type.clone());
+        }
+
         parser.eat_tok(Some(TokenTag::Equal)).unwrap();
 
         let body = parse_node(parser);
+
+        
+        let body_type = body.get_type(&parser);
+
+        for arg_name in &args {
+            parser.vars.remove(arg_name);
+        }
+
+        parser.vars.insert(name.clone(),  Type::Function(arg_types, Box::new(body_type)));
         
         ASTNode::FunctionDefinition { 
             name, 
@@ -115,6 +170,7 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
         parser.eat_tok(Some(TokenTag::Equal)).unwrap();
 
         let val_node = parse_node(parser);
+        parser.vars.insert(name.clone(), val_node.get_type(&parser));
 
         ASTNode::VarDecl {
             name: name,
@@ -134,7 +190,7 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
 
 // TODO : parse parenthessis
 
-fn parse_function_call(parser: &mut Parser, function_name_buf : Vec<char>) -> ASTNode {
+fn parse_function_call(parser: &mut Parser, function_name : String) -> ASTNode {
     let mut args = Vec::new();
     while parser.has_tokens_left() && !matches!(parser.current_tok(), Some(Token::EndOfExpr)) {
         let arg = parse_node(parser);
@@ -142,17 +198,54 @@ fn parse_function_call(parser: &mut Parser, function_name_buf : Vec<char>) -> AS
     }
     dbg!(&args);
     ASTNode::FunctionCall { 
-        name: function_name_buf.iter().collect::<String>(), 
+        name: function_name, 
         args,
     }
+}
+
+fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> ASTNode {
+    let identifier = identifier_buf.iter().collect();
+    let is_function = match parser.vars.get(&identifier) {
+        Some(t) => matches!(t, Type::Function(_, _)),
+        None => panic!("ERROR : unknown identifier {}", identifier),
+    };
+    if is_function {
+        parse_function_call(parser, identifier)
+    } else {
+        // var use
+        ASTNode::VarUse { name: identifier }
+    }
+    
+}
+
+fn parse_if(parser: &mut Parser) -> ASTNode {
+    let cond_expr = parse_node(parser);
+
+    match cond_expr.get_type(&parser) {
+        Type::Bool => {},
+        t => panic!("Error in type checking : {:?} type passed in if expr", t), // TODO : return a result instead
+    }
+
+    parser.eat_tok(Some(TokenTag::Then)).unwrap();
+
+    let then_body = parse_node(parser);
+
+    parser.eat_tok(Some(TokenTag::Else)).unwrap();
+
+    let else_body = parse_node(parser);
+    
+    ASTNode::IfExpr { cond_expr: Box::new(cond_expr), then_body: Box::new(then_body), else_body: Box::new(else_body) }
 }
 
 fn parse_primary(parser: &mut Parser) -> ASTNode {
     let tok = parser.eat_tok(None).unwrap();
     let node = match tok {
         Token::Let => parse_let(parser),
+        Token::If => parse_if(parser),
         Token::Number(nb) => parse_number(nb),
-        Token::Identifier(buf) => parse_function_call(parser, buf),
+        Token::Identifier(buf) => parse_identifier_expr(parser, buf),
+        Token::True => ASTNode::Boolean { b: true },
+        Token::False => ASTNode::Boolean { b: false },
         t => panic!("Unexpected token : {:?}", t),
     };
 
@@ -222,7 +315,11 @@ fn parse_top_level_node(parser: &mut Parser) -> ASTNode {
 }
 
 pub fn parse(tokens: Vec<Token>) -> ASTNode {
-    let mut parser = Parser { tokens, pos: 0 };
+    let mut parser = Parser { 
+        tokens, 
+        pos: 0,
+        vars: HashMap::new(),
+    };
     let root_node = parse_top_level_node(&mut parser);
     dbg!(&root_node);
     root_node
