@@ -1,5 +1,5 @@
 use core::panic;
-use std::{cmp::Ordering, collections::HashMap};
+use std::{cmp::Ordering, collections::HashMap, process::ExitCode};
 
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
@@ -224,7 +224,7 @@ fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
     }
 }
 
-pub fn interpret(ast: ASTNode) {
+pub fn interpret(ast: ASTNode) -> ExitCode {
     let mut context = InterpretContext {
         vars: HashMap::new(),
         functions: HashMap::new(),
@@ -233,4 +233,6 @@ pub fn interpret(ast: ASTNode) {
     interpret_node(&mut context, &ast);
 
     dbg!(context);
+
+    ExitCode::SUCCESS
 }

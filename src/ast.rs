@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use enum_tags::TaggedEnum;
+use enum_tags::{Tag, TaggedEnum};
 
 use crate::lexer::{Operator, Token, TokenTag};
 
@@ -118,7 +118,7 @@ struct Parser {
     precedences : HashMap<Operator, i32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Tag)]
 pub enum ParserErr {
     UnexpectedEOF,
     UnexpectedTok {

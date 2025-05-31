@@ -1,5 +1,5 @@
 use core::panic;
-use std::vec;
+use std::{ops::Range, vec};
 use crate::ast::Type;
 
 use enum_tags::Tag;
@@ -72,6 +72,14 @@ pub enum Token {
     Pipe, // |
     EndOfExpr, // ;;
 }
+
+
+
+// TODO : rename Token to TokenData and uncomment it to add ranges to token
+/* pub struct Token {
+    tok : TokenData,
+    range : Range<usize>,
+} */
 
 struct Lexer {
     content: Vec<char>,

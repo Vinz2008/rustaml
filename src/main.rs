@@ -1,10 +1,11 @@
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 
 mod ast;
 mod intepreter;
 mod lexer;
+mod print_error;
 
 #[derive(Subcommand, Debug)]
 enum Commands {
@@ -29,7 +30,7 @@ struct Args {
 
 // TODO : use https://crates.io/crates/ariadne for printing errors
 
-fn main() {
+fn main() -> ExitCode {
     let args = Args::parse();
 
     match args.command.expect("No subcommand specified!") {
@@ -37,11 +38,12 @@ fn main() {
             let content = fs::read_to_string(&filename).unwrap_or_else(|err| {
                 panic!("Error when opening {} : {}", filename.display(), err)
             });
+            // TODO : pass char slice to lex instead ?
             let tokens = lexer::lex(content.chars().collect());
             let ast = ast::parse(tokens);
             let ast = match ast {
                 Ok(a) => a,
-                Err(e) => panic!("Parsing error : {:?}", e),
+                Err(e) => return print_error::print_parser_error(e, &filename, 0..0, &content),
             };
 
             intepreter::interpret(ast)
@@ -52,6 +54,10 @@ fn main() {
             });
             let tokens = lexer::lex(content.chars().collect());
             let ast = ast::parse(tokens);
+            let ast = match ast {
+                Ok(a) => a,
+                Err(e) => return print_error::print_parser_error(e, &filename, 0..0, &content),
+            };
             todo!()
         }
     }
