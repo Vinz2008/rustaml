@@ -34,8 +34,11 @@ pub enum ASTNode {
         then_body : Box<ASTNode>,
         else_body : Box<ASTNode>,
     },
-    Number {
+    Integer {
         nb: i64,
+    },
+    Float {
+        nb: f64,
     },
     Boolean {
         b : bool,
@@ -53,7 +56,8 @@ pub enum ASTNode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
-    Number,
+    Integer,
+    Float,
     Bool,
     Function(Vec<Type>, Box<Type>),
     Unit,
@@ -63,7 +67,8 @@ impl ASTNode {
     fn get_type(&self, parser: &Parser) -> Type {
         match self {
             ASTNode::Boolean { b: _ } => Type::Bool,
-            ASTNode::Number { nb: _ } => Type::Number,
+            ASTNode::Integer { nb: _ } => Type::Integer,
+            ASTNode::Float { nb : _ } => Type::Float,
             ASTNode::BinaryOp { op, lhs: _, rhs: _ } => op.get_type(), // TODO
             ASTNode::VarDecl { name: _, val: _ } => Type::Unit, // TODO
             ASTNode::FunctionCall { name, args: _ } => parser.vars.get(name).unwrap().clone(), // need to create a hashmap for function types, in parser context ?
@@ -126,8 +131,12 @@ impl Parser {
     }
 }
 
-fn parse_number(nb: i64) -> ASTNode {
-    ASTNode::Number { nb }
+fn parse_integer(nb: i64) -> ASTNode {
+    ASTNode::Integer { nb }
+}
+
+fn parse_float(nb: f64) -> ASTNode {
+    ASTNode::Float { nb }
 }
 
 // TODO : add type system (Hindley–Milner ?) (and move type checking to after building the AST ?)
@@ -136,8 +145,9 @@ fn parse_type_annotation(parser: &mut Parser) -> Type {
     match parser.eat_tok(None){
         Ok(Token::Identifier(b)) => {
             match b.iter().collect::<String>().as_str() {
-                "int" => Type::Number,
+                "int" => Type::Integer,
                 "bool" => Type::Bool,
+                "float" => Type::Float,
                 _ => panic!("Unknown type"),
             }
         },
@@ -304,7 +314,8 @@ fn parse_primary(parser: &mut Parser) -> ASTNode {
     let node = match tok {
         Token::Let => parse_let(parser),
         Token::If => parse_if(parser),
-        Token::Number(nb) => parse_number(nb),
+        Token::Integer(nb) => parse_integer(nb),
+        Token::Float(nb) => parse_float(nb),
         Token::Identifier(buf) => parse_identifier_expr(parser, buf),
         Token::True => ASTNode::Boolean { b: true },
         Token::False => ASTNode::Boolean { b: false },
@@ -396,9 +407,9 @@ mod tests {
 
     #[test]
     fn parser_simple() {
-        let input = vec![Token::Let, Token::Identifier(vec!['a']), Token::Equal, Token::Number(2), Token::EndOfExpr];
+        let input = vec![Token::Let, Token::Identifier(vec!['a']), Token::Equal, Token::Integer(2), Token::EndOfExpr];
         let result = parse(input);
-        let expected =  ASTNode::VarDecl { name: "a".to_string(), val: Box::new(ASTNode::Number { nb: 2 }) };
+        let expected =  ASTNode::VarDecl { name: "a".to_string(), val: Box::new(ASTNode::Integer { nb: 2 }) };
         let expected_toplevel = ASTNode::TopLevel { nodes: vec![expected] };
         assert_eq!(result,  expected_toplevel);
     }

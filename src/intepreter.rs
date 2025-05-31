@@ -3,32 +3,38 @@ use std::{cmp::Ordering, collections::HashMap};
 
 use crate::{ast::{ASTNode, Type}, lexer::Operator};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Val {
     Number(i64),
+    Float(f64),
     Bool(bool),
     Unit,
 }
 
-impl Ord for Val {
+/*impl Ord for Val {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Val::Number(nb_self), Val::Number(nb_other)) => nb_self.cmp(nb_other),
             _ => unreachable!(), // should do typechecking to avoid this
         }
     }
-}
+}*/
 
 impl PartialOrd for Val {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+        match (self, other) {
+            (Val::Number(nb_self), Val::Number(nb_other)) => Some(nb_self.cmp(nb_other)),
+            (Val::Float(nb_self), Val::Float(nb_other)) => nb_self.partial_cmp(nb_other),
+            _ => unreachable!(), // should do typechecking to avoid this
+        }
     }
 }
 
 impl Val {
     fn get_type(&self) -> Type {
         match self {
-            Val::Number(_) => Type::Number,
+            Val::Number(_) => Type::Integer,
+            Val::Float(_) => Type::Float,
             Val::Bool(_) => Type::Bool,
             Val::Unit => Type::Unit, 
         }
@@ -100,7 +106,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : Box<ASTN
     let rhs_val = interpret_node(context, *rhs);
 
     match op.get_type() {
-        Type::Number => interpret_binop_nb(context, op, lhs_val, rhs_val),
+        Type::Integer => interpret_binop_nb(context, op, lhs_val, rhs_val),
         Type::Bool => interpret_binop_bool(context, op, lhs_val, rhs_val),
         _ => unreachable!(),
     }
@@ -162,7 +168,8 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTNode) -> Val {
             context.functions.insert(name, func_def);
             Val::Unit
         },
-        ASTNode::Number { nb } => Val::Number(nb),
+        ASTNode::Float { nb } => Val::Float(nb),
+        ASTNode::Integer { nb } => Val::Number(nb),
         ASTNode::Boolean { b } => Val::Bool(b),
         ASTNode::VarDecl { name, val } => {
             let val_node = interpret_node(context, *val);

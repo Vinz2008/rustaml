@@ -19,7 +19,7 @@ impl Operator {
     pub fn get_type(&self) -> Type {
         match self {
             Self::IsEqual | Self::InferiorOrEqual => Type::Bool,
-            _ => Type::Number,
+            _ => Type::Integer,
         }
     }
 
@@ -50,7 +50,8 @@ impl Operator {
 pub enum Token {
     Identifier(Vec<char>),
     Op(Operator),
-    Number(i64),
+    Integer(i64),
+    Float(f64),
     Let,
     If,
     Then,
@@ -102,16 +103,21 @@ impl Lexer {
 fn lex_nb(lexer: &mut Lexer) -> Token {
     // TODO : floats
 
-    fn continue_nb(c: char) -> bool {
+    fn continue_nb(c: char, is_float : &mut bool) -> bool {
         match c {
             '0'..='9' => true,
+            '.' => {
+                *is_float = true;
+                true
+            },
             _ => false,
         }
     }
 
+    let mut is_float = false;
     let start_pos = lexer.pos - 1;
 
-    while lexer.pos < lexer.content.len() && continue_nb(lexer.current_char().unwrap()) {
+    while lexer.pos < lexer.content.len() && continue_nb(lexer.current_char().unwrap(), &mut is_float) {
         lexer.read_char();
     }
 
@@ -121,12 +127,22 @@ fn lex_nb(lexer: &mut Lexer) -> Token {
 
     let str = buf.iter().collect::<String>();
 
-    let nb = str::parse::<i64>(str.as_str())
-        .unwrap_or_else(|err| panic!("Failed when parsing nb {} : {}", str, err));
+    if is_float {
+        let nb = str::parse::<f64>(str.as_str())
+            .unwrap_or_else(|err| panic!("Failed when parsing nb {} : {}", str, err));
 
-    //dbg!(nb);
+        //dbg!(nb);
 
-    Token::Number(nb)
+        Token::Float(nb)
+    } else {
+
+        let nb = str::parse::<i64>(str.as_str())
+            .unwrap_or_else(|err| panic!("Failed when parsing nb {} : {}", str, err));
+
+        //dbg!(nb);
+
+        Token::Integer(nb)
+    }
 }
 
 fn lex_alphabetic(lexer: &mut Lexer) -> Token {
@@ -219,7 +235,7 @@ mod tests {
     fn lexer_simple() {
         let input = "let a = 2 ;;".to_string().chars().collect();
         let result = lex(input);
-        let expected = vec![Token::Let, Token::Identifier(vec!['a']), Token::Op(Operator::Equal), Token::Number(2), Token::EndOfExpr];
+        let expected = vec![Token::Let, Token::Identifier(vec!['a']), Token::Op(Operator::Equal), Token::Integer(2), Token::EndOfExpr];
         assert_eq!(result, expected);
     }
 }
