@@ -10,6 +10,15 @@ pub struct Arg {
     arg_type : Option<Type>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    VarName(String), // | x pattern
+    Integer(i64), // | 2
+    Float(f64), // | 2.6
+    Underscore,
+    // TODO : integer range
+}
+
 // TODO : flatten AST nodes (https://www.cs.cornell.edu/~asampson/blog/flattening.html)
 #[derive(Debug, Clone, PartialEq)]
 pub enum ASTNode {
@@ -34,6 +43,10 @@ pub enum ASTNode {
         cond_expr : Box<ASTNode>,
         then_body : Box<ASTNode>,
         else_body : Box<ASTNode>,
+    },
+    MatchExpr {
+        matched_expr : Box<ASTNode>,
+        patterns : Vec<(Pattern, ASTNode)>
     },
     Integer {
         nb: i64,
@@ -78,6 +91,7 @@ impl ASTNode {
                 None => panic!("expected var {}", &name)
              },
             ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get_type(parser), // no need for typechecking the two branches because it is done when constructing the IfExpr
+            ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get_type(parser),
             ASTNode::TopLevel { nodes: _ } => Type::Unit,
             ASTNode::FunctionDefinition { name: _, args: _, body: _, return_type: _ } => Type::Unit,
         }
@@ -88,6 +102,7 @@ impl ASTNode {
 fn init_precedences() -> HashMap<Operator, i32> {
     let mut p = HashMap::new();
     p.insert(Operator::IsEqual, 10);
+    p.insert(Operator::SuperiorOrEqual, 10);
     p.insert(Operator::InferiorOrEqual, 10);
     p.insert(Operator::Plus, 20);
     p.insert(Operator::Minus, 20);
@@ -178,6 +193,7 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
                 _ => unreachable!(),
             }.iter().collect::<String>();
 
+            // TODO : move the type annotation after the args and add function types to make it work
             let arg_type = match parser.current_tok() {
                 Some(Token::Colon) => Some(parse_type_annotation(parser)),
                 Some(_) | None => None,
@@ -304,6 +320,46 @@ fn parse_if(parser: &mut Parser) -> ASTNode {
     ASTNode::IfExpr { cond_expr: Box::new(cond_expr), then_body: Box::new(then_body), else_body: Box::new(else_body) }
 }
 
+fn parse_pattern(parser : &mut Parser) -> Pattern {
+    let pattern_tok = match parser.eat_tok(None) {
+        Ok(t) => t,
+        Err(e) => panic!("Error in pattern parsing : {:?}", e), // TODO : pass error in result instead
+    };
+
+    match pattern_tok {
+        Token::Identifier(buf) => {
+            let s = buf.iter().collect::<String>();
+            match s.as_str() {
+                "_" => Pattern::Underscore,
+                _ => Pattern::VarName(s),
+            }
+        },
+        Token::Integer(nb) => Pattern::Integer(nb),
+        Token::Float(nb) => Pattern::Float(nb),
+        t => panic!("Unexpected token in pattern : {:?}", t),
+    }
+
+}
+
+fn parse_match(parser: &mut Parser) -> ASTNode {
+    let matched_expr = parse_primary(parser);
+    parser.eat_tok(Some(TokenTag::With)).unwrap();
+    let mut patterns = Vec::new();
+    while parser.current_tok().is_some() && matches!(parser.current_tok().unwrap(), Token::Pipe) {
+        parser.eat_tok(Some(TokenTag::Pipe)).unwrap();
+        let pattern = parse_pattern(parser);
+        parser.eat_tok(Some(TokenTag::Arrow)).unwrap();
+        // TODO : add vars from match pattern ? (will need a function that from a pattern and the type of the matched pattern will return the names and the types of the vars)
+        let pattern_expr = parse_primary(parser);
+        patterns.push((pattern, pattern_expr));
+    }
+
+    ASTNode::MatchExpr { 
+        matched_expr: Box::new(matched_expr), 
+        patterns: patterns 
+    }
+}
+
 fn parse_parenthesis(parser: &mut Parser) -> ASTNode {
     let expr = parse_node(parser);
     parser.eat_tok(Some(TokenTag::ParenClose)).unwrap();
@@ -315,6 +371,7 @@ fn parse_primary(parser: &mut Parser) -> ASTNode {
     let node = match tok {
         Token::Let => parse_let(parser),
         Token::If => parse_if(parser),
+        Token::Match => parse_match(parser),
         Token::Integer(nb) => parse_integer(nb),
         Token::Float(nb) => parse_float(nb),
         Token::Identifier(buf) => parse_identifier_expr(parser, buf),

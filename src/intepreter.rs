@@ -1,11 +1,11 @@
 use core::panic;
 use std::{cmp::Ordering, collections::HashMap};
 
-use crate::{ast::{ASTNode, Type}, lexer::Operator};
+use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
 #[derive(Debug, Clone, PartialEq)]
 enum Val {
-    Number(i64),
+    Integer(i64),
     Float(f64),
     Bool(bool),
     Unit,
@@ -23,7 +23,7 @@ enum Val {
 impl PartialOrd for Val {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
-            (Val::Number(nb_self), Val::Number(nb_other)) => Some(nb_self.cmp(nb_other)),
+            (Val::Integer(nb_self), Val::Integer(nb_other)) => Some(nb_self.cmp(nb_other)),
             (Val::Float(nb_self), Val::Float(nb_other)) => nb_self.partial_cmp(nb_other),
             _ => unreachable!(), // should do typechecking to avoid this
         }
@@ -33,7 +33,7 @@ impl PartialOrd for Val {
 impl Val {
     fn get_type(&self) -> Type {
         match self {
-            Val::Number(_) => Type::Integer,
+            Val::Integer(_) => Type::Integer,
             Val::Float(_) => Type::Float,
             Val::Bool(_) => Type::Bool,
             Val::Unit => Type::Unit, 
@@ -59,12 +59,12 @@ struct InterpretContext {
 
 fn interpret_binop_nb(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let lhs_nb = match lhs_val {
-        Val::Number(nb) => nb,
+        Val::Integer(nb) => nb,
         _ => panic!("Expected number in left-side of binary operation"),
     };
 
     let rhs_nb = match rhs_val {
-        Val::Number(nb) => nb,
+        Val::Integer(nb) => nb,
         _ => panic!("Expected number in left-side of binary operation"),
     };
     // TODO : do unchecked operations ?
@@ -81,10 +81,10 @@ fn interpret_binop_nb(context: &mut InterpretContext, op : Operator, lhs_val : V
         Operator::Div => {
             lhs_nb / rhs_nb
         },
-        Operator::Equal | Operator::InferiorOrEqual | Operator::IsEqual => unreachable!(), // impossible to have a alone equal, because it is only in let exprs
+        _ => unreachable!(),
     };
 
-    Val::Number(res_nb)
+    Val::Integer(res_nb)
 }
 
 fn interpret_binop_bool(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
@@ -150,6 +150,45 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : &ASTNode, then_
     }
 }
 
+fn interpret_match(context: &mut InterpretContext, matched_expr : &ASTNode, patterns : &[(Pattern, ASTNode)]) -> Val {
+    let matched_expr_val = interpret_node(context, matched_expr);
+    for (pattern, pattern_expr) in patterns {
+        match pattern {
+            Pattern::VarName(s) => {
+                context.vars.insert(s.clone(), matched_expr_val.clone());
+                let res_val = interpret_node(context, pattern_expr);
+                context.vars.remove(s);
+
+                return res_val;
+            },
+            Pattern::Underscore => return interpret_node(context, pattern_expr),
+            Pattern::Integer(nb) => {
+                match matched_expr_val {
+                    Val::Integer(matched_nb) => {
+                        dbg!((*nb, matched_nb));
+                        if *nb == matched_nb {
+                            return interpret_node(context, pattern_expr);
+                        }
+                    },
+                    _ => panic!("matching an expression that is not an integer with an integer pattern"),
+                }
+            },
+            Pattern::Float(nb) => {
+                match matched_expr_val {
+                    Val::Float(matched_nb) => {
+                        if *nb == matched_nb {
+                            return interpret_node(context, pattern_expr);
+                        }
+                    },
+                    _ => panic!("matching an expression that is not an integer with an integer pattern"),
+                }
+            },
+        }
+    }
+
+    panic!("No pattern was matched in match expressions (not exhaustive match)")
+}
+
 fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
     match ast {
         ASTNode::TopLevel { nodes } => {
@@ -169,7 +208,7 @@ fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
             Val::Unit
         },
         ASTNode::Float { nb } => Val::Float(*nb),
-        ASTNode::Integer { nb } => Val::Number(*nb),
+        ASTNode::Integer { nb } => Val::Integer(*nb),
         ASTNode::Boolean { b } => Val::Bool(*b),
         ASTNode::VarDecl { name, val } => {
             let val_node = interpret_node(context, val.as_ref());
@@ -180,6 +219,7 @@ fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
         ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, *op, lhs.as_ref(), rhs.as_ref()),
         ASTNode::FunctionCall { name, args } => interpret_function_call(context, name, args.clone()),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, cond_expr, then_body, else_body),
+        ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr.as_ref(), patterns.as_slice()),
         //n => panic!("unexpected ast node when interpreting : {:?}", n),
     }
 }

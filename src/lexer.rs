@@ -14,20 +14,22 @@ pub enum Operator {
     Div,
     Equal,
     IsEqual,
+    SuperiorOrEqual,
     InferiorOrEqual,
+    // TODO : add Superior and Inferior
 }
 
 impl Operator {
     pub fn get_type(&self) -> Type {
         match self {
-            Self::IsEqual | Self::InferiorOrEqual => Type::Bool,
+            Self::IsEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual => Type::Bool,
             _ => Type::Integer,
         }
     }
 
     fn is_char_op(c : char) -> bool {
         match c {
-            '+' | '-' | '*' | '/' | '=' | '<' => true,
+            '+' | '-' | '*' | '/' | '=' | '<' | '>' => true,
             _ => false, 
         }
     }
@@ -41,6 +43,7 @@ impl Operator {
             "/" => Operator::Div,
             "=" => Operator::Equal,
             "==" => Operator::IsEqual,
+            ">=" => Operator::SuperiorOrEqual,
             "<=" => Operator::InferiorOrEqual,
             _ => panic!("Invalid operator {}", s),
         }
@@ -59,11 +62,14 @@ pub enum Token {
     Then,
     Else,
     Match,
+    With,
     True,
     False,
     ParenOpen,
     ParenClose,
     Colon,
+    Arrow, // ->
+    Pipe, // |
     EndOfExpr, // ;;
 }
 
@@ -170,6 +176,8 @@ fn lex_alphabetic(lexer: &mut Lexer) -> Token {
     match buf.iter().collect::<String>().as_str() {
         "let" => Token::Let,
         "if" => Token::If,
+        "match" => Token::Match,
+        "with" => Token::With,
         "then" => Token::Then,
         "else" => Token::Else,
         "true" => Token::True,
@@ -194,7 +202,11 @@ fn lex_op(lexer: &mut Lexer) -> Token {
     //dbg!(&buf);
 
     let op_str = buf.iter().collect::<String>();
-    Token::Op(Operator::str_to_op(&op_str))
+
+    match op_str.as_str() {
+        "->" => Token::Arrow,
+        _ => Token::Op(Operator::str_to_op(&op_str))
+    }
 }
 
 pub fn lex(content: Vec<char>) -> Vec<Token> {
@@ -215,6 +227,7 @@ pub fn lex(content: Vec<char>) -> Vec<Token> {
                     _ => panic!("Not complete \";;\" token"),
                 }
             },
+            '|' => Some(Token::Pipe),
             op_char if Operator::is_char_op(op_char) => Some(lex_op(&mut lexer)),
             '0'..='9' => Some(lex_nb(&mut lexer)),
             'a'..='z' | 'A'..='Z' | '_' => Some(lex_alphabetic(&mut lexer)),

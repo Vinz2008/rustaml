@@ -1,8 +1,24 @@
 let test i : int = 2 ;;
+
 let a : int = test 3 ;;
+
 let b : bool = true ;;
+
 let test2 i : int = 2 ;;
+
 let fib i : int = if i <= 1 then i else fib (i - 1) + fib (i - 2)   ;;
+
 let c = fib 14 ;;
+
 let f = 2.6 ;;
+
 let test_f f_arg : float = f_arg + 2.0 ;;
+
+let test_match a : int = 
+  match a with 
+  | 0 -> 1
+  | x -> 3
+  ;;
+
+let d = test_match 0 ;;
+let e = test_match 2 ;;
