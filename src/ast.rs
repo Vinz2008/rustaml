@@ -23,6 +23,7 @@ pub enum ASTNode {
         return_type : Type,
     },
     VarDecl {
+        // TODO : intern all strings and replace these by refs to strings ?
         name: String,
         val: Box<ASTNode>,
     },

@@ -101,9 +101,9 @@ fn interpret_binop_bool(context: &mut InterpretContext, op : Operator, lhs_val :
     }
 }
 
-fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : Box<ASTNode>, rhs : Box<ASTNode>) -> Val {
-    let lhs_val = interpret_node(context, *lhs);
-    let rhs_val = interpret_node(context, *rhs);
+fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : &ASTNode, rhs : &ASTNode) -> Val {
+    let lhs_val = interpret_node(context, lhs);
+    let rhs_val = interpret_node(context, rhs);
 
     match op.get_type() {
         Type::Integer => interpret_binop_nb(context, op, lhs_val, rhs_val),
@@ -114,10 +114,10 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : Box<ASTN
     
 }
 
-fn interpret_function_call(context: &mut InterpretContext, name : String, args : Vec<ASTNode>) -> Val {
-    let args_val = args.into_iter().map(|e| interpret_node(context, e)).collect::<Vec<_>>();
+fn interpret_function_call(context: &mut InterpretContext, name : &String, args : Vec<ASTNode>) -> Val {
+    let args_val = args.into_iter().map(|e| interpret_node(context, &e)).collect::<Vec<_>>();
     // TODO : remove clone
-    let func_def = context.functions.get(&name).unwrap().clone();
+    let func_def = context.functions.get(name).unwrap().clone();
     let mut old_vals : Vec<(String, Val)> = Vec::new();
     for (arg_name, arg_val) in (&func_def.args).iter().zip(&args_val) {
         if let Some(old_val) = context.vars.get(arg_name) {
@@ -126,7 +126,7 @@ fn interpret_function_call(context: &mut InterpretContext, name : String, args :
         context.vars.insert(arg_name.clone(), arg_val.clone());
     }
 
-    let res_val = interpret_node(context, *func_def.body.clone());
+    let res_val = interpret_node(context, &func_def.body);
 
     for arg_name in &func_def.args {
         context.vars.remove(arg_name);
@@ -137,20 +137,20 @@ fn interpret_function_call(context: &mut InterpretContext, name : String, args :
     res_val
 }
 
-fn interpret_if_expr(context: &mut InterpretContext, cond_expr : Box<ASTNode>, then_body : Box<ASTNode>, else_body : Box<ASTNode>) -> Val {
-    let cond_expr_val = match interpret_node(context, *cond_expr) {
+fn interpret_if_expr(context: &mut InterpretContext, cond_expr : &ASTNode, then_body : &ASTNode, else_body : &ASTNode) -> Val {
+    let cond_expr_val = match interpret_node(context, cond_expr) {
         Val::Bool(b) => b,
         _ => unreachable!(),
     };
 
     if cond_expr_val {
-        interpret_node(context, *then_body)
+        interpret_node(context, then_body)
     } else {
-        interpret_node(context, *else_body)
+        interpret_node(context, else_body)
     }
 }
 
-fn interpret_node(context: &mut InterpretContext, ast: ASTNode) -> Val {
+fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
     match ast {
         ASTNode::TopLevel { nodes } => {
             for node in nodes {
@@ -161,24 +161,24 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTNode) -> Val {
         ASTNode::FunctionDefinition { name, args, body, return_type } => {
             let func_def = FunctionDef { 
                 name: name.clone(), 
-                args: args.into_iter().map(|arg| arg.name).collect(),
-                body,
-                return_type,
+                args: args.into_iter().map(|arg| arg.name.clone()).collect(),
+                body: body.clone(),
+                return_type: return_type.clone(),
             };
-            context.functions.insert(name, func_def);
+            context.functions.insert(name.clone(), func_def);
             Val::Unit
         },
-        ASTNode::Float { nb } => Val::Float(nb),
-        ASTNode::Integer { nb } => Val::Number(nb),
-        ASTNode::Boolean { b } => Val::Bool(b),
+        ASTNode::Float { nb } => Val::Float(*nb),
+        ASTNode::Integer { nb } => Val::Number(*nb),
+        ASTNode::Boolean { b } => Val::Bool(*b),
         ASTNode::VarDecl { name, val } => {
-            let val_node = interpret_node(context, *val);
-            context.vars.insert(name, val_node);
+            let val_node = interpret_node(context, val.as_ref());
+            context.vars.insert(name.clone(), val_node);
             Val::Unit
         },
-        ASTNode::VarUse { name } => context.vars.get(&name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", &name)).clone(),
-        ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, op, lhs, rhs),
-        ASTNode::FunctionCall { name, args } => interpret_function_call(context, name, args),
+        ASTNode::VarUse { name } => context.vars.get(name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", &name)).clone(),
+        ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, *op, lhs.as_ref(), rhs.as_ref()),
+        ASTNode::FunctionCall { name, args } => interpret_function_call(context, name, args.clone()),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, cond_expr, then_body, else_body),
         //n => panic!("unexpected ast node when interpreting : {:?}", n),
     }
@@ -190,7 +190,7 @@ pub fn interpret(ast: ASTNode) {
         functions: HashMap::new(),
     };
 
-    interpret_node(&mut context, ast);
+    interpret_node(&mut context, &ast);
 
     dbg!(context);
 }

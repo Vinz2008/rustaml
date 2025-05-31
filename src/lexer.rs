@@ -4,7 +4,9 @@ use crate::ast::Type;
 
 use enum_tags::Tag;
 
-#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+// TODO : add operator for floats (+., *., etc) for type inference
+
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
 pub enum Operator {
     Plus,
     Minus,
@@ -56,6 +58,7 @@ pub enum Token {
     If,
     Then,
     Else,
+    Match,
     True,
     False,
     ParenOpen,
