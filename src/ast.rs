@@ -119,9 +119,16 @@ struct Parser {
 }
 
 #[derive(Debug)]
-enum ParserErr {
+pub enum ParserErr {
     UnexpectedEOF,
-    WrongTok,
+    UnexpectedTok {
+        tok : TokenTag,
+    },
+    WrongTok {
+        // TODO : put more infos ? (entire token ? range ?)
+        expected_tok : TokenTag,
+        got_tok : TokenTag,
+    },
 }
 
 impl Parser {
@@ -134,7 +141,10 @@ impl Parser {
             return Err(ParserErr::UnexpectedEOF);
         }
         if token_type.is_some() && self.tokens[self.pos].tag() != token_type.unwrap() {
-            return Err(ParserErr::WrongTok);
+            return Err(ParserErr::WrongTok {
+                expected_tok: token_type.unwrap(),
+                got_tok: self.tokens[self.pos].tag(),
+            });
         }
         let current_tok = self.tokens[self.pos].clone();
         self.pos += 1;
@@ -156,29 +166,29 @@ fn parse_float(nb: f64) -> ASTNode {
 }
 
 // TODO : add type system (Hindley–Milner ?) (and move type checking to after building the AST ?)
-fn parse_type_annotation(parser: &mut Parser) -> Type {
-    parser.eat_tok(Some(TokenTag::Colon)).unwrap();
-    match parser.eat_tok(None){
-        Ok(Token::Identifier(b)) => {
-            match b.iter().collect::<String>().as_str() {
+fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
+    parser.eat_tok(Some(TokenTag::Colon))?;
+    match parser.eat_tok(None)? {
+        Token::Identifier(b) => {
+            let type_annot = match b.iter().collect::<String>().as_str() {
                 "int" => Type::Integer,
                 "bool" => Type::Bool,
                 "float" => Type::Float,
                 _ => panic!("Unknown type"),
-            }
+            };
+            Ok(type_annot)
         },
-        Ok(Token::ParenOpen) => {
-            parser.eat_tok(Some(TokenTag::ParenClose)).unwrap();
-            Type::Unit
+        Token::ParenOpen => {
+            parser.eat_tok(Some(TokenTag::ParenClose))?;
+            Ok(Type::Unit)
         },
-        Ok(_) => panic!("Unexpected token when encontering type"),
-        Err(e) =>  panic!("error when parsing type annotation : {:?}", e),
+        t => Err(ParserErr::UnexpectedTok { tok:  t.tag() }),
     }
 }
 
-fn parse_let(parser: &mut Parser) -> ASTNode {
+fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     // TODO : pass error handling (by making all parse functions return results, than handling in the main function)
-    let name_tok = parser.eat_tok(Some(TokenTag::Identifier)).unwrap();
+    let name_tok = parser.eat_tok(Some(TokenTag::Identifier))?;
     let name = match name_tok {
         Token::Identifier(s) => s,
         _ => unreachable!(),
@@ -195,7 +205,7 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
 
             // TODO : move the type annotation after the args and add function types to make it work
             let arg_type = match parser.current_tok() {
-                Some(Token::Colon) => Some(parse_type_annotation(parser)),
+                Some(Token::Colon) => Some(parse_type_annotation(parser)?),
                 Some(_) | None => None,
             };
 
@@ -217,7 +227,7 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
             Err(e) => panic!("Error when expecting equal in let expr : {:?}", e),
         };
 
-        let body = parse_node(parser);
+        let body = parse_node(parser)?;
 
         
         let body_type = body.get_type(&parser);
@@ -237,18 +247,17 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
         }
     } else {
         let mut var_type = match parser.current_tok() {
-            Some(Token::Colon) => Some(parse_type_annotation(parser)),
+            Some(Token::Colon) => Some(parse_type_annotation(parser)?),
             Some(_) | None => None,
         };
 
 
-        match parser.eat_tok(Some(TokenTag::Op)) {
-            Ok(Token::Op(Operator::Equal)) => {},
-            Ok(t) => panic!("expected equal in let expr, got {:?}", t),
-            Err(e) => panic!("Error when expecting equal in let expr : {:?}", e),
+        match parser.eat_tok(Some(TokenTag::Op))? {
+            Token::Op(Operator::Equal) => {},
+            t => return Err(ParserErr::UnexpectedTok { tok: t.tag() }),
         };
 
-        let val_node = parse_node(parser);
+        let val_node = parse_node(parser)?;
         if var_type.is_none() {
             var_type = Some(val_node.get_type(&parser))
         }
@@ -264,7 +273,7 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
         parser.eat_tok(Some(TokenTag::EndOfExpr)).unwrap();
     }
 
-    node
+    Ok(node)
     
 }
 
@@ -272,21 +281,21 @@ fn parse_let(parser: &mut Parser) -> ASTNode {
 
 
 
-fn parse_function_call(parser: &mut Parser, function_name : String) -> ASTNode {
+fn parse_function_call(parser: &mut Parser, function_name : String) -> Result<ASTNode, ParserErr> {
     let mut args = Vec::new();
 
     while parser.has_tokens_left() &&  !matches!(parser.current_tok(), Some(Token::EndOfExpr)) && !matches!(parser.current_tok(), Some(Token::Op(_))) {
-        let arg = parse_primary(parser);
+        let arg = parse_primary(parser)?;
         args.push(arg);
     }
     dbg!(&args);
-    ASTNode::FunctionCall { 
+    Ok(ASTNode::FunctionCall { 
         name: function_name, 
         args,
-    }
+    })
 }
 
-fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> ASTNode {
+fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Result<ASTNode, ParserErr> {
     let identifier = identifier_buf.iter().collect();
     let is_function = match parser.vars.get(&identifier) {
         Some(t) => matches!(t, Type::Function(_, _)),
@@ -296,28 +305,32 @@ fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> AST
         parse_function_call(parser, identifier)
     } else {
         // var use
-        ASTNode::VarUse { name: identifier }
+        Ok(ASTNode::VarUse { name: identifier })
     }
     
 }
 
-fn parse_if(parser: &mut Parser) -> ASTNode {
-    let cond_expr = parse_node(parser);
+fn parse_if(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
+    let cond_expr = parse_node(parser)?;
 
     match cond_expr.get_type(&parser) {
         Type::Bool => {},
         t => panic!("Error in type checking : {:?} type passed in if expr", t), // TODO : return a result instead
     }
 
-    parser.eat_tok(Some(TokenTag::Then)).unwrap();
+    parser.eat_tok(Some(TokenTag::Then))?;
 
-    let then_body = parse_node(parser);
+    let then_body = parse_node(parser)?;
 
-    parser.eat_tok(Some(TokenTag::Else)).unwrap();
+    parser.eat_tok(Some(TokenTag::Else))?;
 
-    let else_body = parse_node(parser);
+    let else_body = parse_node(parser)?;
     
-    ASTNode::IfExpr { cond_expr: Box::new(cond_expr), then_body: Box::new(then_body), else_body: Box::new(else_body) }
+    Ok(ASTNode::IfExpr { 
+        cond_expr: Box::new(cond_expr), 
+        then_body: Box::new(then_body), 
+        else_body: Box::new(else_body) 
+    })
 }
 
 fn parse_pattern(parser : &mut Parser) -> Pattern {
@@ -341,8 +354,8 @@ fn parse_pattern(parser : &mut Parser) -> Pattern {
 
 }
 
-fn parse_match(parser: &mut Parser) -> ASTNode {
-    let matched_expr = parse_primary(parser);
+fn parse_match(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
+    let matched_expr = parse_primary(parser)?;
     parser.eat_tok(Some(TokenTag::With)).unwrap();
     let mut patterns = Vec::new();
     while parser.current_tok().is_some() && matches!(parser.current_tok().unwrap(), Token::Pipe) {
@@ -350,33 +363,33 @@ fn parse_match(parser: &mut Parser) -> ASTNode {
         let pattern = parse_pattern(parser);
         parser.eat_tok(Some(TokenTag::Arrow)).unwrap();
         // TODO : add vars from match pattern ? (will need a function that from a pattern and the type of the matched pattern will return the names and the types of the vars)
-        let pattern_expr = parse_primary(parser);
+        let pattern_expr = parse_primary(parser)?;
         patterns.push((pattern, pattern_expr));
     }
 
-    ASTNode::MatchExpr { 
+    Ok(ASTNode::MatchExpr { 
         matched_expr: Box::new(matched_expr), 
         patterns: patterns 
-    }
+    })
 }
 
-fn parse_parenthesis(parser: &mut Parser) -> ASTNode {
-    let expr = parse_node(parser);
-    parser.eat_tok(Some(TokenTag::ParenClose)).unwrap();
-    expr
+fn parse_parenthesis(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
+    let expr = parse_node(parser)?;
+    parser.eat_tok(Some(TokenTag::ParenClose))?;
+    Ok(expr)
 }
 
-fn parse_primary(parser: &mut Parser) -> ASTNode {
+fn parse_primary(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     let tok = parser.eat_tok(None).unwrap();
     let node = match tok {
         Token::Let => parse_let(parser),
         Token::If => parse_if(parser),
         Token::Match => parse_match(parser),
-        Token::Integer(nb) => parse_integer(nb),
-        Token::Float(nb) => parse_float(nb),
+        Token::Integer(nb) => Ok(parse_integer(nb)),
+        Token::Float(nb) => Ok(parse_float(nb)),
         Token::Identifier(buf) => parse_identifier_expr(parser, buf),
-        Token::True => ASTNode::Boolean { b: true },
-        Token::False => ASTNode::Boolean { b: false },
+        Token::True => Ok(ASTNode::Boolean { b: true }),
+        Token::False => Ok(ASTNode::Boolean { b: false }),
         Token::ParenOpen => parse_parenthesis(parser),
         t => panic!("Unexpected token : {:?}", t),
     };
@@ -384,7 +397,7 @@ fn parse_primary(parser: &mut Parser) -> ASTNode {
     return node;
 }
 
-fn parse_binary_rec(parser: &mut Parser, lhs: ASTNode, min_precedence: i32) -> ASTNode {
+fn parse_binary_rec(parser: &mut Parser, lhs: ASTNode, min_precedence: i32) -> Result<ASTNode, ParserErr> {
     let mut lhs = lhs;
 
     while parser.has_tokens_left() {
@@ -398,7 +411,7 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTNode, min_precedence: i32) -> A
             break;
         }
         parser.eat_tok(Some(TokenTag::Op)).unwrap();
-        let mut rhs = parse_primary(parser);
+        let mut rhs = parse_primary(parser)?;
 
         while parser.has_tokens_left() {
             let current_tok = parser.current_tok();
@@ -415,7 +428,7 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTNode, min_precedence: i32) -> A
             } else {
                 first_precedence
             };
-            rhs = parse_binary_rec(parser, rhs, new_precedence);
+            rhs = parse_binary_rec(parser, rhs, new_precedence)?;
         }
 
         lhs = ASTNode::BinaryOp {
@@ -425,37 +438,37 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTNode, min_precedence: i32) -> A
         };
     }
 
-    lhs
+    Ok(lhs)
 }
 
-fn parse_binary(parser: &mut Parser, lhs: ASTNode) -> ASTNode {
+fn parse_binary(parser: &mut Parser, lhs: ASTNode) -> Result<ASTNode, ParserErr> {
     parse_binary_rec(parser, lhs, 0)
 }
 
-fn parse_node(parser: &mut Parser) -> ASTNode {
-    let lhs = parse_primary(parser);
-    let ret_expr = parse_binary(parser, lhs);
-    ret_expr
+fn parse_node(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
+    let lhs = parse_primary(parser)?;
+    let ret_expr = parse_binary(parser, lhs)?;
+    Ok(ret_expr)
 }
 
-fn parse_top_level_node(parser: &mut Parser) -> ASTNode {
+fn parse_top_level_node(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     let mut nodes: Vec<ASTNode> = Vec::new();
     while parser.has_tokens_left() {
-        nodes.push(parse_node(parser));
+        nodes.push(parse_node(parser)?);
     }
-    ASTNode::TopLevel { nodes }
+    Ok(ASTNode::TopLevel { nodes })
 }
 
-pub fn parse(tokens: Vec<Token>) -> ASTNode {
+pub fn parse(tokens: Vec<Token>) -> Result<ASTNode, ParserErr> {
     let mut parser = Parser { 
         tokens, 
         pos: 0,
         vars: HashMap::new(),
         precedences: init_precedences(),
     };
-    let root_node = parse_top_level_node(&mut parser);
+    let root_node = parse_top_level_node(&mut parser)?;
     dbg!(&root_node);
-    root_node
+    Ok(root_node)
 }
 
 

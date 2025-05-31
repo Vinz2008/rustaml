@@ -39,6 +39,11 @@ fn main() {
             });
             let tokens = lexer::lex(content.chars().collect());
             let ast = ast::parse(tokens);
+            let ast = match ast {
+                Ok(a) => a,
+                Err(e) => panic!("Parsing error : {:?}", e),
+            };
+
             intepreter::interpret(ast)
         }
         Commands::Compile { filename } => {
