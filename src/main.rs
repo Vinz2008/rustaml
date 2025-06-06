@@ -1,4 +1,6 @@
-use std::{fs, path::PathBuf, process::ExitCode};
+#![allow(clippy::needless_return)]
+
+use std::{fs, hint::black_box, path::PathBuf, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 
@@ -58,6 +60,7 @@ fn main() -> ExitCode {
                 Ok(a) => a,
                 Err(e) => return print_error::print_parser_error(e, &filename, 0..0, &content),
             };
+            black_box(ast); // TODO : only for linting, remove this after adding compiler
             todo!()
         }
     }

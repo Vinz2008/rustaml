@@ -57,7 +57,7 @@ struct InterpretContext {
 
 // TODO : gc allocator (https://crates.io/crates/gc)
 
-fn interpret_binop_nb(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+fn interpret_binop_nb(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let lhs_nb = match lhs_val {
         Val::Integer(nb) => nb,
         _ => panic!("Expected number in left-side of binary operation"),
@@ -87,7 +87,7 @@ fn interpret_binop_nb(context: &mut InterpretContext, op : Operator, lhs_val : V
     Val::Integer(res_nb)
 }
 
-fn interpret_binop_bool(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+fn interpret_binop_bool(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let lhs_val_type = lhs_val.get_type();
     let rhs_val_type = rhs_val.get_type();
     if rhs_val.get_type() != lhs_val.get_type() {
@@ -106,8 +106,8 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : &ASTNode
     let rhs_val = interpret_node(context, rhs);
 
     match op.get_type() {
-        Type::Integer => interpret_binop_nb(context, op, lhs_val, rhs_val),
-        Type::Bool => interpret_binop_bool(context, op, lhs_val, rhs_val),
+        Type::Integer => interpret_binop_nb(op, lhs_val, rhs_val),
+        Type::Bool => interpret_binop_bool(op, lhs_val, rhs_val),
         _ => unreachable!(),
     }
 
@@ -119,7 +119,7 @@ fn interpret_function_call(context: &mut InterpretContext, name : &String, args 
     // TODO : remove clone
     let func_def = context.functions.get(name).unwrap().clone();
     let mut old_vals : Vec<(String, Val)> = Vec::new();
-    for (arg_name, arg_val) in (&func_def.args).iter().zip(&args_val) {
+    for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
         if let Some(old_val) = context.vars.get(arg_name) {
             old_vals.push((arg_name.clone(), old_val.clone()));
         }
@@ -200,7 +200,7 @@ fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
         ASTNode::FunctionDefinition { name, args, body, return_type } => {
             let func_def = FunctionDef { 
                 name: name.clone(), 
-                args: args.into_iter().map(|arg| arg.name.clone()).collect(),
+                args: args.iter().map(|arg| arg.name.clone()).collect(),
                 body: body.clone(),
                 return_type: return_type.clone(),
             };

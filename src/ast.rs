@@ -140,9 +140,10 @@ impl Parser {
         if self.pos >= self.tokens.len() {
             return Err(ParserErr::UnexpectedEOF);
         }
-        if token_type.is_some() && self.tokens[self.pos].tag() != token_type.unwrap() {
+
+        if let Some(tok_type) = token_type && self.tokens[self.pos].tag() != tok_type {
             return Err(ParserErr::WrongTok {
-                expected_tok: token_type.unwrap(),
+                expected_tok: tok_type,
                 got_tok: self.tokens[self.pos].tag(),
             });
         }
@@ -230,9 +231,9 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         let body = parse_node(parser)?;
 
         
-        let body_type = body.get_type(&parser);
+        let body_type = body.get_type(parser);
 
-        for Arg {name, arg_type} in &args {
+        for Arg {name, arg_type: _} in &args {
             parser.vars.remove(name);
         }
 
@@ -259,12 +260,12 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
 
         let val_node = parse_node(parser)?;
         if var_type.is_none() {
-            var_type = Some(val_node.get_type(&parser))
+            var_type = Some(val_node.get_type(parser))
         }
         parser.vars.insert(name.clone(), var_type.unwrap());
 
         ASTNode::VarDecl {
-            name: name,
+            name,
             val: Box::new(val_node),
         }
     };
@@ -313,7 +314,7 @@ fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Res
 fn parse_if(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     let cond_expr = parse_node(parser)?;
 
-    match cond_expr.get_type(&parser) {
+    match cond_expr.get_type(parser) {
         Type::Bool => {},
         t => panic!("Error in type checking : {:?} type passed in if expr", t), // TODO : return a result instead
     }
@@ -369,7 +370,7 @@ fn parse_match(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
 
     Ok(ASTNode::MatchExpr { 
         matched_expr: Box::new(matched_expr), 
-        patterns: patterns 
+        patterns, 
     })
 }
 
@@ -403,7 +404,7 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTNode, min_precedence: i32) -> R
     while parser.has_tokens_left() {
         let current_tok = parser.current_tok();
         let operator = match current_tok {
-            Some(Token::Op(op)) => op.clone(),
+            Some(Token::Op(op)) => *op,
             Some(_) | None => break,
         };
         let first_precedence = *parser.precedences.get(&operator).unwrap();
@@ -432,7 +433,7 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTNode, min_precedence: i32) -> R
         }
 
         lhs = ASTNode::BinaryOp {
-            op: operator.clone(),
+            op: operator,
             lhs: Box::new(lhs),
             rhs: Box::new(rhs),
         };

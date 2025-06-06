@@ -1,5 +1,5 @@
 use core::panic;
-use std::{ops::Range, vec};
+use std::vec;
 use crate::ast::Type;
 
 use enum_tags::Tag;
@@ -28,10 +28,7 @@ impl Operator {
     }
 
     fn is_char_op(c : char) -> bool {
-        match c {
-            '+' | '-' | '*' | '/' | '=' | '<' | '>' => true,
-            _ => false, 
-        }
+        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>')
     }
 
     // TODO : pass char slice to support multi chars op
@@ -164,10 +161,7 @@ fn lex_nb(lexer: &mut Lexer) -> Token {
 
 fn lex_alphabetic(lexer: &mut Lexer) -> Token {
     fn continue_alphabetic(c: char) -> bool {
-        match c {
-            'a'..'z' | 'A'..'Z' | '0'..'9' | '_' => true,
-            _ => false,
-        }
+        matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_')
     }
 
     let start_pos = lexer.pos - 1;
