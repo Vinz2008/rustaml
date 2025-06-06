@@ -192,18 +192,18 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     // TODO : pass error handling (by making all parse functions return results, than handling in the main function)
     let name_tok = parser.eat_tok(Some(TokenTag::Identifier))?;
     let name = match name_tok {
-        Token::Identifier(s) => s,
+        Token::Identifier(s) => s.iter().collect::<String>(),
         _ => unreachable!(),
-    }.iter().collect::<String>();
+    };
     let node = if matches!(parser.current_tok(), Some(Token::Identifier(_))) {
         // function definition
         let mut args = Vec::new();
         while matches!(parser.current_tok(), Some(Token::Identifier(_))) {
             let arg_identifier = parser.eat_tok(Some(TokenTag::Identifier)).unwrap();
             let arg_name = match arg_identifier {
-                Token::Identifier(s) => s,
+                Token::Identifier(s) => s.iter().collect::<String>(),
                 _ => unreachable!(),
-            }.iter().collect::<String>();
+            };
 
             // TODO : move the type annotation after the args and add function types to make it work
             let arg_type = match parser.current_tok() {
