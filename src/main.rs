@@ -1,6 +1,6 @@
 #![allow(clippy::needless_return)]
 
-use std::{fs, hint::black_box, path::{Path, PathBuf}, process::ExitCode};
+use std::{fs::{self, File}, hint::black_box, path::{Path, PathBuf}, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 
@@ -42,14 +42,15 @@ struct Args {
 
 // used for every command (used for code deduplication)
 fn get_ast(filename : &Path) -> Result<ASTNode, ExitCode> {
-    let content = fs::read_to_string(&filename).unwrap_or_else(|err| {
+    let content_bytes = fs::read(&filename).unwrap_or_else(|err| {
             panic!("Error when opening {} : {}", filename.display(), err)
     });
-    let tokens = lexer::lex(content.chars().collect());
+    let content = content_bytes.iter().map(|b| *b as char).collect::<Vec<_>>();
+    let tokens = lexer::lex(content);
     let ast = ast::parse(tokens);
     let ast = match ast {
             Ok(a) => a,
-            Err(e) => return Err(print_error::print_parser_error(e, &filename, 0..0, &content)),
+            Err(e) => return Err(print_error::print_parser_error(e, &filename, 0..0, &String::from_utf8(content_bytes).unwrap())),
     };
 
     Ok(ast)
