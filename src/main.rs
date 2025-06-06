@@ -1,8 +1,10 @@
 #![allow(clippy::needless_return)]
 
-use std::{fs, hint::black_box, path::PathBuf, process::ExitCode};
+use std::{fs, hint::black_box, path::{Path, PathBuf}, process::ExitCode};
 
 use clap::{Parser, Subcommand};
+
+use crate::ast::ASTNode;
 
 mod ast;
 mod intepreter;
@@ -21,6 +23,10 @@ enum Commands {
         #[arg(value_name = "FILE")]
         filename: PathBuf,
     },
+    Check {
+        #[arg(value_name = "FILE")]
+        filename: PathBuf,
+    }
 }
 
 #[derive(Parser, Default, Debug)]
@@ -32,36 +38,55 @@ struct Args {
 
 // TODO : use https://crates.io/crates/ariadne for printing errors
 
+
+
+// used for every command (used for code deduplication)
+fn get_ast(filename : &Path) -> Result<ASTNode, ExitCode> {
+    let content = fs::read_to_string(&filename).unwrap_or_else(|err| {
+            panic!("Error when opening {} : {}", filename.display(), err)
+    });
+    let tokens = lexer::lex(content.chars().collect());
+    let ast = ast::parse(tokens);
+    let ast = match ast {
+            Ok(a) => a,
+            Err(e) => return Err(print_error::print_parser_error(e, &filename, 0..0, &content)),
+    };
+
+    Ok(ast)
+
+}
+
 fn main() -> ExitCode {
     let args = Args::parse();
 
     match args.command.expect("No subcommand specified!") {
         Commands::Interpret { filename } => {
-            let content = fs::read_to_string(&filename).unwrap_or_else(|err| {
-                panic!("Error when opening {} : {}", filename.display(), err)
-            });
-            // TODO : pass char slice to lex instead ?
-            let tokens = lexer::lex(content.chars().collect());
-            let ast = ast::parse(tokens);
+            let ast = get_ast(&filename);
             let ast = match ast {
                 Ok(a) => a,
-                Err(e) => return print_error::print_parser_error(e, &filename, 0..0, &content),
+                Err(e) => return e,
             };
 
             intepreter::interpret(ast)
         }
         Commands::Compile { filename } => {
-            let content = fs::read_to_string(&filename).unwrap_or_else(|err| {
-                panic!("Error when opening {} : {}", filename.display(), err)
-            });
-            let tokens = lexer::lex(content.chars().collect());
-            let ast = ast::parse(tokens);
+            let ast = get_ast(&filename);
             let ast = match ast {
                 Ok(a) => a,
-                Err(e) => return print_error::print_parser_error(e, &filename, 0..0, &content),
+                Err(e) => return e,
             };
             black_box(ast); // TODO : only for linting, remove this after adding compiler
             todo!()
-        }
+        },
+
+        Commands::Check { filename } => {
+            let ast = get_ast(&filename);
+            let ast = match ast {
+                Ok(a) => a,
+                Err(e) => return e,
+            };
+
+            ExitCode::SUCCESS
+        },
     }
 }

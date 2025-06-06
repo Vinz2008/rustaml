@@ -117,7 +117,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : &ASTNode
 fn interpret_function_call(context: &mut InterpretContext, name : &String, args : Vec<ASTNode>) -> Val {
     let args_val = args.into_iter().map(|e| interpret_node(context, &e)).collect::<Vec<_>>();
     // TODO : remove clone
-    let func_def = context.functions.get(name).unwrap().clone();
+    let func_def = context.functions.get(name).unwrap().clone(); // TODO : remove the clone ?
     let mut old_vals : Vec<(String, Val)> = Vec::new();
     for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
         if let Some(old_val) = context.vars.get(arg_name) {
