@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
@@ -99,8 +99,9 @@ impl ASTNode {
 }
 
 
-fn init_precedences() -> HashMap<Operator, i32> {
-    let mut p = HashMap::new();
+fn init_precedences() -> FxHashMap<Operator, i32> {
+    let mut p = FxHashMap::default();
+    // TODO : reserve map size ?
     p.insert(Operator::IsEqual, 10);
     p.insert(Operator::SuperiorOrEqual, 10);
     p.insert(Operator::InferiorOrEqual, 10);
@@ -114,8 +115,8 @@ fn init_precedences() -> HashMap<Operator, i32> {
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,
-    vars : HashMap<String, Type>, // include functions (which are just vars with function types)
-    precedences : HashMap<Operator, i32>,
+    vars : FxHashMap<String, Type>, // include functions (which are just vars with function types)
+    precedences : FxHashMap<Operator, i32>,
 }
 
 #[derive(Debug, Tag)]
@@ -464,7 +465,7 @@ pub fn parse(tokens: Vec<Token>) -> Result<ASTNode, ParserErr> {
     let mut parser = Parser { 
         tokens, 
         pos: 0,
-        vars: HashMap::new(),
+        vars: FxHashMap::default(),
         precedences: init_precedences(),
     };
     let root_node = parse_top_level_node(&mut parser)?;
@@ -479,8 +480,8 @@ mod tests {
 
     #[test]
     fn parser_simple() {
-        let input = vec![Token::Let, Token::Identifier(vec!['a']), Token::Equal, Token::Integer(2), Token::EndOfExpr];
-        let result = parse(input);
+        let input = vec![Token::Let, Token::Identifier(vec!['a']), Token::Op(Operator::Equal), Token::Integer(2), Token::EndOfExpr];
+        let result = parse(input).unwrap();
         let expected =  ASTNode::VarDecl { name: "a".to_string(), val: Box::new(ASTNode::Integer { nb: 2 }) };
         let expected_toplevel = ASTNode::TopLevel { nodes: vec![expected] };
         assert_eq!(result,  expected_toplevel);

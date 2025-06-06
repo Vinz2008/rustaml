@@ -1,5 +1,5 @@
-use core::panic;
-use std::{cmp::Ordering, collections::HashMap, process::ExitCode};
+use rustc_hash::FxHashMap;
+use std::{cmp::Ordering, process::ExitCode};
 
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
@@ -51,8 +51,8 @@ struct FunctionDef {
 
 #[derive(Debug)]
 struct InterpretContext {
-    functions : HashMap<String, FunctionDef>,
-    vars: HashMap<String, Val>,
+    functions : FxHashMap<String, FunctionDef>,
+    vars: FxHashMap<String, Val>,
 }
 
 // TODO : gc allocator (https://crates.io/crates/gc)
@@ -226,8 +226,8 @@ fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
 
 pub fn interpret(ast: ASTNode) -> ExitCode {
     let mut context = InterpretContext {
-        vars: HashMap::new(),
-        functions: HashMap::new(),
+        vars: FxHashMap::default(),
+        functions: FxHashMap::default(),
     };
 
     interpret_node(&mut context, &ast);

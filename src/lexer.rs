@@ -1,5 +1,3 @@
-use core::panic;
-use std::vec;
 use crate::ast::Type;
 
 use enum_tags::Tag;
