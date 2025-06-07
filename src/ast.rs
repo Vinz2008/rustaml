@@ -17,7 +17,7 @@ pub enum Pattern {
     VarName(String), // | x pattern
     Integer(i64), // | 2
     Float(f64), // | 2.6
-    Range(i64, i64), // | 0..1
+    Range(i64, i64, bool), // bool is for the inclusivity | 0..1
     Underscore,
 }
 
@@ -371,14 +371,18 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
             }
         },
         TokenData::Integer(nb) => { 
-            if matches!(parser.current_tok_data(), Some(TokenData::Range)) {
-                parser.eat_tok(Some(TokenDataTag::Range))?;
+            if matches!(parser.current_tok_data(), Some(TokenData::Range) | Some(TokenData::Op(Operator::Equal))) {
+                let inclusivity = matches!(parser.current_tok_data(), Some(TokenData::Op(Operator::Equal)));
+                parser.eat_tok(None)?;
+                if inclusivity {
+                    parser.eat_tok(Some(TokenDataTag::Range))?;
+                }
                 let end_tok = parser.eat_tok(Some(TokenDataTag::Integer))?;
                 let end_nb = match end_tok.tok_data {
                     TokenData::Integer(end) => end,
                     _ => unreachable!(),
                 };
-                Pattern::Range(nb, end_nb)
+                Pattern::Range(nb, end_nb, inclusivity)
 
             } else {
                 Pattern::Integer(nb)

@@ -183,12 +183,17 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : &ASTNode, patt
                     _ => panic!("matching an expression that is not an integer with an integer pattern"),
                 }
             },
-            Pattern::Range(start, end) => {
+            Pattern::Range(start, end, inclusivity) => {
                 match matched_expr_val {
                     Val::Integer(matched_nb) => {
-                        
-                        if *start < matched_nb && matched_nb < *end {
-                            return interpret_node(context, pattern_expr);
+                        if *inclusivity {
+                            if *start <= matched_nb && matched_nb <= *end {
+                                return interpret_node(context, pattern_expr);
+                            }
+                        } else {
+                            if *start < matched_nb && matched_nb < *end {
+                                return interpret_node(context, pattern_expr);
+                            }
                         }
                     },
                     _ => panic!("matching an expression that is not an integer with an integer pattern"),
