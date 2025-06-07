@@ -6,6 +6,7 @@ let b : bool = true ;;
 
 let test2 i : int = 2 ;;
 
+// let fib i : int = if i <= 1  i else fib (i - 1) + fib (i - 2) ;; 
 let fib i : int = if i <= 1 then i else fib (i - 1) + fib (i - 2)   ;;
 
 let c = fib 14 ;;

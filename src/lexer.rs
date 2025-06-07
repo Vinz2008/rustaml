@@ -69,6 +69,7 @@ pub enum TokenData {
     Pipe, // |
     EndOfExpr, // ;;
     Range, // ..
+    Comment, // //
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -215,7 +216,12 @@ fn lex_alphabetic(lexer: &mut Lexer) -> Token {
     Token::new(tok_data, range)
 }
 
-fn lex_op(lexer: &mut Lexer) -> Token {
+fn handle_comment(lexer: &mut Lexer){
+    while let Some(c) = lexer.read_char() && c != '\n' {}
+}
+
+// optional because it can be a comment
+fn lex_op(lexer: &mut Lexer) -> Option<Token> {
     fn continue_op(c: char) -> bool {
         Operator::is_char_op(c)
     }
@@ -236,10 +242,14 @@ fn lex_op(lexer: &mut Lexer) -> Token {
 
     let tok_data = match op_str.as_str() {
         "->" => TokenData::Arrow,
+        "//" => { 
+            handle_comment(lexer);
+            return None
+        },
         _ => TokenData::Op(Operator::str_to_op(&op_str))
     };
 
-    Token::new(tok_data, range)
+    Some(Token::new(tok_data, range))
 
 
 }
@@ -271,7 +281,7 @@ pub fn lex(content: Vec<char>) -> Vec<Token> {
                 }
             },
             '|' => Some(Token::new(TokenData::Pipe, lexer.pos-1..lexer.pos-1)),
-            op_char if Operator::is_char_op(op_char) => Some(lex_op(&mut lexer)),
+            op_char if Operator::is_char_op(op_char) => lex_op(&mut lexer),
             '0'..='9' => Some(lex_nb(&mut lexer)),
             'a'..='z' | 'A'..='Z' | '_' => Some(lex_alphabetic(&mut lexer)),
             _ => panic!("ERROR : unexpected char {}", c),
