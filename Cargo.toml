@@ -14,4 +14,4 @@ rustc-hash = "2.1.1"
 lto = "fat"
 panic = "abort"
 strip = "debuginfo"
-#debuginfo = 1
+#debug = 2

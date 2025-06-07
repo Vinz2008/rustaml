@@ -130,7 +130,7 @@ pub struct ParserErr {
 
 impl ParserErr {
     pub fn new(parser_err_data : ParserErrData, range : Range<usize>) -> ParserErr {
-        ParserErr { parser_err_data: Box::new(parser_err_data), range: range }
+        ParserErr { parser_err_data: Box::new(parser_err_data), range }
     }
 }
 
