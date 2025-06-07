@@ -68,6 +68,7 @@ pub enum TokenData {
     Arrow, // ->
     Pipe, // |
     EndOfExpr, // ;;
+    Range, // ..
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -115,6 +116,11 @@ impl Lexer {
         self.pos += 1;
         Some(c)
     }
+    
+    // not advised to use very often
+    pub fn go_back_pos(&mut self, count : usize){
+        self.pos -= count;
+    }
 }
 
 
@@ -122,10 +128,13 @@ impl Lexer {
 fn lex_nb(lexer: &mut Lexer) -> Token {
     // TODO : floats
 
-    fn continue_nb(c: char, is_float : &mut bool) -> bool {
+    fn continue_nb(c: char, is_float : &mut bool, is_range : &mut bool) -> bool {
         match c {
             '0'..='9' => true,
             '.' => {
+                if *is_float {
+                    *is_range = true;
+                }
                 *is_float = true;
                 true
             },
@@ -134,9 +143,17 @@ fn lex_nb(lexer: &mut Lexer) -> Token {
     }
 
     let mut is_float = false;
+    let mut is_range = false;
     let start_pos = lexer.pos - 1;
 
-    while lexer.pos < lexer.content.len() && continue_nb(lexer.current_char().unwrap(), &mut is_float) {
+    while lexer.pos < lexer.content.len() && continue_nb(lexer.current_char().unwrap(), &mut is_float, &mut is_range) {
+        if is_range {
+            // if is range, go back before the range and break
+            lexer.go_back_pos(1);
+            // more complicated to know if float (should not assume int) because there could still be some pattern in the future like "1.0..2.0"
+            is_float = lexer.content[start_pos..lexer.pos].contains(&'.');
+            break;
+        }
         lexer.read_char();
     }
 
@@ -241,6 +258,12 @@ pub fn lex(content: Vec<char>) -> Vec<Token> {
             '(' => Some(Token::new(TokenData::ParenOpen, lexer.pos-1..lexer.pos-1 )),
             ')' => Some(Token::new(TokenData::ParenClose, lexer.pos-1..lexer.pos-1)),
             ':' => Some(Token::new(TokenData::Colon, lexer.pos-1..lexer.pos-1)),
+            '.' => {
+                match lexer.read_char() {
+                    Some('.') => Some(Token::new(TokenData::Range, lexer.pos-2..lexer.pos-1)),
+                    _ => panic!("Not complete \"..\" token"),
+                }
+            },
             ';' => {
                 match lexer.read_char(){
                     Some(';') => Some(Token::new(TokenData::EndOfExpr, lexer.pos-2..lexer.pos-1)),

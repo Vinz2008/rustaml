@@ -1,6 +1,6 @@
 use std::{hint::black_box, ops::Range, path::Path, process::ExitCode};
 
-use crate::{ast::{ParserErr, ParserErrData}, lexer::{Token, TokenData, TokenDataTag}};
+use crate::{ast::{ParserErr, ParserErrData}, lexer::{TokenData, TokenDataTag}};
 
 use ariadne::{ColorGenerator, Label, Report, ReportKind, Source};
 use enum_tags::TaggedEnum;

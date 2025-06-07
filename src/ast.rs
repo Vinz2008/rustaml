@@ -17,8 +17,8 @@ pub enum Pattern {
     VarName(String), // | x pattern
     Integer(i64), // | 2
     Float(f64), // | 2.6
+    Range(i64, i64), // | 0..1
     Underscore,
-    // TODO : integer range
 }
 
 // TODO : flatten AST nodes (https://www.cs.cornell.edu/~asampson/blog/flattening.html)
@@ -359,13 +359,10 @@ fn parse_if(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     })
 }
 
-fn parse_pattern(parser : &mut Parser) -> Pattern {
-    let pattern_tok = match parser.eat_tok(None) {
-        Ok(t) => t,
-        Err(e) => panic!("Error in pattern parsing : {:?}", e), // TODO : pass error in result instead
-    };
+fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
+    let pattern_tok = parser.eat_tok(None)?;
 
-    match pattern_tok.tok_data {
+    let pattern = match pattern_tok.tok_data {
         TokenData::Identifier(buf) => {
             let s = buf.iter().collect::<String>();
             match s.as_str() {
@@ -373,10 +370,25 @@ fn parse_pattern(parser : &mut Parser) -> Pattern {
                 _ => Pattern::VarName(s),
             }
         },
-        TokenData::Integer(nb) => Pattern::Integer(nb),
+        TokenData::Integer(nb) => { 
+            if matches!(parser.current_tok_data(), Some(TokenData::Range)) {
+                parser.eat_tok(Some(TokenDataTag::Range))?;
+                let end_tok = parser.eat_tok(Some(TokenDataTag::Integer))?;
+                let end_nb = match end_tok.tok_data {
+                    TokenData::Integer(end) => end,
+                    _ => unreachable!(),
+                };
+                Pattern::Range(nb, end_nb)
+
+            } else {
+                Pattern::Integer(nb)
+            } 
+        },
         TokenData::Float(nb) => Pattern::Float(nb),
         t => panic!("Unexpected token in pattern : {:?}", t),
-    }
+    };
+
+    Ok(pattern)
 
 }
 
@@ -386,7 +398,8 @@ fn parse_match(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     let mut patterns = Vec::new();
     while parser.current_tok().is_some() && matches!(parser.current_tok_data().unwrap(), TokenData::Pipe) {
         parser.eat_tok(Some(TokenDataTag::Pipe)).unwrap();
-        let pattern = parse_pattern(parser);
+        let pattern = parse_pattern(parser)?;
+        dbg!(&pattern);
         parser.eat_tok(Some(TokenDataTag::Arrow)).unwrap();
         // TODO : add vars from match pattern ? (will need a function that from a pattern and the type of the matched pattern will return the names and the types of the vars)
         let pattern_expr = parse_primary(parser)?;

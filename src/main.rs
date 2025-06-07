@@ -11,6 +11,11 @@ mod intepreter;
 mod lexer;
 mod print_error;
 
+
+// TODO : create lsp server
+
+// TODO : replace clap with lexopt or pico-args ?
+
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// intepret file
