@@ -50,7 +50,9 @@ fn get_ast(filename : &Path) -> Result<ASTNode, ExitCode> {
     let ast = ast::parse(tokens);
     let ast = match ast {
             Ok(a) => a,
-            Err(e) => return Err(print_error::print_parser_error(e, filename, 0..0, &String::from_utf8(content_bytes).unwrap())),
+            Err(e) => {
+                return Err(print_error::print_parser_error(e, filename, &String::from_utf8(content_bytes).unwrap())) 
+            },
     };
 
     Ok(ast)

@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
@@ -119,16 +121,29 @@ struct Parser {
     precedences : FxHashMap<Operator, i32>,
 }
 
+
+#[derive(Debug)]
+pub struct ParserErr {
+    pub parser_err_data : Box<ParserErrData>,
+    pub range : Range<usize>,
+}
+
+impl ParserErr {
+    pub fn new(parser_err_data : ParserErrData, range : Range<usize>) -> ParserErr {
+        ParserErr { parser_err_data: Box::new(parser_err_data), range: range }
+    }
+}
+
 #[derive(Debug, Tag)]
-pub enum ParserErr {
+pub enum ParserErrData {
     UnexpectedEOF,
     UnexpectedTok {
-        tok : TokenDataTag,
+        tok : Box<TokenData>,
     },
     WrongTok {
         // TODO : put more infos ? (entire token ? range ?)
-        expected_tok : TokenDataTag,
-        got_tok : TokenDataTag,
+        expected_tok : Box<TokenDataTag>,
+        got_tok : Box<TokenData>,
     },
 }
 
@@ -139,14 +154,15 @@ impl Parser {
 
     fn eat_tok(&mut self, token_type: Option<TokenDataTag>) -> Result<Token, ParserErr> {
         if self.pos >= self.tokens.len() {
-            return Err(ParserErr::UnexpectedEOF);
+            let pos = self.tokens.len()-1;
+            return Err(ParserErr::new(ParserErrData::UnexpectedEOF, pos..pos));
         }
 
         if let Some(tok_type) = token_type && self.tokens[self.pos].tok_data.tag() != tok_type {
-            return Err(ParserErr::WrongTok {
-                expected_tok: tok_type,
-                got_tok: self.tokens[self.pos].tok_data.tag(),
-            });
+            return Err(ParserErr::new(ParserErrData::WrongTok {
+                expected_tok: Box::new(tok_type),
+                got_tok: Box::new(self.tokens[self.pos].tok_data.clone()),
+            }, self.tokens[self.pos].range.clone()));
         }
         let current_tok = self.tokens[self.pos].clone();
         self.pos += 1;
@@ -174,7 +190,8 @@ fn parse_float(nb: f64) -> ASTNode {
 // TODO : add type system (Hindley–Milner ?) (and move type checking to after building the AST ?)
 fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
     parser.eat_tok(Some(TokenDataTag::Colon))?;
-    match parser.eat_tok(None)?.tok_data {
+    let tok = parser.eat_tok(None)?;
+    match &tok.tok_data {
         TokenData::Identifier(b) => {
             let type_annot = match b.iter().collect::<String>().as_str() {
                 "int" => Type::Integer,
@@ -188,7 +205,7 @@ fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
             parser.eat_tok(Some(TokenDataTag::ParenClose))?;
             Ok(Type::Unit)
         },
-        t => Err(ParserErr::UnexpectedTok { tok:  t.tag() }),
+        _ => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: Box::new(tok.tok_data) }, tok.range.clone())),
     }
 }
 
@@ -260,9 +277,10 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         };
 
 
-        match parser.eat_tok(Some(TokenDataTag::Op))?.tok_data {
+        let tok = parser.eat_tok(Some(TokenDataTag::Op))?;
+        match &tok.tok_data {
             TokenData::Op(Operator::Equal) => {},
-            t => return Err(ParserErr::UnexpectedTok { tok: t.tag() }),
+            _ => return Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: Box::new(tok.tok_data) }, tok.range)),
         };
 
         let val_node = parse_node(parser)?;

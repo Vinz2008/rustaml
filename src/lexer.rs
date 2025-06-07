@@ -73,7 +73,7 @@ pub enum TokenData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub tok_data : TokenData,
-    range : Range<usize>,
+    pub range : Range<usize>,
 }
 
 impl Token {
@@ -141,6 +141,7 @@ fn lex_nb(lexer: &mut Lexer) -> Token {
     }
 
     let buf = lexer.content[start_pos..lexer.pos].to_vec();
+    let range = start_pos..lexer.pos;
 
     //dbg!(&buf);
 
@@ -152,7 +153,7 @@ fn lex_nb(lexer: &mut Lexer) -> Token {
 
         //dbg!(nb);
 
-        Token::new(TokenData::Float(nb), 0..0) // TODO
+        Token::new(TokenData::Float(nb), range) // TODO
     } else {
 
         let nb = str::parse::<i64>(str.as_str())
@@ -160,7 +161,7 @@ fn lex_nb(lexer: &mut Lexer) -> Token {
 
         //dbg!(nb);
 
-        Token::new(TokenData::Integer(nb),0..0) // TODO
+        Token::new(TokenData::Integer(nb), range) // TODO
     }
 }
 
@@ -179,7 +180,7 @@ fn lex_alphabetic(lexer: &mut Lexer) -> Token {
 
     //dbg!(&buf);
 
-    let range = 0..0; // TODO
+    let range = start_pos..lexer.pos-1; // TODO
 
     // TODO : replace the match with a global keyword hashmap access, if not there,it is identifier
     let tok_data = match buf.iter().collect::<String>().as_str() {
@@ -212,7 +213,7 @@ fn lex_op(lexer: &mut Lexer) -> Token {
 
     //dbg!(&buf);
 
-    let range = 0..0; // TODO
+    let range = start_pos..lexer.pos; // TODO
 
     let op_str = buf.iter().collect::<String>();
 
@@ -227,26 +228,26 @@ fn lex_op(lexer: &mut Lexer) -> Token {
 }
 
 pub fn lex(content: Vec<char>) -> Vec<Token> {
-    dbg!(&content);
+    //dbg!(&content);
     let mut lexer = Lexer { content, pos: 0 };
 
     let mut tokens = vec![];
 
-    let range = 0..0; // TODO
+
 
     while let Some(c) = lexer.read_char() {
         let tok: Option<Token> = match c {
             ' ' | '\t' | '\n' => None,
-            '(' => Some(Token::new(TokenData::ParenOpen, range.clone())),
-            ')' => Some(Token::new(TokenData::ParenClose, range.clone())),
-            ':' => Some(Token::new(TokenData::Colon, range.clone())),
+            '(' => Some(Token::new(TokenData::ParenOpen, lexer.pos-1..lexer.pos-1 )),
+            ')' => Some(Token::new(TokenData::ParenClose, lexer.pos-1..lexer.pos-1)),
+            ':' => Some(Token::new(TokenData::Colon, lexer.pos-1..lexer.pos-1)),
             ';' => {
                 match lexer.read_char(){
-                    Some(';') => Some(Token::new(TokenData::EndOfExpr, range.clone())),
+                    Some(';') => Some(Token::new(TokenData::EndOfExpr, lexer.pos-2..lexer.pos-1)),
                     _ => panic!("Not complete \";;\" token"),
                 }
             },
-            '|' => Some(Token::new(TokenData::Pipe, range.clone())),
+            '|' => Some(Token::new(TokenData::Pipe, lexer.pos-1..lexer.pos-1)),
             op_char if Operator::is_char_op(op_char) => Some(lex_op(&mut lexer)),
             '0'..='9' => Some(lex_nb(&mut lexer)),
             'a'..='z' | 'A'..='Z' | '_' => Some(lex_alphabetic(&mut lexer)),
