@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use crate::ast::Type;
 
 use enum_tags::Tag;
@@ -47,7 +49,7 @@ impl Operator {
 
 // TODO : replace all the Vec<char> with slices
 #[derive(Debug, Clone, Tag, PartialEq)]
-pub enum Token {
+pub enum TokenData {
     Identifier(Vec<char>),
     Op(Operator),
     Integer(i64),
@@ -68,13 +70,18 @@ pub enum Token {
     EndOfExpr, // ;;
 }
 
-
-
-// TODO : rename Token to TokenData and uncomment it to add ranges to token
-/* pub struct Token {
-    tok : TokenData,
+#[derive(Debug, Clone, PartialEq)]
+pub struct Token {
+    pub tok_data : TokenData,
     range : Range<usize>,
-} */
+}
+
+impl Token {
+    pub fn new(tok_data : TokenData, range : Range<usize>) -> Token {
+        Token { tok_data, range }
+    }
+}
+
 
 struct Lexer {
     content: Vec<char>,
@@ -145,7 +152,7 @@ fn lex_nb(lexer: &mut Lexer) -> Token {
 
         //dbg!(nb);
 
-        Token::Float(nb)
+        Token::new(TokenData::Float(nb), 0..0) // TODO
     } else {
 
         let nb = str::parse::<i64>(str.as_str())
@@ -153,7 +160,7 @@ fn lex_nb(lexer: &mut Lexer) -> Token {
 
         //dbg!(nb);
 
-        Token::Integer(nb)
+        Token::new(TokenData::Integer(nb),0..0) // TODO
     }
 }
 
@@ -172,18 +179,22 @@ fn lex_alphabetic(lexer: &mut Lexer) -> Token {
 
     //dbg!(&buf);
 
+    let range = 0..0; // TODO
+
     // TODO : replace the match with a global keyword hashmap access, if not there,it is identifier
-    match buf.iter().collect::<String>().as_str() {
-        "let" => Token::Let,
-        "if" => Token::If,
-        "match" => Token::Match,
-        "with" => Token::With,
-        "then" => Token::Then,
-        "else" => Token::Else,
-        "true" => Token::True,
-        "false" => Token::False,
-        _ => Token::Identifier(buf),
-    }
+    let tok_data = match buf.iter().collect::<String>().as_str() {
+        "let" => TokenData::Let,
+        "if" => TokenData::If,
+        "match" => TokenData::Match,
+        "with" => TokenData::With,
+        "then" => TokenData::Then,
+        "else" => TokenData::Else,
+        "true" => TokenData::True,
+        "false" => TokenData::False,
+        _ => TokenData::Identifier(buf),
+    };
+
+    Token::new(tok_data, range)
 }
 
 fn lex_op(lexer: &mut Lexer) -> Token {
@@ -201,12 +212,18 @@ fn lex_op(lexer: &mut Lexer) -> Token {
 
     //dbg!(&buf);
 
+    let range = 0..0; // TODO
+
     let op_str = buf.iter().collect::<String>();
 
-    match op_str.as_str() {
-        "->" => Token::Arrow,
-        _ => Token::Op(Operator::str_to_op(&op_str))
-    }
+    let tok_data = match op_str.as_str() {
+        "->" => TokenData::Arrow,
+        _ => TokenData::Op(Operator::str_to_op(&op_str))
+    };
+
+    Token::new(tok_data, range)
+
+
 }
 
 pub fn lex(content: Vec<char>) -> Vec<Token> {
@@ -215,19 +232,21 @@ pub fn lex(content: Vec<char>) -> Vec<Token> {
 
     let mut tokens = vec![];
 
+    let range = 0..0; // TODO
+
     while let Some(c) = lexer.read_char() {
         let tok: Option<Token> = match c {
             ' ' | '\t' | '\n' => None,
-            '(' => Some(Token::ParenOpen),
-            ')' => Some(Token::ParenClose),
-            ':' => Some(Token::Colon),
+            '(' => Some(Token::new(TokenData::ParenOpen, range.clone())),
+            ')' => Some(Token::new(TokenData::ParenClose, range.clone())),
+            ':' => Some(Token::new(TokenData::Colon, range.clone())),
             ';' => {
                 match lexer.read_char(){
-                    Some(';') => Some(Token::EndOfExpr),
+                    Some(';') => Some(Token::new(TokenData::EndOfExpr, range.clone())),
                     _ => panic!("Not complete \";;\" token"),
                 }
             },
-            '|' => Some(Token::Pipe),
+            '|' => Some(Token::new(TokenData::Pipe, range.clone())),
             op_char if Operator::is_char_op(op_char) => Some(lex_op(&mut lexer)),
             '0'..='9' => Some(lex_nb(&mut lexer)),
             'a'..='z' | 'A'..='Z' | '_' => Some(lex_alphabetic(&mut lexer)),
@@ -251,7 +270,7 @@ mod tests {
     fn lexer_simple() {
         let input = "let a = 2 ;;".to_string().chars().collect();
         let result = lex(input);
-        let expected = vec![Token::Let, Token::Identifier(vec!['a']), Token::Op(Operator::Equal), Token::Integer(2), Token::EndOfExpr];
+        let expected = vec![TokenData::Let, TokenData::Identifier(vec!['a']), TokenData::Op(Operator::Equal), TokenData::Integer(2), TokenData::EndOfExpr].into_iter().map(|t| Token::new(t, 0..0)).collect::<Vec<_>>();
         assert_eq!(result, expected);
     }
 }

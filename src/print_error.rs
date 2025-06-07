@@ -1,6 +1,6 @@
 use std::{hint::black_box, ops::Range, path::Path, process::ExitCode};
 
-use crate::{ast::ParserErr, lexer::TokenTag};
+use crate::{ast::ParserErr, lexer::TokenDataTag};
 
 use ariadne::{Report, ReportKind, Source};
 use enum_tags::TaggedEnum;
@@ -14,7 +14,7 @@ fn print_unexpected_eof_error(error_nb : u8, range : Range<usize>, filename : &s
     .print((filename, Source::from(content))).unwrap();
 }
 
-fn print_wrong_tok_error(error_nb : u8, range : Range<usize>, filename : &str, content : &str, expected_tok : TokenTag, got_tok : TokenTag){
+fn print_wrong_tok_error(error_nb : u8, range : Range<usize>, filename : &str, content : &str, expected_tok : TokenDataTag, got_tok : TokenDataTag){
 
     Report::build(ReportKind::Error, (filename, range))
     .with_code(error_nb)
@@ -23,7 +23,7 @@ fn print_wrong_tok_error(error_nb : u8, range : Range<usize>, filename : &str, c
     .print((filename, Source::from(content))).unwrap();
 }
 
-fn print_unexpected_tok_error(error_nb : u8, range : Range<usize>, filename : &str, content : &str, tok : TokenTag){
+fn print_unexpected_tok_error(error_nb : u8, range : Range<usize>, filename : &str, content : &str, tok : TokenDataTag){
     black_box(tok); // TODO  : for linting purposes only, remove this after writing the proper error messages cotnaining the token
     Report::build(ReportKind::Error, (filename, range))
     .with_code(error_nb)
