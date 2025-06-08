@@ -70,7 +70,6 @@ pub enum TokenData {
     Pipe, // |
     EndOfExpr, // ;;
     Range, // ..
-    Comment, // //
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -305,8 +304,8 @@ mod tests {
     #[test]
     fn lexer_simple() {
         let input = "let a = 2 ;;".to_string().chars().collect();
-        let result = lex(input);
-        let expected = vec![TokenData::Let, TokenData::Identifier(vec!['a']), TokenData::Op(Operator::Equal), TokenData::Integer(2), TokenData::EndOfExpr].into_iter().map(|t| Token::new(t, 0..0)).collect::<Vec<_>>();
+        let result = lex(input).into_iter().map(|t| t.tok_data).collect::<Vec<_>>();
+        let expected = vec![TokenData::Let, TokenData::Identifier(vec!['a']), TokenData::Op(Operator::Equal), TokenData::Integer(2), TokenData::EndOfExpr];
         assert_eq!(result, expected);
     }
 }

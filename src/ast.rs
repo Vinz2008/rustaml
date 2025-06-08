@@ -326,7 +326,11 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
 fn parse_function_call(parser: &mut Parser, function_name : String) -> Result<ASTNode, ParserErr> {
     let mut args = Vec::new();
 
-    while parser.has_tokens_left() &&  !matches!(parser.current_tok_data(), Some(TokenData::EndOfExpr)) && !matches!(parser.current_tok_data(), Some(TokenData::Op(_))) {
+    fn function_call_parse_continue(tok_data : Option<&TokenData>) -> bool {
+        !matches!(tok_data, Some(TokenData::EndOfExpr) | Some(TokenData::Op(_)) | Some(TokenData::Else) | Some(TokenData::In))
+    }
+
+    while parser.has_tokens_left() && function_call_parse_continue(parser.current_tok_data()) {
         let arg = parse_primary(parser)?;
         args.push(arg);
     }
@@ -541,7 +545,7 @@ mod tests {
     fn parser_simple() {
         let input = vec![TokenData::Let, TokenData::Identifier(vec!['a']), TokenData::Op(Operator::Equal), TokenData::Integer(2), TokenData::EndOfExpr].into_iter().map(|t| Token::new(t, 0..0)).collect();
         let result = parse(input).unwrap();
-        let expected =  ASTNode::VarDecl { name: "a".to_string(), val: Box::new(ASTNode::Integer { nb: 2 }) };
+        let expected =  ASTNode::VarDecl { name: "a".to_string(), val: Box::new(ASTNode::Integer { nb: 2 }), body: None };
         let expected_toplevel = ASTNode::TopLevel { nodes: vec![expected] };
         assert_eq!(result,  expected_toplevel);
     }
