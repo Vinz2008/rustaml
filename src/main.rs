@@ -9,6 +9,8 @@ use crate::ast::ASTNode;
 mod ast;
 mod intepreter;
 mod lexer;
+mod type_inference;
+mod string_intern;
 mod print_error;
 
 
