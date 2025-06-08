@@ -20,6 +20,7 @@ pub enum Operator {
 }
 
 impl Operator {
+    pub const OPERATORS: &'static [&'static str] = &["+", "-", "*", "/", "=", "==", ">=", "<="];
     pub fn get_type(&self) -> Type {
         match self {
             Self::IsEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual => Type::Bool,
@@ -32,8 +33,8 @@ impl Operator {
     }
 
     // TODO : pass char slice to support multi chars op
-    pub fn str_to_op(s: &str) -> Operator {
-        match s {
+    pub fn str_to_op(s: &str, range : &Range<usize>) -> Result<Operator, LexerErr> {
+        let op = match s {
             "+" => Operator::Plus,
             "-" => Operator::Minus,
             "*" => Operator::Mult,
@@ -42,8 +43,9 @@ impl Operator {
             "==" => Operator::IsEqual,
             ">=" => Operator::SuperiorOrEqual,
             "<=" => Operator::InferiorOrEqual,
-            _ => panic!("Invalid operator {}", s),
-        }
+            _ => return Err(LexerErr::new(LexerErrData::InvalidOp(Box::new(s.to_owned())), range.clone())),
+        };
+        Ok(op)
     }
 }
 
@@ -90,6 +92,29 @@ struct Lexer {
     pos: usize,
 }
 
+#[derive(Debug, Tag)]
+pub enum LexerErrData {
+    NumberParsingFailure(Box<Vec<char>>),
+    InvalidOp(Box<String>),
+}
+
+
+#[derive(Debug)]
+pub struct LexerErr {
+    pub lexer_err_data : Box<LexerErrData>,
+    pub range : Range<usize>,
+}
+
+impl LexerErr {
+    fn new(lexer_err_data : LexerErrData, range: Range<usize>) -> LexerErr {
+        LexerErr {
+            lexer_err_data: Box::new(lexer_err_data),
+            range
+        }
+    }
+}
+
+
 impl Lexer {
     fn has_char_left(&self) -> bool {
         self.pos < self.content.len()
@@ -126,7 +151,7 @@ impl Lexer {
 
 
 
-fn lex_nb(lexer: &mut Lexer) -> Token {
+fn lex_nb(lexer: &mut Lexer) -> Result<Token, LexerErr> {
     // TODO : floats
 
     fn continue_nb(c: char, is_float : &mut bool, is_range : &mut bool) -> bool {
@@ -166,20 +191,27 @@ fn lex_nb(lexer: &mut Lexer) -> Token {
     let str = buf.iter().collect::<String>();
 
     if is_float {
-        let nb = str::parse::<f64>(str.as_str())
-            .unwrap_or_else(|err| panic!("Failed when parsing nb {} : {}", str, err));
+        let nb = str::parse::<f64>(str.as_str());
+        let nb = match nb {
+            Ok(n) => n,
+            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(Box::new(buf)), range)),
+        };
 
         //dbg!(nb);
 
-        Token::new(TokenData::Float(nb), range) // TODO
+        Ok(Token::new(TokenData::Float(nb), range)) // TODO
     } else {
 
-        let nb = str::parse::<i64>(str.as_str())
-            .unwrap_or_else(|err| panic!("Failed when parsing nb {} : {}", str, err));
+        let nb = str::parse::<i64>(str.as_str());
+
+        let nb = match nb {
+            Ok(n) => n,
+            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(Box::new(buf)), range)),
+        };
 
         //dbg!(nb);
 
-        Token::new(TokenData::Integer(nb), range) // TODO
+        Ok(Token::new(TokenData::Integer(nb), range)) // TODO
     }
 }
 
@@ -222,7 +254,7 @@ fn handle_comment(lexer: &mut Lexer){
 }
 
 // optional because it can be a comment
-fn lex_op(lexer: &mut Lexer) -> Option<Token> {
+fn lex_op(lexer: &mut Lexer) -> Result<Option<Token>, LexerErr> {
     fn continue_op(c: char) -> bool {
         Operator::is_char_op(c)
     }
@@ -245,17 +277,17 @@ fn lex_op(lexer: &mut Lexer) -> Option<Token> {
         "->" => TokenData::Arrow,
         "//" => { 
             handle_comment(lexer);
-            return None
+            return Ok(None)
         },
-        _ => TokenData::Op(Operator::str_to_op(&op_str))
+        _ => TokenData::Op(Operator::str_to_op(&op_str, &range)?)
     };
 
-    Some(Token::new(tok_data, range))
+    Ok(Some(Token::new(tok_data, range)))
 
 
 }
 
-pub fn lex(content: Vec<char>) -> Vec<Token> {
+pub fn lex(content: Vec<char>) -> Result<Vec<Token>, LexerErr> {
     //dbg!(&content);
     let mut lexer = Lexer { content, pos: 0 };
 
@@ -282,8 +314,8 @@ pub fn lex(content: Vec<char>) -> Vec<Token> {
                 }
             },
             '|' => Some(Token::new(TokenData::Pipe, lexer.pos-1..lexer.pos-1)),
-            op_char if Operator::is_char_op(op_char) => lex_op(&mut lexer),
-            '0'..='9' => Some(lex_nb(&mut lexer)),
+            op_char if Operator::is_char_op(op_char) => lex_op(&mut lexer)?,
+            '0'..='9' => Some(lex_nb(&mut lexer)?),
             'a'..='z' | 'A'..='Z' | '_' => Some(lex_alphabetic(&mut lexer)),
             _ => panic!("ERROR : unexpected char {}", c),
         };
@@ -294,7 +326,7 @@ pub fn lex(content: Vec<char>) -> Vec<Token> {
 
     dbg!(&tokens);
 
-    tokens
+    Ok(tokens)
 }
 
 #[cfg(test)]
@@ -304,7 +336,7 @@ mod tests {
     #[test]
     fn lexer_simple() {
         let input = "let a = 2 ;;".to_string().chars().collect();
-        let result = lex(input).into_iter().map(|t| t.tok_data).collect::<Vec<_>>();
+        let result = lex(input).unwrap().into_iter().map(|t| t.tok_data).collect::<Vec<_>>();
         let expected = vec![TokenData::Let, TokenData::Identifier(vec!['a']), TokenData::Op(Operator::Equal), TokenData::Integer(2), TokenData::EndOfExpr];
         assert_eq!(result, expected);
     }

@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
-use crate::lexer::{Operator, Token, TokenData, TokenDataTag};
+use crate::{lexer::{Operator, Token, TokenData, TokenDataTag}};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Arg {
@@ -122,19 +122,6 @@ struct Parser {
     precedences : FxHashMap<Operator, i32>,
 }
 
-
-#[derive(Debug)]
-pub struct ParserErr {
-    pub parser_err_data : Box<ParserErrData>,
-    pub range : Range<usize>,
-}
-
-impl ParserErr {
-    pub fn new(parser_err_data : ParserErrData, range : Range<usize>) -> ParserErr {
-        ParserErr { parser_err_data: Box::new(parser_err_data), range }
-    }
-}
-
 #[derive(Debug, Tag)]
 pub enum ParserErrData {
     UnexpectedEOF,
@@ -146,6 +133,19 @@ pub enum ParserErrData {
         expected_tok : Box<TokenDataTag>,
         got_tok : Box<TokenData>,
     },
+}
+
+
+#[derive(Debug)]
+pub struct ParserErr {
+    pub parser_err_data : Box<ParserErrData>,
+    pub range : Range<usize>,
+}
+
+impl ParserErr {
+    pub fn new(parser_err_data : ParserErrData, range : Range<usize>) -> ParserErr {
+        ParserErr { parser_err_data: Box::new(parser_err_data), range }
+    }
 }
 
 impl Parser {

@@ -52,12 +52,21 @@ fn get_ast(filename : &Path) -> Result<ASTNode, ExitCode> {
     });
     let content = content_bytes.iter().map(|b| *b as char).collect::<Vec<_>>();
     let tokens = lexer::lex(content);
+    let tokens = match tokens {
+        Ok(t) => t,
+        Err(e) => {
+            let content = &String::from_utf8(content_bytes).unwrap();
+            return Err(print_error::print_lexer_error(e, filename, content))
+        },
+    };
+
     let ast = ast::parse(tokens);
     let ast = match ast {
-            Ok(a) => a,
-            Err(e) => {
-                return Err(print_error::print_parser_error(e, filename, &String::from_utf8(content_bytes).unwrap())) 
-            },
+        Ok(a) => a,
+        Err(e) => {
+            let content = &String::from_utf8(content_bytes).unwrap();
+            return Err(print_error::print_parser_error(e, filename, content))
+        },
     };
 
     Ok(ast)

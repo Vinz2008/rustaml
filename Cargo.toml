@@ -8,6 +8,7 @@ ariadne = "0.5.1"
 clap = { version = "4.5.39", features = ["derive"] }
 enum-tags = "0.1.0"
 enum-tags-traits = "0.1.0"
+levenshtein = "1.0.5"
 rustc-hash = "2.1.1"
 
 [profile.release]

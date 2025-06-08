@@ -147,6 +147,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
+name = "levenshtein"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db13adb97ab515a3691f56e4dbab09283d0b86cb45abd991d8634a9d6f501760"
+
+[[package]]
 name = "once_cell_polyfill"
 version = "1.70.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -178,6 +184,7 @@ dependencies = [
  "clap",
  "enum-tags",
  "enum-tags-traits",
+ "levenshtein",
  "rustc-hash",
 ]
 
