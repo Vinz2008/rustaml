@@ -11,6 +11,8 @@ let fib i : int -> int = if i <= 1 then i else fib (i - 1) + fib (i - 2)   ;;
 
 let c = fib 14 ;;
 
+// let c2 = fib 27 ;;
+
 let f = 2.6 ;;
 
 let test_f f_arg : float -> float = f_arg + 2.0 ;;
@@ -28,3 +30,13 @@ let e = test_match 1 ;;
 let f = test_match 3 ;;
 
 let g = let h = 7 in h - 2 ;;
+
+let i = "aaa" ;;
+
+let test_match_string s : str -> bool = 
+    match s with
+    | "hello" -> true
+    | not_hello -> false ;;
+
+let j = test_match_string "hello" ;;
+let k = test_match_string "world" ;; 

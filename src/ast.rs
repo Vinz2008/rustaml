@@ -18,8 +18,10 @@ pub enum Pattern {
     Integer(i64), // | 2
     Float(f64), // | 2.6
     Range(i64, i64, bool), // bool is for the inclusivity | 0..1
+    String(String), // | "test"
     Underscore,
 }
+
 
 // TODO : flatten AST nodes (https://www.cs.cornell.edu/~asampson/blog/flattening.html)
 #[derive(Debug, Clone, PartialEq)]
@@ -57,6 +59,9 @@ pub enum ASTNode {
     Float {
         nb: f64,
     },
+    String {
+        str : String
+    },
     Boolean {
         b : bool,
     },
@@ -65,6 +70,7 @@ pub enum ASTNode {
         lhs: Box<ASTNode>,
         rhs: Box<ASTNode>,
     },
+    // TODO : UnaryOp
     FunctionCall {
         name : String,
         args : Vec<ASTNode>,
@@ -77,6 +83,7 @@ pub enum Type {
     Float,
     Bool,
     Function(Vec<Type>, Box<Type>),
+    Str,
     Unit,
 }
 
@@ -86,6 +93,7 @@ impl ASTNode {
             ASTNode::Boolean { b: _ } => Type::Bool,
             ASTNode::Integer { nb: _ } => Type::Integer,
             ASTNode::Float { nb : _ } => Type::Float,
+            ASTNode::String { str: _ } => Type::Str,
             ASTNode::BinaryOp { op, lhs: _, rhs: _ } => op.get_type(), // TODO
             ASTNode::VarDecl { name: _, val: _, body: _ } => Type::Unit, // TODO
             ASTNode::FunctionCall { name, args: _ } => parser.vars.get(name).unwrap().clone(), // need to create a hashmap for function types, in parser context ?
@@ -189,6 +197,10 @@ fn parse_float(nb: f64) -> ASTNode {
     ASTNode::Float { nb }
 }
 
+fn parse_string(buf : Vec<char>) -> ASTNode {
+    ASTNode::String { str: buf.iter().collect() }
+}
+
 
 fn parse_annotation_simple(parser: &mut Parser) -> Result<Type, ParserErr> {
     let tok = parser.eat_tok(None)?;
@@ -199,6 +211,7 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<Type, ParserErr> {
                 "int" => Type::Integer,
                 "bool" => Type::Bool,
                 "float" => Type::Float,
+                "str" => Type::Str,
                 _ => panic!("Unknown type"),
             };
             Ok(type_annot)
@@ -448,7 +461,8 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
             } 
         },
         TokenData::Float(nb) => Pattern::Float(nb),
-        t => panic!("Unexpected token in pattern : {:?}", t),
+        TokenData::String(s) => Pattern::String(s.iter().collect()),
+        t => return Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: Box::new(t) }, pattern_tok.range)),
     };
 
     Ok(pattern)
@@ -489,6 +503,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         TokenData::Match => parse_match(parser),
         TokenData::Integer(nb) => Ok(parse_integer(nb)),
         TokenData::Float(nb) => Ok(parse_float(nb)),
+        TokenData::String(buf) => Ok(parse_string(buf)),
         TokenData::Identifier(buf) => parse_identifier_expr(parser, buf),
         TokenData::True => Ok(ASTNode::Boolean { b: true }),
         TokenData::False => Ok(ASTNode::Boolean { b: false }),

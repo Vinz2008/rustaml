@@ -54,6 +54,7 @@ pub fn print_lexer_error(lexer_error : LexerErr, filename : &Path, content : &st
     match *lexer_error.lexer_err_data {
         LexerErrData::NumberParsingFailure(b) => print_number_parsing_failure(error_nb, range, filename_str, content, *b),
         LexerErrData::InvalidOp(s) => print_invalid_op_error(error_nb, range, filename_str, content, *s),
+        LexerErrData::UnexpectedEOF => print_unexpected_eof_error(error_nb as u32, range, filename_str, content),
     }
     
 
@@ -63,9 +64,12 @@ pub fn print_lexer_error(lexer_error : LexerErr, filename : &Path, content : &st
 // TODO : refactor this code ? (make only one function ?)
 
 fn print_unexpected_eof_error(error_nb : u32, range : Range<usize>, filename : &str, content : &str){
-    Report::build(ReportKind::Error, (filename, range))
+    let mut colors = ColorGenerator::new();
+    let a = colors.next();
+    Report::build(ReportKind::Error, (filename, range.clone()))
     .with_code(error_nb as u32)
     .with_message("Unexpected end of file")
+     .with_label(Label::new((filename, range.clone())).with_message("There is here a EOF that should not be here").with_color(a))
     .finish()
     .print((filename, Source::from(content))).unwrap();
 }

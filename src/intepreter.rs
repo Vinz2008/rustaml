@@ -8,6 +8,7 @@ enum Val {
     Integer(i64),
     Float(f64),
     Bool(bool),
+    String(Box<String>), // TODO : replace the boxed string with a index to an interned string
     Unit,
 }
 
@@ -36,6 +37,7 @@ impl Val {
             Val::Integer(_) => Type::Integer,
             Val::Float(_) => Type::Float,
             Val::Bool(_) => Type::Bool,
+            Val::String(_) => Type::Str,
             Val::Unit => Type::Unit, 
         }
     }
@@ -180,7 +182,7 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : &ASTNode, patt
                             return interpret_node(context, pattern_expr);
                         }
                     },
-                    _ => panic!("matching an expression that is not an integer with an integer pattern"),
+                    _ => panic!("matching an expression that is not a float with a float pattern"),
                 }
             },
             Pattern::Range(start, end, inclusivity) => {
@@ -194,6 +196,16 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : &ASTNode, patt
                             if *start < matched_nb && matched_nb < *end {
                                 return interpret_node(context, pattern_expr);
                             }
+                        }
+                    },
+                    _ => panic!("matching an expression that is not an integer with an range integer pattern"),
+                }
+            },
+            Pattern::String(s) => {
+                match matched_expr_val {
+                    Val::String(ref matched_str) => {
+                        if s == matched_str.as_ref() {
+                            return interpret_node(context, pattern_expr);
                         }
                     },
                     _ => panic!("matching an expression that is not an integer with an integer pattern"),
@@ -246,6 +258,7 @@ fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
         ASTNode::FunctionCall { name, args } => interpret_function_call(context, name, args.clone()),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, cond_expr, then_body, else_body),
         ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr.as_ref(), patterns.as_slice()),
+        ASTNode::String { str } => Val::String(Box::new(str.clone())),
         //n => panic!("unexpected ast node when interpreting : {:?}", n),
     }
 }

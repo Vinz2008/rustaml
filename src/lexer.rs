@@ -53,6 +53,7 @@ impl Operator {
 #[derive(Debug, Clone, Tag, PartialEq)]
 pub enum TokenData {
     Identifier(Vec<char>),
+    String(Vec<char>),
     Op(Operator),
     Integer(i64),
     Float(f64),
@@ -96,6 +97,7 @@ struct Lexer {
 pub enum LexerErrData {
     NumberParsingFailure(Box<Vec<char>>),
     InvalidOp(Box<String>),
+    UnexpectedEOF,
 }
 
 
@@ -287,6 +289,24 @@ fn lex_op(lexer: &mut Lexer) -> Result<Option<Token>, LexerErr> {
 
 }
 
+fn lex_string(lexer: &mut Lexer) -> Result<Token, LexerErr> {
+    let start_pos = lexer.pos-1;
+    let mut buf = Vec::new();
+    while let Some(c) = lexer.current_char() && c != '\"' {
+        let c = lexer.read_char().unwrap();
+        buf.push(c);
+    }
+
+    let range = start_pos..lexer.pos+1;
+    
+    match lexer.read_char() {
+        Some('\"') => {},
+        Some(_) => unreachable!(),
+        None => return Err(LexerErr::new(LexerErrData::UnexpectedEOF, lexer.pos..lexer.pos))
+    }
+    Ok(Token::new(TokenData::String(buf), range))
+}
+
 pub fn lex(content: Vec<char>) -> Result<Vec<Token>, LexerErr> {
     //dbg!(&content);
     let mut lexer = Lexer { content, pos: 0 };
@@ -314,6 +334,7 @@ pub fn lex(content: Vec<char>) -> Result<Vec<Token>, LexerErr> {
                 }
             },
             '|' => Some(Token::new(TokenData::Pipe, lexer.pos-1..lexer.pos-1)),
+            '\"' => Some(lex_string(&mut lexer)?),
             op_char if Operator::is_char_op(op_char) => lex_op(&mut lexer)?,
             '0'..='9' => Some(lex_nb(&mut lexer)?),
             'a'..='z' | 'A'..='Z' | '_' => Some(lex_alphabetic(&mut lexer)),
