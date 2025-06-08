@@ -26,3 +26,5 @@ let test_match a : int =
 let d = test_match 0 ;;
 let e = test_match 1 ;;
 let f = test_match 3 ;;
+
+let g = let h = 7 in h - 2 ;;

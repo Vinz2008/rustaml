@@ -226,10 +226,20 @@ fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
         ASTNode::Float { nb } => Val::Float(*nb),
         ASTNode::Integer { nb } => Val::Integer(*nb),
         ASTNode::Boolean { b } => Val::Bool(*b),
-        ASTNode::VarDecl { name, val } => {
+        ASTNode::VarDecl { name, val, body } => {
             let val_node = interpret_node(context, val.as_ref());
             context.vars.insert(name.clone(), val_node);
-            Val::Unit
+            match body {
+                Some(b) => {
+                    let body_val = interpret_node(context, b.as_ref());
+                    context.vars.remove(name);
+                    body_val
+                },
+                None => {
+                    Val::Unit
+                }
+            }
+            
         },
         ASTNode::VarUse { name } => context.vars.get(name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", &name)).clone(),
         ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, *op, lhs.as_ref(), rhs.as_ref()),

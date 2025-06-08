@@ -37,6 +37,7 @@ pub enum ASTNode {
         // TODO : intern all strings and replace these by refs to strings ?
         name: String,
         val: Box<ASTNode>,
+        body : Option<Box<ASTNode>>,
     },
     VarUse {
         name : String,
@@ -86,7 +87,7 @@ impl ASTNode {
             ASTNode::Integer { nb: _ } => Type::Integer,
             ASTNode::Float { nb : _ } => Type::Float,
             ASTNode::BinaryOp { op, lhs: _, rhs: _ } => op.get_type(), // TODO
-            ASTNode::VarDecl { name: _, val: _ } => Type::Unit, // TODO
+            ASTNode::VarDecl { name: _, val: _, body: _ } => Type::Unit, // TODO
             ASTNode::FunctionCall { name, args: _ } => parser.vars.get(name).unwrap().clone(), // need to create a hashmap for function types, in parser context ?
             ASTNode::VarUse { name} => match parser.vars.get(name){
                 Some(t) => t.clone(),
@@ -287,11 +288,26 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         if var_type.is_none() {
             var_type = Some(val_node.get_type(parser))
         }
+
         parser.vars.insert(name.clone(), var_type.unwrap());
+
+        let body = match parser.current_tok_data() {
+            Some(TokenData::In) => {
+                parser.eat_tok(Some(TokenDataTag::In))?;
+                Some(Box::new(parse_node(parser)?))
+            },
+            _ => None,
+        };
+
+        if body.is_some() {
+            // if has body, is a local variable
+            parser.vars.remove(&name);
+        }
 
         ASTNode::VarDecl {
             name,
             val: Box::new(val_node),
+            body: body, // TODO
         }
     };
 
