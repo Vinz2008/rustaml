@@ -26,6 +26,7 @@ impl PartialOrd for Val {
         match (self, other) {
             (Val::Integer(nb_self), Val::Integer(nb_other)) => Some(nb_self.cmp(nb_other)),
             (Val::Float(nb_self), Val::Float(nb_other)) => nb_self.partial_cmp(nb_other),
+            (Val::String(str_self), Val::String(str_other)) => str_self.as_ref().partial_cmp(&str_other),
             _ => unreachable!(), // should do typechecking to avoid this
         }
     }
@@ -90,6 +91,20 @@ fn interpret_binop_nb(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
 }
 
 fn interpret_binop_bool(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+    let lhs_val_type = lhs_val.get_type();
+    let rhs_val_type = rhs_val.get_type();
+    if rhs_val.get_type() != lhs_val.get_type() {
+        panic!("Not the same types around operators (lhs : {:?}, rhs : {:?})", lhs_val_type, rhs_val_type)
+    }
+    
+    match op {
+        Operator::IsEqual => Val::Bool(lhs_val == rhs_val),
+        Operator::InferiorOrEqual => Val::Bool(lhs_val <= rhs_val),
+        _ => unreachable!()
+    }
+}
+
+fn interpret_binop_str(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let lhs_val_type = lhs_val.get_type();
     let rhs_val_type = rhs_val.get_type();
     if rhs_val.get_type() != lhs_val.get_type() {
