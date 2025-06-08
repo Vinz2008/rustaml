@@ -108,7 +108,7 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
         ParserErrData::UnexpectedEOF => print_unexpected_eof_error(error_nb, range, filename_str, content),
         ParserErrData::WrongTok { expected_tok, got_tok } => print_wrong_tok_error(error_nb, range, filename_str, content, expected_tok, got_tok),
         ParserErrData::UnexpectedTok {tok } => print_unexpected_tok_error(error_nb, range, filename_str, content, tok),
-        ParserErrData::TypeInferenceErr { err_data } => todo!(),
+        ParserErrData::TypeInferenceErr { arg_name } => todo!(),
     };
 
     ExitCode::FAILURE

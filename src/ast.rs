@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
-use crate::{lexer::{Operator, Token, TokenData, TokenDataTag}, type_inference::{infer_var_type, TypeInferenceErr, TypeInferenceErrData}};
+use crate::{lexer::{Operator, Token, TokenData, TokenDataTag}, type_inference::{infer_var_type, TypeInferenceErr}};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Arg {
@@ -147,7 +147,7 @@ pub enum ParserErrData {
         got_tok : TokenData,
     },
     TypeInferenceErr {
-        err_data: TypeInferenceErrData
+        arg_name: String,
     }
 }
 
@@ -167,7 +167,7 @@ impl ParserErr {
 impl From<TypeInferenceErr> for ParserErr {
     fn from(err: TypeInferenceErr) -> Self {
         ParserErr::new(
-            ParserErrData::TypeInferenceErr { err_data: err.data },
+            ParserErrData::TypeInferenceErr { arg_name: *err.arg_name },
             err.range,
         )
     }
