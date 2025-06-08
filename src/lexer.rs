@@ -198,7 +198,7 @@ fn lex_alphabetic(lexer: &mut Lexer) -> Token {
 
     //dbg!(&buf);
 
-    let range = start_pos..lexer.pos-1; // TODO
+    let range = start_pos..lexer.pos;
 
     // TODO : replace the match with a global keyword hashmap access, if not there,it is identifier
     let tok_data = match buf.iter().collect::<String>().as_str() {

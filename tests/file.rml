@@ -1,21 +1,21 @@
-let test i : int = 2 ;;
+let test i : int -> int = 2 ;;
 
 let a : int = test 3 ;;
 
 let b : bool = true ;;
 
-let test2 i : int = 2 ;;
+let test2 i : int -> int = 2 ;;
 
-// let fib i : int = if i <= 1  i else fib (i - 1) + fib (i - 2) ;; 
-let fib i : int = if i <= 1 then i else fib (i - 1) + fib (i - 2)   ;;
+// let fib i : int -> int = if i <= 1  i else fib (i - 1) + fib (i - 2) ;; 
+let fib i : int -> int = if i <= 1 then i else fib (i - 1) + fib (i - 2)   ;;
 
 let c = fib 14 ;;
 
 let f = 2.6 ;;
 
-let test_f f_arg : float = f_arg + 2.0 ;;
+let test_f f_arg : float -> float = f_arg + 2.0 ;;
 
-let test_match a : int = 
+let test_match a : int -> int = 
   match a with 
   | 0 -> 1
   | 2..4 -> 4

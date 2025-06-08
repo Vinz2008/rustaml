@@ -28,10 +28,13 @@ fn print_wrong_tok_error(error_nb : u8, range : Range<usize>, filename : &str, c
 }
 
 fn print_unexpected_tok_error(error_nb : u8, range : Range<usize>, filename : &str, content : &str, tok : TokenData){
+    let mut colors = ColorGenerator::new();
+    let a = colors.next();
     black_box(tok); // TODO  : for linting purposes only, remove this after writing the proper error messages cotnaining the token
-    Report::build(ReportKind::Error, (filename, range))
+    Report::build(ReportKind::Error, (filename, range.clone()))
     .with_code(error_nb)
-    .with_message("Unexpected end of file")
+    .with_message("Unexpected Token")
+    .with_label(Label::new((filename, range.clone())).with_message("This is the wrong token").with_color(a))
     .finish()
     .print((filename, Source::from(content))).unwrap();
 }
