@@ -114,12 +114,15 @@ fn init_precedences() -> FxHashMap<Operator, i32> {
     let mut p = FxHashMap::default();
     // TODO : reserve map size ?
     p.insert(Operator::IsEqual, 10);
+    p.insert(Operator::Superior, 10);
+    p.insert(Operator::Inferior, 10);
     p.insert(Operator::SuperiorOrEqual, 10);
     p.insert(Operator::InferiorOrEqual, 10);
     p.insert(Operator::Plus, 20);
     p.insert(Operator::Minus, 20);
     p.insert(Operator::Mult, 30);
     p.insert(Operator::Div, 30);
+    p.insert(Operator::StrAppend, 30); // TODO : what precedence for this ?
     p
 }
 

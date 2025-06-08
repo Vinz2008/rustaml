@@ -16,20 +16,23 @@ pub enum Operator {
     IsEqual,
     SuperiorOrEqual,
     InferiorOrEqual,
-    // TODO : add Superior and Inferior
+    Superior,
+    Inferior,
+    StrAppend, // ^
 }
 
 impl Operator {
     pub const OPERATORS: &'static [&'static str] = &["+", "-", "*", "/", "=", "==", ">=", "<="];
     pub fn get_type(&self) -> Type {
         match self {
-            Self::IsEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual => Type::Bool,
+            Self::StrAppend => Type::Str,
+            Self::IsEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => Type::Bool,
             _ => Type::Integer,
         }
     }
 
     fn is_char_op(c : char) -> bool {
-        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>')
+        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^')
     }
 
     // TODO : pass char slice to support multi chars op
@@ -43,6 +46,9 @@ impl Operator {
             "==" => Operator::IsEqual,
             ">=" => Operator::SuperiorOrEqual,
             "<=" => Operator::InferiorOrEqual,
+            ">" => Operator::Superior,
+            "<" => Operator::Inferior,
+            "^" => Operator::StrAppend,
             _ => return Err(LexerErr::new(LexerErrData::InvalidOp(Box::new(s.to_owned())), range.clone())),
         };
         Ok(op)

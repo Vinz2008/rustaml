@@ -43,3 +43,6 @@ let k = test_match_string "world" ;;
 
 let l = "hello" == "hello" ;;
 let m = "hello" == "world" ;;
+
+
+let o = "hello" ^ " " ^ "world" ;;

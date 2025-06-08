@@ -68,7 +68,7 @@ fn interpret_binop_nb(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
 
     let rhs_nb = match rhs_val {
         Val::Integer(nb) => nb,
-        _ => panic!("Expected number in left-side of binary operation"),
+        _ => panic!("Expected number in right-side of binary operation"),
     };
     // TODO : do unchecked operations ?
     let res_nb = match op {
@@ -99,21 +99,27 @@ fn interpret_binop_bool(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     
     match op {
         Operator::IsEqual => Val::Bool(lhs_val == rhs_val),
+        Operator::SuperiorOrEqual => Val::Bool(lhs_val >= rhs_val),
         Operator::InferiorOrEqual => Val::Bool(lhs_val <= rhs_val),
+        Operator::Superior => Val::Bool(lhs_val > rhs_val),
+        Operator::Inferior => Val::Bool(lhs_val < rhs_val),
         _ => unreachable!()
     }
 }
 
 fn interpret_binop_str(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
-    let lhs_val_type = lhs_val.get_type();
-    let rhs_val_type = rhs_val.get_type();
-    if rhs_val.get_type() != lhs_val.get_type() {
-        panic!("Not the same types around operators (lhs : {:?}, rhs : {:?})", lhs_val_type, rhs_val_type)
-    }
+    let lhs_str = match lhs_val {
+        Val::String(s) => *s,
+        _ => panic!("Expected string in left-side of binary operation"),
+    };
+
+    let rhs_str = match rhs_val {
+        Val::String(s) => *s,
+        _ => panic!("Expected string in left-side of binary operation"),
+    };
     
     match op {
-        Operator::IsEqual => Val::Bool(lhs_val == rhs_val),
-        Operator::InferiorOrEqual => Val::Bool(lhs_val <= rhs_val),
+        Operator::StrAppend => Val::String(Box::new(lhs_str + &rhs_str)),
         _ => unreachable!()
     }
 }
@@ -125,6 +131,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : &ASTNode
     match op.get_type() {
         Type::Integer => interpret_binop_nb(op, lhs_val, rhs_val),
         Type::Bool => interpret_binop_bool(op, lhs_val, rhs_val),
+        Type::Str => interpret_binop_str(op, lhs_val, rhs_val),
         _ => unreachable!(),
     }
 
