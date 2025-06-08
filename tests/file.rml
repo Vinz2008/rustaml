@@ -4,7 +4,7 @@ let a : int = test 3 ;;
 
 let b : bool = true ;;
 
-let test2 i : int -> int = 2 ;;
+let test2 i = i + 2 ;;
 
 // let fib i : int -> int = if i <= 1  i else fib (i - 1) + fib (i - 2) ;; 
 let fib i : int -> int = if i <= 1 then i else fib (i - 1) + fib (i - 2)   ;;

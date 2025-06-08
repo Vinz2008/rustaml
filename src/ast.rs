@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
-use crate::{lexer::{Operator, Token, TokenData, TokenDataTag}};
+use crate::{lexer::{Operator, Token, TokenData, TokenDataTag}, type_inference::{infer_var_type, TypeInferenceErr, TypeInferenceErrData}};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Arg {
@@ -84,11 +84,12 @@ pub enum Type {
     Bool,
     Function(Vec<Type>, Box<Type>),
     Str,
+    Any, // equivalent to 'a
     Unit,
 }
 
 impl ASTNode {
-    fn get_type(&self, parser: &Parser) -> Type {
+    pub fn get_type(&self, parser: &Parser) -> Type {
         match self {
             ASTNode::Boolean { b: _ } => Type::Bool,
             ASTNode::Integer { nb: _ } => Type::Integer,
@@ -126,9 +127,10 @@ fn init_precedences() -> FxHashMap<Operator, i32> {
     p
 }
 
-struct Parser {
+pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    // optional types because of type inference of return values of functions that need to be inserted for recursive functions (TODO ?)
     vars : FxHashMap<String, Type>, // include functions (which are just vars with function types)
     precedences : FxHashMap<Operator, i32>,
 }
@@ -137,13 +139,16 @@ struct Parser {
 pub enum ParserErrData {
     UnexpectedEOF,
     UnexpectedTok {
-        tok : Box<TokenData>,
+        tok : TokenData,
     },
     WrongTok {
         // TODO : put more infos ? (entire token ? range ?)
-        expected_tok : Box<TokenDataTag>,
-        got_tok : Box<TokenData>,
+        expected_tok : TokenDataTag,
+        got_tok : TokenData,
     },
+    TypeInferenceErr {
+        err_data: TypeInferenceErrData
+    }
 }
 
 
@@ -156,6 +161,15 @@ pub struct ParserErr {
 impl ParserErr {
     pub fn new(parser_err_data : ParserErrData, range : Range<usize>) -> ParserErr {
         ParserErr { parser_err_data: Box::new(parser_err_data), range }
+    }
+}
+
+impl From<TypeInferenceErr> for ParserErr {
+    fn from(err: TypeInferenceErr) -> Self {
+        ParserErr::new(
+            ParserErrData::TypeInferenceErr { err_data: err.data },
+            err.range,
+        )
     }
 }
 
@@ -172,8 +186,8 @@ impl Parser {
 
         if let Some(tok_type) = token_type && self.tokens[self.pos].tok_data.tag() != tok_type {
             return Err(ParserErr::new(ParserErrData::WrongTok {
-                expected_tok: Box::new(tok_type),
-                got_tok: Box::new(self.tokens[self.pos].tok_data.clone()),
+                expected_tok: tok_type,
+                got_tok: self.tokens[self.pos].tok_data.clone(),
             }, self.tokens[self.pos].range.clone()));
         }
         
@@ -223,7 +237,7 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<Type, ParserErr> {
             parser.eat_tok(Some(TokenDataTag::ParenClose))?;
             Ok(Type::Unit)
         },
-        _ => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: Box::new(tok.tok_data) }, tok.range.clone())),
+        _ => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: tok.tok_data }, tok.range.clone())),
     }
 }
 
@@ -270,6 +284,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     let node = if matches!(parser.current_tok_data(), Some(TokenData::Identifier(_))) {
         // function definition
         let mut arg_names = Vec::new();
+        let mut arg_ranges = Vec::new();
         while matches!(parser.current_tok_data(), Some(TokenData::Identifier(_))) {
             let arg_identifier = parser.eat_tok(Some(TokenDataTag::Identifier)).unwrap();
             let arg_name = match arg_identifier.tok_data {
@@ -277,24 +292,33 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
                 _ => unreachable!(),
             };
 
+            arg_ranges.push(arg_identifier.range);
+
             arg_names.push(arg_name);
         }
 
         //let arg_types = vec![Type::Number; args.len()];
 
-        let function_type = match parser.current_tok_data() {
+        let function_type: Type = match parser.current_tok_data() {
             Some(TokenData::Colon) => parse_type_annotation(parser)?,
-            Some(_) | None => Type::Function(vec![Type::Unit], Box::new(Type::Unit)), // TODO : type inference
+            Some(_) | None => {
+                Type::Function(vec![Type::Any; arg_names.len()], Box::new(Type::Any))
+                /*let mut arg_types = Vec::new();
+                for arg_name in &arg_names {
+                    arg_types.push(infer_var_type(parser, arg_name, node));
+                }
+                Type::Function(arg_types, None)*/
+            }
         };
-        let (arg_types, return_type) = match function_type {
+        let (arg_types, mut return_type) = match function_type {
             Type::Function(a, r) => (a, r),
             _ => panic!("Expected a function type"), // TODO 
         };
 
     
-        parser.vars.insert(name.clone(),  Type::Function(arg_types.clone(), return_type));
+        parser.vars.insert(name.clone(),  Type::Function(arg_types.clone(), return_type.clone()));
 
-        let args = arg_names.iter().zip(arg_types).map(|x| Arg { name: x.0.clone(), arg_type: x.1 }).collect::<Vec<Arg>>();
+        let mut args = arg_names.iter().zip(arg_types.clone()).map(|x| Arg { name: x.0.clone(), arg_type: x.1 }).collect::<Vec<Arg>>();
 
         for Arg { name, arg_type} in &args {
             parser.vars.insert(name.clone(), arg_type.clone());
@@ -310,21 +334,30 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
 
         let body = parse_node(parser)?;
 
+        if matches!(return_type.as_ref(), Type::Any){
+            let body_type = body.get_type(parser);
+            return_type = Box::new(body_type);
+        }
         
-        let body_type = body.get_type(parser);
 
         for Arg {name, arg_type: _} in &args {
             parser.vars.remove(name);
         }
 
+        for (arg, arg_range) in (&mut args).iter_mut().zip(arg_ranges) {
+            if matches!(arg.arg_type, Type::Any){
+                arg.arg_type = infer_var_type(parser, &arg.name, &body, &arg_range)?;
+            }
+        }
 
-        //parser.vars.insert(name.clone(),  Type::Function(arg_types, Box::new(body_type.clone()))); // TODO : type inference
+
+        parser.vars.insert(name.clone(),  Type::Function(arg_types.clone(), return_type.clone())); // reinsertion with real types
         
         ASTNode::FunctionDefinition { 
             name, 
             args, 
             body: Box::new(body),
-            return_type: body_type,
+            return_type: *return_type,
         }
     } else {
         let mut var_type = match parser.current_tok_data() {
@@ -336,7 +369,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         let tok = parser.eat_tok(Some(TokenDataTag::Op))?;
         match &tok.tok_data {
             TokenData::Op(Operator::Equal) => {},
-            _ => return Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: Box::new(tok.tok_data) }, tok.range)),
+            _ => return Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: tok.tok_data }, tok.range)),
         };
 
         let val_node = parse_node(parser)?;
@@ -465,7 +498,7 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
         },
         TokenData::Float(nb) => Pattern::Float(nb),
         TokenData::String(s) => Pattern::String(s.iter().collect()),
-        t => return Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: Box::new(t) }, pattern_tok.range)),
+        t => return Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, pattern_tok.range)),
     };
 
     Ok(pattern)
@@ -511,7 +544,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         TokenData::True => Ok(ASTNode::Boolean { b: true }),
         TokenData::False => Ok(ASTNode::Boolean { b: false }),
         TokenData::ParenOpen => parse_parenthesis(parser),
-        t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: Box::new(t) }, tok.range))
+        t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))
     };
 
     return node;

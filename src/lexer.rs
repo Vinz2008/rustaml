@@ -31,6 +31,19 @@ impl Operator {
         }
     }
 
+    // returns Any if it is the type of the other operand
+    pub fn get_operand_type(&self) -> Option<Type> {
+        let t = match self {
+            Self::IsEqual => Type::Any,
+            Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => return None,
+            Self::StrAppend => Type::Str,
+            Self::Equal => unreachable!(),
+            _ => Type::Integer,
+        };
+
+        Some(t)
+    }
+
     fn is_char_op(c : char) -> bool {
         matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^')
     }
@@ -89,7 +102,7 @@ pub struct Token {
 
 impl Token {
     pub fn new(tok_data : TokenData, range : Range<usize>) -> Token {
-        Token { tok_data, range }
+        Token { tok_data, range: range }
     }
 }
 

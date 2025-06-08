@@ -106,8 +106,9 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
 
     match *parser_error.parser_err_data {
         ParserErrData::UnexpectedEOF => print_unexpected_eof_error(error_nb, range, filename_str, content),
-        ParserErrData::WrongTok { expected_tok, got_tok } => print_wrong_tok_error(error_nb, range, filename_str, content, *expected_tok, *got_tok),
-        ParserErrData::UnexpectedTok {tok } => print_unexpected_tok_error(error_nb, range, filename_str, content, *tok),
+        ParserErrData::WrongTok { expected_tok, got_tok } => print_wrong_tok_error(error_nb, range, filename_str, content, expected_tok, got_tok),
+        ParserErrData::UnexpectedTok {tok } => print_unexpected_tok_error(error_nb, range, filename_str, content, tok),
+        ParserErrData::TypeInferenceErr { err_data } => todo!(),
     };
 
     ExitCode::FAILURE
