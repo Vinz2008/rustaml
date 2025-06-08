@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{env::var, ops::Range};
 
 use crate::ast::{ASTNode, Parser, Pattern, Type};
 
@@ -111,8 +111,26 @@ pub fn _infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: 
                 None
             }
         },
-        ASTNode::FunctionCall { name: _, args: _ } => {
-            todo!()
+        ASTNode::FunctionCall { name: function_name, args } => {
+            match parser.vars.get(function_name) {
+                Some(Type::Function(a, ret)) => {
+                    for (arg, arg_type) in args.iter().zip(a) {
+                        match arg {
+                            ASTNode::VarUse { name } if name == var_name => {
+                                return Some(arg_type.clone())
+                            },
+                            _ => {
+                                let inferred_arg_type = _infer_var_type(parser, var_name, arg, range);
+                                if inferred_arg_type.is_some() {
+                                    return inferred_arg_type;
+                                }
+                            }
+                        }
+                    }
+                    None
+                },
+                _ => None,
+            }
         },
 
     }

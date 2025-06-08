@@ -12,15 +12,6 @@ enum Val {
     Unit,
 }
 
-/*impl Ord for Val {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (Val::Number(nb_self), Val::Number(nb_other)) => nb_self.cmp(nb_other),
-            _ => unreachable!(), // should do typechecking to avoid this
-        }
-    }
-}*/
-
 impl PartialOrd for Val {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
