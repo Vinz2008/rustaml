@@ -93,7 +93,7 @@ impl PartialOrd for Val {
         match (self, other) {
             (Val::Integer(nb_self), Val::Integer(nb_other)) => Some(nb_self.cmp(nb_other)),
             (Val::Float(nb_self), Val::Float(nb_other)) => nb_self.partial_cmp(nb_other),
-            (Val::String(str_self), Val::String(str_other)) => str_self.as_ref().partial_cmp(&str_other),
+            (Val::String(str_self), Val::String(str_other)) => str_self.as_ref().partial_cmp(str_other),
             _ => unreachable!(), // should do typechecking to avoid this
         }
     }
@@ -312,7 +312,7 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : &ASTNode, patt
                     Val::List(ref l) => l,
                     _ => panic!("matching an expression that is not a list with a list pattern"),
                 };
-                if l.len() == 0 && matches!(matched_expr_list.as_ref(), List::None){
+                if l.is_empty() && matches!(matched_expr_list.as_ref(), List::None){
                     return interpret_node(context, pattern_expr);
                 }
                 

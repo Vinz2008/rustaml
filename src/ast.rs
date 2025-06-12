@@ -351,7 +351,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
             parser.vars.remove(name);
         }
 
-        for (arg, arg_range) in (&mut args).iter_mut().zip(arg_ranges) {
+        for (arg, arg_range) in args.iter_mut().zip(arg_ranges) {
             if matches!(arg.arg_type, Type::Any){
                 arg.arg_type = infer_var_type(parser, &arg.name, &body, &arg_range)?;
             }
@@ -402,7 +402,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         ASTNode::VarDecl {
             name,
             val: Box::new(val_node),
-            body: body, // TODO
+            body,
         }
     };
 

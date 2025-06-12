@@ -16,11 +16,10 @@ fn infer_var_type_pattern(parser : &Parser, pattern: &Pattern, body : &ASTNode, 
         Pattern::List(l) => { 
             let elem_type = match l.first() {
                 Some(first) => { 
-                    let t = match infer_var_type_pattern(parser, first, body, range) {
+                    match infer_var_type_pattern(parser, first, body, range) {
                         Some(t) => t,
                         None => Type::Any,
-                    };
-                    t
+                    }
                 },
                 None => Type::Any,
             };
@@ -77,7 +76,7 @@ pub fn _infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: 
             } 
             None
         },
-        ASTNode::VarUse { name } => None, // no infos on type in var use
+        ASTNode::VarUse { name: _ } => None, // no infos on type in var use
         ASTNode::IfExpr { cond_expr, then_body, else_body } => {
             let cond_type_inferred = _infer_var_type(parser, var_name, cond_expr, range);
             if cond_type_inferred.is_some(){
@@ -144,7 +143,7 @@ pub fn _infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: 
         },
         ASTNode::FunctionCall { name: function_name, args } => {
             match parser.vars.get(function_name) {
-                Some(Type::Function(a, ret)) => {
+                Some(Type::Function(a, _)) => {
                     for (arg, arg_type) in args.iter().zip(a) {
                         match arg {
                             ASTNode::VarUse { name } if name == var_name => {

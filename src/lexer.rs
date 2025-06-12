@@ -105,7 +105,7 @@ pub struct Token {
 
 impl Token {
     pub fn new(tok_data : TokenData, range : Range<usize>) -> Token {
-        Token { tok_data, range: range }
+        Token { tok_data, range }
     }
 }
 
