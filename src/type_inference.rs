@@ -1,12 +1,20 @@
-use std::{env::var, ops::Range};
+use std::ops::Range;
 
 use crate::ast::{ASTNode, Parser, Pattern, Type};
 
 
-fn infer_var_type_pattern(name : &str, pattern: &Pattern) -> Option<Type> {
+fn infer_var_type_pattern(parser : &Parser, pattern: &Pattern, body : &ASTNode, range : &Range<usize>) -> Option<Type> {
     // TODO
-    
-    todo!()
+    match pattern {
+        Pattern::Float(_) => Some(Type::Float),
+        Pattern::Integer(_) | Pattern::Range(_, _, _) => Some(Type::Integer),
+        Pattern::String(_) => Some(Type::Str),
+        Pattern::Underscore => None,
+        Pattern::VarName(var_name) => {
+            // get the type of the var name in the body
+            _infer_var_type(parser, var_name, body, range)
+        }
+    }
 }
 
 pub struct TypeInferenceErr {
@@ -67,13 +75,16 @@ pub fn _infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: 
             if matched_expr_type_inferred.is_some(){
                 return matched_expr_type_inferred;
             }
+            if matches!(matched_expr.as_ref(), ASTNode::VarUse { name: var_use_name } if var_use_name == var_name){
+                for pattern in patterns {
+                    let pattern_type_inferred = infer_var_type_pattern(parser, &pattern.0, &pattern.1, range);
+                    if pattern_type_inferred.is_some() {
+                        return pattern_type_inferred;
+                    }
+                }
+            }
 
             for pattern in patterns {
-                let pattern_type_inferred = infer_var_type_pattern(var_name, &pattern.0);
-                if pattern_type_inferred.is_some() {
-                    return pattern_type_inferred;
-                }
-
                 let pattern_body_type_inferred = _infer_var_type(parser, var_name, &pattern.1, range);
                 if pattern_body_type_inferred.is_some() {
                     return pattern_body_type_inferred;

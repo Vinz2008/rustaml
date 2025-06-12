@@ -46,3 +46,10 @@ let m = "hello" == "world" ;;
 
 
 let o = "hello" ^ " " ^ "world" ;;
+
+let test_inference_match s = 
+  match s with
+  | s -> if s == 2 then true else false ;;
+
+
+let g = test_inference_match 3 ;;
