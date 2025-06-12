@@ -19,6 +19,8 @@ pub enum Pattern {
     Float(f64), // | 2.6
     Range(i64, i64, bool), // bool is for the inclusivity | 0..1
     String(String), // | "test"
+    List(Vec<Pattern>), // | [1, 2, 3]
+    ListDestructure(String, String), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
     Underscore,
 }
 
@@ -472,6 +474,27 @@ fn parse_if(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     })
 }
 
+
+// parse the form a, b, c] (it doesn't pass the '[') , helper function to deduplicate code between the exprs and patterns 
+fn parse_list_form<T, F>(parser: &mut Parser, parse_elem_fun : F ) -> Result<Vec<T>, ParserErr>
+where F: Fn(&mut Parser) -> Result<T, ParserErr>
+{
+    let mut iter_nb = 0;
+    let mut elems = Vec::new();
+    while !matches!(parser.current_tok_data(), Some(TokenData::ArrayClose)){
+        if iter_nb != 0 {
+            parser.eat_tok(Some(TokenDataTag::Comma))?;
+        }
+        let elem_expr = parse_elem_fun(parser)?;
+        elems.push(elem_expr);
+        iter_nb += 1;
+    }
+
+    parser.eat_tok(Some(TokenDataTag::ArrayClose))?;
+
+    Ok(elems)
+}
+
 fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
     let pattern_tok = parser.eat_tok(None)?;
 
@@ -503,6 +526,11 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
         },
         TokenData::Float(nb) => Pattern::Float(nb),
         TokenData::String(s) => Pattern::String(s.iter().collect()),
+        TokenData::ArrayOpen => {
+            let elems = parse_list_form(parser, parse_pattern)?;
+
+            Pattern::List(elems)
+        },
         t => return Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, pattern_tok.range)),
     };
 
@@ -537,21 +565,7 @@ fn parse_parenthesis(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
 }
 
 fn parse_static_list(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
-    let mut iter_nb = 0;
-    let mut elems = Vec::new();
-    while !matches!(parser.current_tok_data(), Some(TokenData::ArrayClose)){
-        if iter_nb != 0 {
-            parser.eat_tok(Some(TokenDataTag::Comma))?;
-        }
-        let elem_expr = parse_node(parser)?;
-        elems.push(elem_expr);
-        iter_nb += 1;
-    }
-
-
-
-
-    parser.eat_tok(Some(TokenDataTag::ArrayClose))?;
+    let elems = parse_list_form(parser, parse_node)?;
     
     Ok(ASTNode::List { list: elems })
 }

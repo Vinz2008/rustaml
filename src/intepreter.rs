@@ -1,6 +1,5 @@
 use rustc_hash::FxHashMap;
 use core::panic;
-use std::iter;
 use std::{cmp::Ordering, process::ExitCode};
 use std::fmt::{Debug, Formatter};
 
@@ -12,6 +11,7 @@ enum List {
     None,
     Node(Val, Box<List>),
 }
+
 
 impl List {
     // intepret nodes here instead of doing before the call and passing a Vec<Val> to avoid not necessary allocations
@@ -25,27 +25,35 @@ impl List {
         l
     }
 
-    fn append(self: &mut List, val : Val){
+    fn append(&mut self, val : Val){
         let mut current: &mut List = self;
-        while let List::Node(v, next) = current {
+        while let List::Node(_, next) = current {
             current = next.as_mut();   
         }
         *current = List::Node(val, Box::new(List::None));
 
     }
+
+    fn iter(self : &List) -> ListIter<'_> {
+        ListIter { current: self }
+    }
 }
 
 
-// TODO : is it needed ?
-impl Iterator for List {
-    type Item = Val;
+struct ListIter<'a> {
+    current : &'a List
+}
 
-    fn next(self: &mut List) -> Option<<List as Iterator>::Item> { 
-        match self {
+// TODO : is it needed ?
+impl<'a> Iterator for ListIter<'a> {
+    type Item = &'a Val;
+
+    fn next(&mut self) -> Option<Self::Item> { 
+        match self.current {
             List::None => None,
             List::Node(v, next) => {
-                let current = v.clone();
-                *self = *next.clone();
+                let current = v;
+                self.current = next;
                 Some(current)
             }
         }
@@ -299,6 +307,22 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : &ASTNode, patt
                     _ => panic!("matching an expression that is not an integer with an integer pattern"),
                 }
             },
+            Pattern::List(l) => {
+                let matched_expr_list = match matched_expr_val {
+                    Val::List(ref l) => l,
+                    _ => panic!("matching an expression that is not a list with a list pattern"),
+                };
+                if l.len() == 0 && matches!(matched_expr_list.as_ref(), List::None){
+                    return interpret_node(context, pattern_expr);
+                }
+                
+                // TODO : refactor this if it is a performance problem (profile it ?)
+                for (p, v) in l.iter().zip(matched_expr_list.iter()) {
+                    // can't compare pattern and vals !!
+                    todo!()
+                }
+            },
+            Pattern::ListDestructure(_, _) => todo!(),
         }
     }
 

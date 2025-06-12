@@ -3,12 +3,31 @@ use std::ops::Range;
 use crate::ast::{ASTNode, Parser, Pattern, Type};
 
 
+// TODO : problem with type inference and Any types
+// there could be cases where we find a type with an Any, then we return the type even though a more precise type could be deduced in the body
+// solution : get all the types found instead of hot plugging, and put them in a vec, and do a .max() on it (need to implement ord on types)
+
 fn infer_var_type_pattern(parser : &Parser, pattern: &Pattern, body : &ASTNode, range : &Range<usize>) -> Option<Type> {
     // TODO
     match pattern {
         Pattern::Float(_) => Some(Type::Float),
         Pattern::Integer(_) | Pattern::Range(_, _, _) => Some(Type::Integer),
         Pattern::String(_) => Some(Type::Str),
+        Pattern::List(l) => { 
+            let elem_type = match l.first() {
+                Some(first) => { 
+                    let t = match infer_var_type_pattern(parser, first, body, range) {
+                        Some(t) => t,
+                        None => Type::Any,
+                    };
+                    t
+                },
+                None => Type::Any,
+            };
+            Some(Type::List(Box::new(elem_type)))
+            
+        },
+        Pattern::ListDestructure(_head_name, _tail_name) => Some(Type::List(Box::new(Type::Any))),
         Pattern::Underscore => None,
         Pattern::VarName(var_name) => {
             // get the type of the var name in the body
