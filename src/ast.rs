@@ -62,6 +62,9 @@ pub enum ASTNode {
     String {
         str : String
     },
+    List {
+        list : Vec<ASTNode>,
+    },
     Boolean {
         b : bool,
     },
@@ -84,6 +87,7 @@ pub enum Type {
     Bool,
     Function(Vec<Type>, Box<Type>),
     Str,
+    List(Box<Type>),
     Any, // equivalent to 'a
     Unit,
 }
@@ -95,6 +99,7 @@ impl ASTNode {
             ASTNode::Integer { nb: _ } => Type::Integer,
             ASTNode::Float { nb : _ } => Type::Float,
             ASTNode::String { str: _ } => Type::Str,
+            ASTNode::List { list } => Type::List(Box::new(list.first().unwrap().get_type(parser))),
             ASTNode::BinaryOp { op, lhs: _, rhs: _ } => op.get_type(), // TODO
             ASTNode::VarDecl { name: _, val: _, body: _ } => Type::Unit, // TODO
             ASTNode::FunctionCall { name, args: _ } => parser.vars.get(name).unwrap().clone(), // need to create a hashmap for function types, in parser context ?
@@ -531,6 +536,26 @@ fn parse_parenthesis(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     Ok(expr)
 }
 
+fn parse_static_list(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
+    let mut iter_nb = 0;
+    let mut elems = Vec::new();
+    while !matches!(parser.current_tok_data(), Some(TokenData::ArrayClose)){
+        if iter_nb != 0 {
+            parser.eat_tok(Some(TokenDataTag::Comma))?;
+        }
+        let elem_expr = parse_node(parser)?;
+        elems.push(elem_expr);
+        iter_nb += 1;
+    }
+
+
+
+
+    parser.eat_tok(Some(TokenDataTag::ArrayClose))?;
+    
+    Ok(ASTNode::List { list: elems })
+}
+
 fn parse_primary(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     let tok = parser.eat_tok(None).unwrap();
     let node = match tok.tok_data {
@@ -544,6 +569,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         TokenData::True => Ok(ASTNode::Boolean { b: true }),
         TokenData::False => Ok(ASTNode::Boolean { b: false }),
         TokenData::ParenOpen => parse_parenthesis(parser),
+        TokenData::ArrayOpen => parse_static_list(parser),
         t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))
     };
 

@@ -44,6 +44,17 @@ fn print_invalid_op_error(error_nb : u8, range : Range<usize>, filename : &str, 
     .print((filename, Source::from(content))).unwrap();
 }
 
+fn print_unexpected_char_error(error_nb : u8, range : Range<usize>, filename : &str, content : &str, c : char){
+    let mut colors = ColorGenerator::new();
+    let a = colors.next();
+    Report::build(ReportKind::Error, (filename, range.clone()))
+    .with_code(error_nb)
+    .with_message(format!("Unexpected char \'{}\'", c))
+    .with_label(Label::new((filename, range.clone())).with_message("This character shouldn't be there").with_color(a))
+    .finish()
+    .print((filename, Source::from(content))).unwrap();
+}
+
 pub fn print_lexer_error(lexer_error : LexerErr, filename : &Path, content : &str) -> ExitCode {
     // println!("Parsing error : {:?}", parser_error);
 
@@ -55,6 +66,7 @@ pub fn print_lexer_error(lexer_error : LexerErr, filename : &Path, content : &st
         LexerErrData::NumberParsingFailure(b) => print_number_parsing_failure(error_nb, range, filename_str, content, *b),
         LexerErrData::InvalidOp(s) => print_invalid_op_error(error_nb, range, filename_str, content, *s),
         LexerErrData::UnexpectedEOF => print_unexpected_eof_error(error_nb as u32, range, filename_str, content),
+        LexerErrData::UnexpectedChar(c) => print_unexpected_char_error(error_nb, range, filename_str, content, c),
     }
     
 

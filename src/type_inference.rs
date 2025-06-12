@@ -97,6 +97,7 @@ pub fn _infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: 
         ASTNode::Float { nb: _ } => None,
         ASTNode::String { str: _ } => None,
         ASTNode::Boolean { b: _ } => None,
+        ASTNode::List { list: _ } => None,
         ASTNode::BinaryOp { op, lhs, rhs } => {
             let is_left_var = match lhs.as_ref() {
                 ASTNode::VarUse { name } => name == var_name, 

@@ -1,7 +1,74 @@
 use rustc_hash::FxHashMap;
+use core::panic;
+use std::iter;
 use std::{cmp::Ordering, process::ExitCode};
+use std::fmt::{Debug, Formatter};
 
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
+
+
+#[derive(Clone, PartialEq)]
+enum List {
+    None,
+    Node(Val, Box<List>),
+}
+
+impl List {
+    // intepret nodes here instead of doing before the call and passing a Vec<Val> to avoid not necessary allocations
+    fn new(context: &mut InterpretContext, v : &Vec<ASTNode>) -> List {
+        let mut l = List::None;
+        for e in v {
+            let val = interpret_node(context, e);
+            l.append(val);
+        }
+        
+        l
+    }
+
+    fn append(self: &mut List, val : Val){
+        let mut current: &mut List = self;
+        while let List::Node(v, next) = current {
+            current = next.as_mut();   
+        }
+        *current = List::Node(val, Box::new(List::None));
+
+    }
+}
+
+
+// TODO : is it needed ?
+impl Iterator for List {
+    type Item = Val;
+
+    fn next(self: &mut List) -> Option<<List as Iterator>::Item> { 
+        match self {
+            List::None => None,
+            List::Node(v, next) => {
+                let current = v.clone();
+                *self = *next.clone();
+                Some(current)
+            }
+        }
+    }
+}
+
+impl Debug for List {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> { 
+        let mut current: &List = self;
+        let mut iter_nb = 0;
+        while let List::Node(v, next) = current {
+            if iter_nb != 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{:?}", v)?;
+            current = next.as_ref();
+            iter_nb += 1;   
+        }
+
+        Ok(())
+    }
+}
+
 
 #[derive(Debug, Clone, PartialEq)]
 enum Val {
@@ -9,6 +76,7 @@ enum Val {
     Float(f64),
     Bool(bool),
     String(Box<String>), // TODO : replace the boxed string with a index to an interned string
+    List(Box<List>),
     Unit,
 }
 
@@ -30,7 +98,14 @@ impl Val {
             Val::Float(_) => Type::Float,
             Val::Bool(_) => Type::Bool,
             Val::String(_) => Type::Str,
-            Val::Unit => Type::Unit, 
+            Val::List(l) => {
+                let elem_type = match l.as_ref() {
+                    List::Node(v, _next) => v.get_type(),
+                    List::None => Type::Any,
+                };
+                Type::List(Box::new(elem_type))
+            },
+            Val::Unit => Type::Unit,
         }
     }
 }
@@ -272,6 +347,7 @@ fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
         ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, cond_expr, then_body, else_body),
         ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr.as_ref(), patterns.as_slice()),
         ASTNode::String { str } => Val::String(Box::new(str.clone())),
+        ASTNode::List { list } => Val::List(Box::new(List::new(context, list))),
         //n => panic!("unexpected ast node when interpreting : {:?}", n),
     }
 }

@@ -87,7 +87,10 @@ pub enum TokenData {
     False,
     ParenOpen,
     ParenClose,
-    Colon,
+    ArrayOpen,
+    ArrayClose,
+    Colon, // :
+    Comma, // ,
     Arrow, // ->
     Pipe, // |
     EndOfExpr, // ;;
@@ -116,6 +119,7 @@ struct Lexer {
 pub enum LexerErrData {
     NumberParsingFailure(Box<Vec<char>>),
     InvalidOp(Box<String>),
+    UnexpectedChar(char),
     UnexpectedEOF,
 }
 
@@ -332,14 +336,18 @@ pub fn lex(content: Vec<char>) -> Result<Vec<Token>, LexerErr> {
 
     let mut tokens = vec![];
 
-
+    
 
     while let Some(c) = lexer.read_char() {
+        let range = lexer.pos-1..lexer.pos-1;
         let tok: Option<Token> = match c {
             ' ' | '\t' | '\n' => None,
-            '(' => Some(Token::new(TokenData::ParenOpen, lexer.pos-1..lexer.pos-1 )),
-            ')' => Some(Token::new(TokenData::ParenClose, lexer.pos-1..lexer.pos-1)),
-            ':' => Some(Token::new(TokenData::Colon, lexer.pos-1..lexer.pos-1)),
+            '(' => Some(Token::new(TokenData::ParenOpen, range)),
+            ')' => Some(Token::new(TokenData::ParenClose, range)),
+            ':' => Some(Token::new(TokenData::Colon, range)),
+            '[' => Some(Token::new(TokenData::ArrayOpen, range)),
+            ']' => Some(Token::new(TokenData::ArrayClose, range)),
+            ',' => Some(Token::new(TokenData::Comma, range)),
             '.' => {
                 match lexer.read_char() {
                     Some('.') => Some(Token::new(TokenData::Range, lexer.pos-2..lexer.pos-1)),
@@ -352,12 +360,12 @@ pub fn lex(content: Vec<char>) -> Result<Vec<Token>, LexerErr> {
                     _ => panic!("Not complete \";;\" token"),
                 }
             },
-            '|' => Some(Token::new(TokenData::Pipe, lexer.pos-1..lexer.pos-1)),
+            '|' => Some(Token::new(TokenData::Pipe, range)),
             '\"' => Some(lex_string(&mut lexer)?),
             op_char if Operator::is_char_op(op_char) => lex_op(&mut lexer)?,
             '0'..='9' => Some(lex_nb(&mut lexer)?),
             'a'..='z' | 'A'..='Z' | '_' => Some(lex_alphabetic(&mut lexer)),
-            _ => panic!("ERROR : unexpected char {}", c),
+            c => return Err(LexerErr::new(LexerErrData::UnexpectedChar(c), range)),
         };
         if let Some(t) = tok {
             tokens.push(t);

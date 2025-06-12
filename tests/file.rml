@@ -53,3 +53,5 @@ let test_inference_match s =
 
 
 let g = test_inference_match 3 ;;
+
+let h = [2, 3, 4] ;;
