@@ -118,20 +118,29 @@ impl ASTNode {
 }
 
 
-fn init_precedences() -> FxHashMap<Operator, i32> {
+fn init_precedences() -> FxHashMap<Operator, (i32, Associativity)> {
     let mut p = FxHashMap::default();
     // TODO : reserve map size ?
-    p.insert(Operator::IsEqual, 10);
-    p.insert(Operator::Superior, 10);
-    p.insert(Operator::Inferior, 10);
-    p.insert(Operator::SuperiorOrEqual, 10);
-    p.insert(Operator::InferiorOrEqual, 10);
-    p.insert(Operator::Plus, 20);
-    p.insert(Operator::Minus, 20);
-    p.insert(Operator::Mult, 30);
-    p.insert(Operator::Div, 30);
-    p.insert(Operator::StrAppend, 30); // TODO : what precedence for this ?
+    // see https://ocaml.org/manual/5.3/expr.html#ss%3Aprecedence-and-associativity for precedence ?
+    p.insert(Operator::IsEqual, (10, Associativity::Left));
+    p.insert(Operator::Superior, (10, Associativity::Left));
+    p.insert(Operator::Inferior, (10, Associativity::Left));
+    p.insert(Operator::SuperiorOrEqual, (10, Associativity::Left));
+    p.insert(Operator::InferiorOrEqual, (10, Associativity::Left));
+    p.insert(Operator::Plus, (20, Associativity::Left));
+    p.insert(Operator::Minus, (20, Associativity::Left));
+    p.insert(Operator::Mult, (30, Associativity::Left));
+    p.insert(Operator::Div, (30, Associativity::Left));
+    p.insert(Operator::StrAppend, (5, Associativity::Right));
+    p.insert(Operator::ListAppend, (6, Associativity::Right));
     p
+}
+
+
+#[derive(Clone, Copy)]
+pub enum Associativity {
+    Left, // most operators
+    Right, // ::
 }
 
 pub struct Parser {
@@ -139,7 +148,7 @@ pub struct Parser {
     pos: usize,
     // optional types because of type inference of return values of functions that need to be inserted for recursive functions (TODO ?)
     pub vars : FxHashMap<String, Type>, // include functions (which are just vars with function types)
-    precedences : FxHashMap<Operator, i32>,
+    precedences : FxHashMap<Operator, (i32, Associativity)>,
 }
 
 #[derive(Debug, Tag)]
@@ -226,6 +235,8 @@ fn parse_string(buf : Vec<char>) -> ASTNode {
 }
 
 
+
+// TODO : add array type annotation
 fn parse_annotation_simple(parser: &mut Parser) -> Result<Type, ParserErr> {
     let tok = parser.eat_tok(None)?;
     //dbg!(&tok);
@@ -261,7 +272,7 @@ fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
             let mut function_type_parts = vec![simple_type];
             dbg!(parser.current_tok_data());
             while let Some(t) = parser.current_tok_data() && matches!(t, TokenData::Arrow) {
-                println!("PARSE FUNCTION TYPE PART");
+                //println!("PARSE FUNCTION TYPE PART");
                 parser.eat_tok(Some(TokenDataTag::Arrow))?;
                 let function_type_part = parse_annotation_simple(parser)?;
                 function_type_parts.push(function_type_part);
@@ -599,7 +610,7 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTNode, min_precedence: i32) -> R
             Some(TokenData::Op(op)) => *op,
             Some(_) | None => break,
         };
-        let first_precedence = *parser.precedences.get(&operator).unwrap();
+        let (first_precedence, _) = *parser.precedences.get(&operator).unwrap();
         if first_precedence < min_precedence {
             break;
         }
@@ -612,7 +623,7 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTNode, min_precedence: i32) -> R
                 Some(TokenData::Op(op)) => op,
                 Some(_) | None => break,
             };
-            let precedence = *parser.precedences.get(new_operator).unwrap();
+            let (precedence, associativity) = *parser.precedences.get(new_operator).unwrap();
             if precedence <= first_precedence {
                 break;
             }

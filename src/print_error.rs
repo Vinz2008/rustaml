@@ -108,6 +108,18 @@ fn print_unexpected_tok_error(error_nb : u32, range : Range<usize>, filename : &
     .print((filename, Source::from(content))).unwrap();
 }
 
+fn print_type_inference_error(error_nb : u32, range : Range<usize>, filename : &str, content : &str, arg_name : &str){
+let mut colors = ColorGenerator::new();
+    let a = colors.next();
+    Report::build(ReportKind::Error, (filename, range.clone()))
+    .with_code(error_nb)
+    .with_message(format!("Type inference error with the argument {:?}", arg_name))
+    .with_label(Label::new((filename, range.clone())).with_message("This argument's type couldn't be deduced from the body of the function").with_color(a))
+    .with_note(format!("Either add a type annotation, or change the body to disambiguate"))
+    .finish()
+    .print((filename, Source::from(content))).unwrap();
+}
+
 pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : &str) -> ExitCode {
     
     // println!("Parsing error : {:?}", parser_error);
@@ -120,7 +132,7 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
         ParserErrData::UnexpectedEOF => print_unexpected_eof_error(error_nb, range, filename_str, content),
         ParserErrData::WrongTok { expected_tok, got_tok } => print_wrong_tok_error(error_nb, range, filename_str, content, expected_tok, got_tok),
         ParserErrData::UnexpectedTok {tok } => print_unexpected_tok_error(error_nb, range, filename_str, content, tok),
-        ParserErrData::TypeInferenceErr { arg_name: _ } => todo!(),
+        ParserErrData::TypeInferenceErr { arg_name } => print_type_inference_error(error_nb, range, filename_str, content, &arg_name),
     };
 
     ExitCode::FAILURE

@@ -65,3 +65,8 @@ let test_list a =
 
 let r = test_list [] ;;
 let s = test_list [1, 2, 3] ;;
+
+
+let test_append e l = if e == 2 then e :: l else [] ;;
+
+let t = test_append 2 [] ;;

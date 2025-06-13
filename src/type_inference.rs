@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::ast::{ASTNode, Parser, Pattern, Type};
+use crate::{ast::{ASTNode, Parser, Pattern, Type}, lexer::OperandType};
 
 
 // TODO : problem with type inference and Any types
@@ -130,11 +130,16 @@ pub fn _infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: 
             // create 2 ifs for when implementing where operators are not the same on each side (for example :: in ocaml)
 
             if is_left_var || is_right_var {
-                let operand_type = op.get_operand_type();
+                let operand_type = op.get_operand_type(is_left_var);
                 let op_type = match operand_type {
-                    Some(op_type) => op_type,
-                    None if is_left_var => rhs.get_type(parser),
-                    None => lhs.get_type(parser),
+                    OperandType::OtherOperand => {
+                        if is_left_var {
+                            rhs.get_type(parser)
+                        } else {
+                            lhs.get_type(parser)
+                        }
+                    },
+                    OperandType::Type(op_type) => op_type,
                 };
                 Some(op_type)
             } else {
@@ -166,6 +171,7 @@ pub fn _infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: 
     }
 }
 
+// TODO : make this infallible (inference only gives infos, no need to crash if not found, only if they really need to be used we crash)
 pub fn infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: &Range<usize>) -> Result<Type, TypeInferenceErr> {
     match _infer_var_type(parser, var_name, node, range) {
         Some(t) => Ok(t),

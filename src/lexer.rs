@@ -19,6 +19,12 @@ pub enum Operator {
     Superior,
     Inferior,
     StrAppend, // ^
+    ListAppend, // ::
+}
+
+pub enum OperandType {
+    OtherOperand,
+    Type(Type),
 }
 
 impl Operator {
@@ -26,26 +32,30 @@ impl Operator {
     pub fn get_type(&self) -> Type {
         match self {
             Self::StrAppend => Type::Str,
+            Self::ListAppend => Type::List(Box::new(Type::Any)),
             Self::IsEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => Type::Bool,
             _ => Type::Integer,
         }
     }
 
-    // returns Any if it is the type of the other operand
-    pub fn get_operand_type(&self) -> Option<Type> {
-        let t = match self {
-            Self::IsEqual => Type::Any,
-            Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => return None,
-            Self::StrAppend => Type::Str,
+    // returns Any if it is the type of the other operand    
+    pub fn get_operand_type(&self, is_left : bool) -> OperandType {
+        match self {
+            Self::IsEqual => OperandType::OtherOperand,
+            Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => OperandType::Type(Type::Any),
+            Self::StrAppend => OperandType::Type(Type::Str),
+            Self::ListAppend => if is_left { 
+                OperandType::Type(Type::Any)
+            } else {
+                OperandType::Type(Type::List(Box::new(Type::Any)))
+            },
             Self::Equal => unreachable!(),
-            _ => Type::Integer,
-        };
-
-        Some(t)
+            _ => OperandType::Type(Type::Integer),
+        }
     }
 
     fn is_char_op(c : char) -> bool {
-        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^')
+        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^' | ':')
     }
 
     // TODO : pass char slice to support multi chars op
@@ -62,6 +72,7 @@ impl Operator {
             ">" => Operator::Superior,
             "<" => Operator::Inferior,
             "^" => Operator::StrAppend,
+            "::" => Operator::ListAppend,
             _ => return Err(LexerErr::new(LexerErrData::InvalidOp(Box::new(s.to_owned())), range.clone())),
         };
         Ok(op)
@@ -304,6 +315,7 @@ fn lex_op(lexer: &mut Lexer) -> Result<Option<Token>, LexerErr> {
             handle_comment(lexer);
             return Ok(None)
         },
+        ":" => TokenData::Colon,
         _ => TokenData::Op(Operator::str_to_op(&op_str, &range)?)
     };
 
@@ -344,7 +356,6 @@ pub fn lex(content: Vec<char>) -> Result<Vec<Token>, LexerErr> {
             ' ' | '\t' | '\n' => None,
             '(' => Some(Token::new(TokenData::ParenOpen, range)),
             ')' => Some(Token::new(TokenData::ParenClose, range)),
-            ':' => Some(Token::new(TokenData::Colon, range)),
             '[' => Some(Token::new(TokenData::ArrayOpen, range)),
             ']' => Some(Token::new(TokenData::ArrayClose, range)),
             ',' => Some(Token::new(TokenData::Comma, range)),

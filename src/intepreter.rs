@@ -14,6 +14,7 @@ enum List {
 
 
 impl List {
+    
     // intepret nodes here instead of doing before the call and passing a Vec<Val> to avoid not necessary allocations
     fn new(context: &mut InterpretContext, v : &Vec<ASTNode>) -> List {
         let mut l = List::None;
@@ -46,6 +47,13 @@ impl List {
             count += 1;
         }
         count
+    }
+
+    fn empty(&self) -> bool {
+        match self {
+            List::None => true,
+            List::Node(_, _) => false
+        }
     }
 }
 
@@ -199,12 +207,38 @@ fn interpret_binop_str(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
 
     let rhs_str = match rhs_val {
         Val::String(s) => *s,
-        _ => panic!("Expected string in left-side of binary operation"),
+        _ => panic!("Expected string in right-side of binary operation"),
     };
     
     match op {
         Operator::StrAppend => Val::String(Box::new(lhs_str + &rhs_str)),
         _ => unreachable!()
+    }
+}
+
+fn interpret_binop_list(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+
+    let rhs_type = rhs_val.get_type();
+
+    let rhs_list = match rhs_val {
+        Val::List(l) => *l,
+        _ => panic!("Expected list in left-side of binary operation"),
+    };
+
+    let rhs_elem_type = match rhs_type {
+        Type::List(e_t) => *e_t,  
+        _ => unreachable!(),
+    };
+
+    dbg!(lhs_val.get_type(), &rhs_elem_type);
+
+    if !rhs_list.empty() && lhs_val.get_type() != rhs_elem_type {
+        panic!("Trying to add to an array of a type an element of another type");
+    }
+
+    match op {
+        Operator::ListAppend => Val::List(Box::new(List::Node(lhs_val, Box::new(rhs_list)))),
+        _ => unreachable!(),
     }
 }
 
@@ -216,10 +250,10 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : &ASTNode
         Type::Integer => interpret_binop_nb(op, lhs_val, rhs_val),
         Type::Bool => interpret_binop_bool(op, lhs_val, rhs_val),
         Type::Str => interpret_binop_str(op, lhs_val, rhs_val),
+        Type::List(_) => interpret_binop_list(op, lhs_val, rhs_val),
         _ => unreachable!(),
     }
 
-    
 }
 
 fn interpret_function_call(context: &mut InterpretContext, name : &String, args : Vec<ASTNode>) -> Val {
