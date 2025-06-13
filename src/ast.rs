@@ -228,7 +228,7 @@ fn parse_string(buf : Vec<char>) -> ASTNode {
 
 fn parse_annotation_simple(parser: &mut Parser) -> Result<Type, ParserErr> {
     let tok = parser.eat_tok(None)?;
-    dbg!(&tok);
+    //dbg!(&tok);
     match &tok.tok_data {
         TokenData::Identifier(b) => {
             let type_annot = match b.iter().collect::<String>().as_str() {
@@ -265,7 +265,7 @@ fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
                 parser.eat_tok(Some(TokenDataTag::Arrow))?;
                 let function_type_part = parse_annotation_simple(parser)?;
                 function_type_parts.push(function_type_part);
-                dbg!((parser.current_tok_data(), matches!(parser.current_tok_data(), Some(TokenData::Arrow))));
+                //dbg!((parser.current_tok_data(), matches!(parser.current_tok_data(), Some(TokenData::Arrow))));
             }
             let return_type = function_type_parts.pop();
             let return_type = match return_type {
@@ -429,7 +429,7 @@ fn parse_function_call(parser: &mut Parser, function_name : String) -> Result<AS
         let arg = parse_primary(parser)?;
         args.push(arg);
     }
-    dbg!(&args);
+    //dbg!(&args);
     Ok(ASTNode::FunctionCall { 
         name: function_name, 
         args,
@@ -545,7 +545,7 @@ fn parse_match(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     while parser.current_tok().is_some() && matches!(parser.current_tok_data().unwrap(), TokenData::Pipe) {
         parser.eat_tok(Some(TokenDataTag::Pipe))?;
         let pattern = parse_pattern(parser)?;
-        dbg!(&pattern);
+        //dbg!(&pattern);
         parser.eat_tok(Some(TokenDataTag::Arrow))?;
         // TODO : add vars from match pattern ? (will need a function that from a pattern and the type of the matched pattern will return the names and the types of the vars)
         let pattern_expr = parse_primary(parser)?;

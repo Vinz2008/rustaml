@@ -37,6 +37,16 @@ impl List {
     fn iter(self : &List) -> ListIter<'_> {
         ListIter { current: self }
     }
+
+    fn len(&self) -> usize {
+        let mut count = 0;
+        let mut current: &List = self;
+        while let List::Node(_, next) = current {
+            current = next.as_ref();
+            count += 1;
+        }
+        count
+    }
 }
 
 
@@ -248,10 +258,96 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : &ASTNode, then_
     }
 }
 
+fn interpret_match_pattern(matched_val : &Val, pattern : &Pattern) -> bool {
+    match pattern {
+        Pattern::VarName(_) | Pattern::Underscore => true,
+        Pattern::Integer(nb) => {
+            match matched_val {
+                Val::Integer(matched_nb) => {
+                    dbg!((*nb, matched_nb));
+                    *nb == *matched_nb
+                },
+                _ => panic!("matching an expression that is not an integer with an integer pattern"),
+            }
+        },
+        Pattern::Float(nb) => {
+            match matched_val {
+                Val::Float(matched_nb) => {
+                    *nb == *matched_nb
+                },
+                _ => panic!("matching an expression that is not a float with a float pattern"),
+            }
+        },
+        Pattern::Range(start, end, inclusivity) => {
+            match matched_val {
+                Val::Integer(matched_nb) => {
+                    if *inclusivity {
+                        *start <= *matched_nb && matched_nb <= end
+                    } else {
+                        *start < *matched_nb && matched_nb < end
+                    }
+                },
+                _ => panic!("matching an expression that is not an integer with an range integer pattern"),
+            }
+        },
+        Pattern::String(s) => {
+            match matched_val {
+                Val::String(matched_str) => {
+                    s == matched_str.as_ref()
+                },
+                _ => panic!("matching an expression that is not an integer with an integer pattern"),
+            }
+        },
+        Pattern::List(l) => {
+            let matched_expr_list = match matched_val {
+                Val::List(l) => l,
+                _ => panic!("matching an expression that is not a list with a list pattern"),
+            };
+            if l.is_empty() && matches!(matched_expr_list.as_ref(), List::None){
+                return true;
+            }
+                
+            // TODO : refactor this if it is a performance problem (profile it ?)
+            let mut pattern_matched_nb = 0;
+            for (p, v) in l.iter().zip(matched_expr_list.iter()) {
+                if !interpret_match_pattern(v, p){
+                    return false;
+                }
+                pattern_matched_nb += 1;
+            }
+
+
+            if pattern_matched_nb == l.len() && pattern_matched_nb == matched_expr_list.len(){
+                return true;
+            }
+            false
+        },
+        Pattern::ListDestructure(_, _) => todo!(),
+    }
+}
+
 fn interpret_match(context: &mut InterpretContext, matched_expr : &ASTNode, patterns : &[(Pattern, ASTNode)]) -> Val {
     let matched_expr_val = interpret_node(context, matched_expr);
     for (pattern, pattern_expr) in patterns {
-        match pattern {
+
+        if interpret_match_pattern(&matched_expr_val, pattern) {
+            match pattern {
+                Pattern::VarName(s) => { 
+                    context.vars.insert(s.clone(), matched_expr_val.clone());
+                },
+                _ => {},
+            }
+            let res_val = interpret_node(context, pattern_expr);
+            match pattern {
+                Pattern::VarName(s) => { 
+                    context.vars.remove(s);
+                },
+                _ => {},
+            }
+
+            return res_val;
+        }
+        /*match pattern {
             Pattern::VarName(s) => {
                 context.vars.insert(s.clone(), matched_expr_val.clone());
                 let res_val = interpret_node(context, pattern_expr);
@@ -323,7 +419,7 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : &ASTNode, patt
                 }
             },
             Pattern::ListDestructure(_, _) => todo!(),
-        }
+        }*/
     }
 
     panic!("No pattern was matched in match expressions (not exhaustive match)")
