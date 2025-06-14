@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::{ast::{ASTNode, Parser, Pattern, Type}, lexer::OperandType};
+use crate::ast::{ASTNode, Parser, Pattern, Type};
 
 
 // TODO : problem with type inference and Any types
@@ -129,20 +129,28 @@ pub fn _infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: 
 
             // create 2 ifs for when implementing where operators are not the same on each side (for example :: in ocaml)
 
+            // TODO : fix the case car there is e :: l with e an integer, it should detect l as a list of integer and not as a list of any
+
+            dbg!(is_left_var, is_right_var);
+
             if is_left_var || is_right_var {
-                let operand_type = op.get_operand_type(is_left_var);
-                let op_type = match operand_type {
-                    OperandType::OtherOperand => {
-                        if is_left_var {
-                            rhs.get_type(parser)
-                        } else {
-                            lhs.get_type(parser)
-                        }
-                    },
-                    OperandType::Type(op_type) => op_type,
+                let other_operand_type = if is_left_var {
+                    rhs.get_type(parser)
+                } else {
+                    lhs.get_type(parser)
                 };
-                Some(op_type)
+                let operand_type = op.get_operand_type(is_left_var, &other_operand_type);
+                dbg!(&operand_type, &other_operand_type, var_name, node);
+                Some(operand_type)
             } else {
+                let lhs_inferred =  _infer_var_type(parser, var_name, lhs.as_ref(), range);
+                if lhs_inferred.is_some() {
+                    return lhs_inferred;
+                }
+                let rhs_inferred =  _infer_var_type(parser, var_name, rhs.as_ref(), range);
+                if rhs_inferred.is_some() {
+                    return rhs_inferred;
+                }
                 None
             }
         },

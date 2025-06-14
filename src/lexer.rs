@@ -22,11 +22,6 @@ pub enum Operator {
     ListAppend, // ::
 }
 
-pub enum OperandType {
-    OtherOperand,
-    Type(Type),
-}
-
 impl Operator {
     pub const OPERATORS: &'static [&'static str] = &["+", "-", "*", "/", "=", "==", ">=", "<="];
     pub fn get_type(&self) -> Type {
@@ -38,19 +33,18 @@ impl Operator {
         }
     }
 
-    // returns Any if it is the type of the other operand    
-    pub fn get_operand_type(&self, is_left : bool) -> OperandType {
+    // TODO : instead of returning OperandType, pass the operand type to the function and use it     
+    pub fn get_operand_type(&self, is_left : bool, other_operand_type : &Type) -> Type {
         match self {
-            Self::IsEqual => OperandType::OtherOperand,
-            Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => OperandType::Type(Type::Any),
-            Self::StrAppend => OperandType::Type(Type::Str),
+            Self::IsEqual => other_operand_type.clone(),
+            Self::StrAppend => Type::Str,
             Self::ListAppend => if is_left { 
-                OperandType::Type(Type::Any)
+                Type::Any
             } else {
-                OperandType::Type(Type::List(Box::new(Type::Any)))
+                Type::List(Box::new(other_operand_type.clone()))
             },
             Self::Equal => unreachable!(),
-            _ => OperandType::Type(Type::Integer),
+            _ => Type::Integer,
         }
     }
 

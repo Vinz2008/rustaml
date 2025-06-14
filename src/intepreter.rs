@@ -222,7 +222,7 @@ fn interpret_binop_list(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
 
     let rhs_list = match rhs_val {
         Val::List(l) => *l,
-        _ => panic!("Expected list in left-side of binary operation"),
+        _ => panic!("Expected list in right-side of binary operation"),
     };
 
     let rhs_elem_type = match rhs_type {
@@ -257,9 +257,15 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : &ASTNode
 }
 
 fn interpret_function_call(context: &mut InterpretContext, name : &String, args : Vec<ASTNode>) -> Val {
-    let args_val = args.into_iter().map(|e| interpret_node(context, &e)).collect::<Vec<_>>();
-    // TODO : remove clone
+
     let func_def = context.functions.get(name).unwrap().clone(); // TODO : remove the clone ?
+
+    if args.len() != func_def.args.len() {
+        panic!("Invalid args number in function call, expected {}, got {}", func_def.args.len(), args.len());
+    }
+
+    let args_val = args.into_iter().map(|e| interpret_node(context, &e)).collect::<Vec<_>>();
+    
     let mut old_vals : Vec<(String, Val)> = Vec::new();
     for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
         if let Some(old_val) = context.vars.get(arg_name) {
@@ -298,7 +304,7 @@ fn interpret_match_pattern(matched_val : &Val, pattern : &Pattern) -> bool {
         Pattern::Integer(nb) => {
             match matched_val {
                 Val::Integer(matched_nb) => {
-                    dbg!((*nb, matched_nb));
+                    //dbg!((*nb, matched_nb));
                     *nb == *matched_nb
                 },
                 _ => panic!("matching an expression that is not an integer with an integer pattern"),

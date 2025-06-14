@@ -107,7 +107,7 @@ impl ASTNode {
             ASTNode::FunctionCall { name, args: _ } => parser.vars.get(name).unwrap().clone(), // need to create a hashmap for function types, in parser context ?
             ASTNode::VarUse { name} => match parser.vars.get(name){
                 Some(t) => t.clone(),
-                None => panic!("expected var {}", &name)
+                None => unreachable!("Unknown var {}", &name)
              },
             ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get_type(parser), // no need for typechecking the two branches because it is done when constructing the IfExpr
             ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get_type(parser),
@@ -358,14 +358,15 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         }
         
 
-        for Arg {name, arg_type: _} in &args {
-            parser.vars.remove(name);
-        }
-
         for (arg, arg_range) in args.iter_mut().zip(arg_ranges) {
             if matches!(arg.arg_type, Type::Any){
                 arg.arg_type = infer_var_type(parser, &arg.name, &body, &arg_range)?;
+                parser.vars.insert(arg.name.clone(), arg.arg_type.clone());
             }
+        }
+
+        for Arg {name, arg_type: _} in &args {
+            parser.vars.remove(name);
         }
 
 
@@ -624,14 +625,25 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTNode, min_precedence: i32) -> R
                 Some(_) | None => break,
             };
             let (precedence, associativity) = *parser.precedences.get(new_operator).unwrap();
-            if precedence <= first_precedence {
+            /*if precedence <= first_precedence {
+                break;
+            }*/
+
+            if precedence < first_precedence || (precedence == first_precedence && matches!(associativity, Associativity::Left)){
                 break;
             }
-            let new_precedence = if precedence > first_precedence {
+
+            /*let new_precedence = if precedence > first_precedence {
                 first_precedence + 1
             } else {
                 first_precedence
+            };*/
+
+            let new_precedence = match associativity {
+                Associativity::Left => precedence + 1,
+                Associativity::Right => precedence,
             };
+
             rhs = parse_binary_rec(parser, rhs, new_precedence)?;
         }
 

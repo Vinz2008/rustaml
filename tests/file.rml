@@ -70,3 +70,7 @@ let s = test_list [1, 2, 3] ;;
 let test_append e l = if e == 2 then e :: l else [] ;;
 
 let t = test_append 2 [] ;;
+
+let test_append2 e l = if e == 3 then e :: e :: l else [] ;;
+
+let u = test_append2 3 [4] ;;
