@@ -90,6 +90,7 @@ pub enum Type {
     Function(Vec<Type>, Box<Type>),
     Str,
     List(Box<Type>),
+    // TODO : add a number to any (to have 'a, 'b, etc)
     Any, // equivalent to 'a
     Unit,
 }
