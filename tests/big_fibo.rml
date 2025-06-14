@@ -5,3 +5,13 @@ let fib i : int -> int =
     fib (i - 1) + fib (i - 2) ;;
 
 let big_fib = fib 28 ;;
+
+let fib_opti_aux a b i : int -> int -> int -> int = 
+  if i == 0 then
+    a
+  else
+    fib_opti_aux b (a + b) (i - 1) ;;
+
+let fib_opti i : int -> int = fib_opti_aux 0 1 i ;;
+
+let big_fib_two = fib_opti 28 ;;

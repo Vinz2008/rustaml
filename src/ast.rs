@@ -606,7 +606,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         TokenData::Identifier(buf) => parse_identifier_expr(parser, buf),
         TokenData::True => Ok(ASTNode::Boolean { b: true }),
         TokenData::False => Ok(ASTNode::Boolean { b: false }),
-        TokenData::ParenOpen => parse_parenthesis(parser),
+        TokenData::ParenOpen => parse_parenthesis(parser), // TODO : move this to the start of parse_node and make it unreachable! ? (because each time there are parenthesis, parse_node -> parse_primary -> parse_node is added to the call stack) 
         TokenData::ArrayOpen => parse_static_list(parser),
         t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))
     };
