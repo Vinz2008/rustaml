@@ -102,7 +102,13 @@ impl ASTNode {
             ASTNode::Integer { nb: _ } => Type::Integer,
             ASTNode::Float { nb : _ } => Type::Float,
             ASTNode::String { str: _ } => Type::Str,
-            ASTNode::List { list } => Type::List(Box::new(list.first().unwrap().get_type(parser))),
+            ASTNode::List { list } => { 
+                let elem_type = match list.first() {
+                    Some(f) => f.get_type(parser),
+                    None => Type::Any,
+                };
+                Type::List(Box::new(elem_type)) 
+            },
             ASTNode::BinaryOp { op, lhs: _, rhs: _ } => op.get_type(), // TODO
             ASTNode::VarDecl { name: _, val: _, body: _ } => Type::Unit, // TODO
             ASTNode::FunctionCall { name, args: _ } => parser.vars.get(name).unwrap().clone(), // need to create a hashmap for function types, in parser context ?
@@ -439,7 +445,7 @@ fn parse_function_call(parser: &mut Parser, function_name : String) -> Result<AS
     }
 
     while parser.has_tokens_left() && function_call_parse_continue(parser.current_tok_data()) {
-        let arg = parse_primary(parser)?;
+        let arg = parse_primary(parser)?; // TODO : replace with parse_node ? (fix problems with stack overflow -> less recursion ? implement tail call optimization ?)
         args.push(arg);
     }
     //dbg!(&args);
@@ -571,9 +577,14 @@ fn parse_match(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     })
 }
 
+
+// TODO : fix parsing parenthesis in parenthesis ex : (fib_list (i-1))
 fn parse_parenthesis(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
+    //println!("PARSE PAREN");
     let expr = parse_node(parser)?;
+    dbg!(&expr);
     parser.eat_tok(Some(TokenDataTag::ParenClose))?;
+    //println!("CLOSE PAREN");
     Ok(expr)
 }
 

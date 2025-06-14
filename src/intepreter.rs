@@ -1,5 +1,4 @@
 use rustc_hash::FxHashMap;
-use core::panic;
 use std::{cmp::Ordering, process::ExitCode};
 use std::fmt::{Debug, Formatter};
 

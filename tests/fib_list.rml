@@ -1,0 +1,13 @@
+let fib i : int -> int = 
+  if i <= 1 then
+    i
+  else
+    fib (i - 1) + fib (i - 2) ;;
+
+let list_fib i = 
+  if i <= 0 then 
+    []
+  else
+    fib i :: list_fib ( i - 1 ) ;;
+
+let l_fib = list_fib 10 ;;
