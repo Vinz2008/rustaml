@@ -1,26 +1,40 @@
 use std::ops::Range;
+use std::fmt::Debug;
 
 use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
-use crate::{lexer::{Operator, Token, TokenData, TokenDataTag}, type_inference::{infer_var_type, TypeInferenceErr}};
+use crate::{lexer::{Operator, Token, TokenData, TokenDataTag}, string_intern::{DebugWithInterner, StrInterner, StringRef}, type_inference::{infer_var_type, TypeInferenceErr}};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Arg {
-    pub name : String,
+    pub name : StringRef,
     arg_type : Type,
 }
 
+impl DebugWithInterner for Arg {
+    
+    
+    fn fmt_with_interner(&self, f: &mut std::fmt::Formatter, interner: &StrInterner) -> std::fmt::Result {
+        f.debug_struct("Arg")
+        .field_with("name",  |fmt| {
+            self.name.fmt_with_interner(fmt, interner)
+        })
+        .field("arg_type", &self.arg_type).finish()
+    }
+}
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
-    VarName(String), // | x pattern
+    VarName(StringRef), // | x pattern
     Integer(i64), // | 2
     Float(f64), // | 2.6
     Range(i64, i64, bool), // bool is for the inclusivity | 0..1
-    String(String), // | "test"
+    String(StringRef), // | "test"
     List(Vec<Pattern>), // | [1, 2, 3]
-    ListDestructure(String, String), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
+    ListDestructure(StringRef, StringRef), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
     Underscore,
 }
 
@@ -32,19 +46,19 @@ pub enum ASTNode {
         nodes: Vec<ASTNode>,
     },
     FunctionDefinition {
-        name : String,
+        name : StringRef,
         args : Vec<Arg>,
         body : Box<ASTNode>,
         return_type : Type,
     },
     VarDecl {
         // TODO : intern all strings and replace these by refs to strings ?
-        name: String,
+        name: StringRef,
         val: Box<ASTNode>,
         body : Option<Box<ASTNode>>,
     },
     VarUse {
-        name : String,
+        name : StringRef,
     },
     IfExpr {
         cond_expr : Box<ASTNode>,
@@ -62,7 +76,7 @@ pub enum ASTNode {
         nb: f64,
     },
     String {
-        str : String
+        str : StringRef
     },
     List {
         list : Vec<ASTNode>,
@@ -77,7 +91,7 @@ pub enum ASTNode {
     },
     // TODO : UnaryOp
     FunctionCall {
-        name : String,
+        name : StringRef,
         args : Vec<ASTNode>,
     }
 }
@@ -114,7 +128,7 @@ impl ASTNode {
             ASTNode::FunctionCall { name, args: _ } => parser.vars.get(name).unwrap().clone(), // need to create a hashmap for function types, in parser context ?
             ASTNode::VarUse { name} => match parser.vars.get(name){
                 Some(t) => t.clone(),
-                None => unreachable!("Unknown var {}", &name)
+                None => unreachable!("Unknown var {}", name.get_str(&parser.str_interner))
              },
             ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get_type(parser), // no need for typechecking the two branches because it is done when constructing the IfExpr
             ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get_type(parser),
@@ -150,12 +164,13 @@ pub enum Associativity {
     Right, // ::
 }
 
-pub struct Parser {
+pub struct Parser<'intern> {
     tokens: Vec<Token>,
     pos: usize,
     // optional types because of type inference of return values of functions that need to be inserted for recursive functions (TODO ?)
-    pub vars : FxHashMap<String, Type>, // include functions (which are just vars with function types)
+    pub vars : FxHashMap<StringRef, Type>, // include functions (which are just vars with function types)
     precedences : FxHashMap<Operator, (i32, Associativity)>,
+    pub str_interner : &'intern mut StrInterner,
 }
 
 #[derive(Debug, Tag)]
@@ -196,7 +211,7 @@ impl From<TypeInferenceErr> for ParserErr {
     }
 }
 
-impl Parser {
+impl Parser<'_> {
     fn has_tokens_left(&self) -> bool {
         self.pos + 1 < self.tokens.len()
     }
@@ -237,8 +252,8 @@ fn parse_float(nb: f64) -> ASTNode {
     ASTNode::Float { nb }
 }
 
-fn parse_string(buf : Vec<char>) -> ASTNode {
-    ASTNode::String { str: buf.iter().collect() }
+fn parse_string(parser: &mut Parser, buf : Vec<char>) -> ASTNode {
+    ASTNode::String { str: parser.str_interner.intern(&buf.iter().collect::<String>()) }
 }
 
 
@@ -303,7 +318,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     // TODO : pass error handling (by making all parse functions return results, than handling in the main function)
     let name_tok = parser.eat_tok(Some(TokenDataTag::Identifier))?;
     let name = match name_tok.tok_data {
-        TokenData::Identifier(s) => s.iter().collect::<String>(),
+        TokenData::Identifier(s) => parser.str_interner.intern(&s.iter().collect::<String>()),
         _ => unreachable!(),
     };
     let node = if matches!(parser.current_tok_data(), Some(TokenData::Identifier(_))) {
@@ -341,9 +356,9 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         };
 
     
-        parser.vars.insert(name.clone(),  Type::Function(arg_types.clone(), return_type.clone()));
+        parser.vars.insert(name,  Type::Function(arg_types.clone(), return_type.clone()));
 
-        let mut args = arg_names.iter().zip(arg_types.clone()).map(|x| Arg { name: x.0.clone(), arg_type: x.1 }).collect::<Vec<Arg>>();
+        let mut args = arg_names.into_iter().zip(arg_types.clone()).map(|x| Arg { name: parser.str_interner.intern(&x.0), arg_type: x.1 }).collect::<Vec<Arg>>();
 
         for Arg { name, arg_type} in &args {
             parser.vars.insert(name.clone(), arg_type.clone());
@@ -367,7 +382,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
 
         for (arg, arg_range) in args.iter_mut().zip(arg_ranges) {
             if matches!(arg.arg_type, Type::Any){
-                arg.arg_type = infer_var_type(parser, &arg.name, &body, &arg_range)?;
+                arg.arg_type = infer_var_type(parser, arg.name, &body, &arg_range)?;
                 parser.vars.insert(arg.name.clone(), arg.arg_type.clone());
             }
         }
@@ -377,7 +392,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         }
 
 
-        parser.vars.insert(name.clone(),  Type::Function(arg_types.clone(), return_type.clone())); // reinsertion with real types
+        parser.vars.insert(name,  Type::Function(arg_types.clone(), return_type.clone())); // reinsertion with real types
         
         ASTNode::FunctionDefinition { 
             name, 
@@ -437,7 +452,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
 
 
 
-fn parse_function_call(parser: &mut Parser, function_name : String) -> Result<ASTNode, ParserErr> {
+fn parse_function_call(parser: &mut Parser, function_name : StringRef) -> Result<ASTNode, ParserErr> {
     let mut args = Vec::new();
 
     fn function_call_parse_continue(tok_data : Option<&TokenData>) -> bool {
@@ -456,10 +471,10 @@ fn parse_function_call(parser: &mut Parser, function_name : String) -> Result<AS
 }
 
 fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Result<ASTNode, ParserErr> {
-    let identifier = identifier_buf.iter().collect();
+    let identifier = parser.str_interner.intern(&identifier_buf.iter().collect::<String>());
     let is_function = match parser.vars.get(&identifier) {
         Some(t) => matches!(t, Type::Function(_, _)),
-        None => panic!("ERROR : unknown identifier {}", identifier),
+        None => panic!("ERROR : unknown identifier {}", identifier.get_str(&mut parser.str_interner)),
     };
     if is_function {
         parse_function_call(parser, identifier)
@@ -522,7 +537,7 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
             let s = buf.iter().collect::<String>();
             match s.as_str() {
                 "_" => Pattern::Underscore,
-                _ => Pattern::VarName(s),
+                s_ref => Pattern::VarName(parser.str_interner.intern(s_ref)),
             }
         },
         TokenData::Integer(nb) => { 
@@ -544,7 +559,7 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
             } 
         },
         TokenData::Float(nb) => Pattern::Float(nb),
-        TokenData::String(s) => Pattern::String(s.iter().collect()),
+        TokenData::String(s) => Pattern::String(parser.str_interner.intern(&s.iter().collect::<String>())),
         TokenData::ArrayOpen => {
             let elems = parse_list_form(parser, parse_pattern)?;
 
@@ -602,7 +617,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         TokenData::Match => parse_match(parser),
         TokenData::Integer(nb) => Ok(parse_integer(nb)),
         TokenData::Float(nb) => Ok(parse_float(nb)),
-        TokenData::String(buf) => Ok(parse_string(buf)),
+        TokenData::String(buf) => Ok(parse_string(parser, buf)),
         TokenData::Identifier(buf) => parse_identifier_expr(parser, buf),
         TokenData::True => Ok(ASTNode::Boolean { b: true }),
         TokenData::False => Ok(ASTNode::Boolean { b: false }),
@@ -687,12 +702,14 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     Ok(ASTNode::TopLevel { nodes })
 }
 
-pub fn parse(tokens: Vec<Token>) -> Result<ASTNode, ParserErr> {
+// TODO : pass str interner by ref
+pub fn parse(tokens: Vec<Token>, str_interner : &mut StrInterner) -> Result<ASTNode, ParserErr> {
     let mut parser = Parser { 
         tokens, 
         pos: 0,
         vars: FxHashMap::default(),
         precedences: init_precedences(),
+        str_interner: str_interner,
     };
     let root_node = parse_top_level_node(&mut parser)?;
     dbg!(&root_node);

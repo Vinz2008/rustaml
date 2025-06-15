@@ -1,17 +1,83 @@
+use std::fmt::{self, Debug};
+
 use rustc_hash::FxHashMap;
 
 // TODO : use this (will need code for debug displaying, look at the code for the flatten AST, because they have the same problem)
 // TODO : optimize this (https://matklad.github.io/2020/03/22/fast-simple-rust-interner.html)
 
-pub struct Interner {
+pub struct StrInterner {
     map : FxHashMap<String, u32>,
     strs : Vec<String>,
 }
 
-#[derive(Debug)]
+// TODO : remove Debug and add proper debug pringing (URGENT !! )
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
 pub struct StringRef(u32);
 
-impl Interner {
+impl StringRef {
+    pub fn get_str(self, str_interner : &StrInterner) -> &str {
+        str_interner.lookup(self)
+    }
+
+    // create a new string
+    pub fn add(self, rhs : StringRef, str_interner : &mut StrInterner) -> StringRef {
+        let new_str = str_interner.lookup(self).to_owned() + str_interner.lookup(rhs);
+        str_interner.intern(&new_str)
+    }
+}
+
+pub trait DebugWithInterner {
+    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result;
+}
+
+pub struct DebugWrapInterner<'a, T> {
+    value: &'a T,
+    interner: &'a StrInterner,
+}
+
+impl <'a, T> DebugWrapInterner<'a, T> {
+    fn new(value: &'a T, interner: &'a StrInterner) -> DebugWrapInterner<'a, T> {
+        DebugWrapInterner { value, interner }
+    }
+}
+
+impl<'a, T> Debug for DebugWrapInterner<'a, T>
+where
+    T: DebugWithInterner,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.value.fmt_with_interner(f, self.interner)
+    }
+}
+
+impl DebugWithInterner for StringRef {
+    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
+        write!(f, "{}", interner.lookup(*self))
+    }
+}
+
+impl<K, V> DebugWithInterner for FxHashMap<K, V> 
+where 
+    K : DebugWithInterner,
+    V : DebugWithInterner,
+{
+    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
+        f.debug_map()
+            .entries(self.iter().map(|(k, v)| (
+                DebugWrapInterner::new(k, interner), DebugWrapInterner::new(v, interner)
+            )))
+            .finish()
+    }
+}
+
+impl StrInterner {
+    pub fn new() -> StrInterner {
+        StrInterner { 
+            map: FxHashMap::default(), 
+            strs: Vec::new() 
+        }
+    }
+
     pub fn intern(&mut self, name : &str) -> StringRef {
         if let Some(idx) = self.map.get(name) {
             return StringRef(*idx);

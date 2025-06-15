@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::ast::{ASTNode, Parser, Pattern, Type};
+use crate::{ast::{ASTNode, Parser, Pattern, Type}, string_intern::StringRef};
 
 
 // TODO : problem with type inference and Any types
@@ -30,7 +30,7 @@ fn infer_var_type_pattern(parser : &Parser, pattern: &Pattern, body : &ASTNode, 
         Pattern::Underscore => None,
         Pattern::VarName(var_name) => {
             // get the type of the var name in the body
-            _infer_var_type(parser, var_name, body, range)
+            _infer_var_type(parser, *var_name, body, range)
         }
     }
 }
@@ -51,7 +51,7 @@ impl TypeInferenceErr {
 
 // TODO : return a result with a real error ?
 // TODO : split this function into subfunctions
-pub fn _infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: &Range<usize>) -> Option<Type> {
+pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: &ASTNode, range: &Range<usize>) -> Option<Type> {
     match node {
         ASTNode::TopLevel { nodes } => {
             for n in nodes {
@@ -63,16 +63,16 @@ pub fn _infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: 
             None
         },
         ASTNode::FunctionDefinition { name, args: _, body, return_type: _ } => {
-            _infer_var_type(parser, name, body, range)
+            _infer_var_type(parser, *name, body, range)
         }
         ASTNode::VarDecl { name, val, body } => {
-            let val_type_inferred = _infer_var_type(parser, name, val.as_ref(), range);
+            let val_type_inferred = _infer_var_type(parser, *name, val.as_ref(), range);
             if val_type_inferred.is_some() {
                 return val_type_inferred
             }
 
             if let Some(b) = body {
-                return _infer_var_type(parser, name, b, range);
+                return _infer_var_type(parser, *name, b, range);
             } 
             None
         },
@@ -93,7 +93,7 @@ pub fn _infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: 
             if matched_expr_type_inferred.is_some(){
                 return matched_expr_type_inferred;
             }
-            if matches!(matched_expr.as_ref(), ASTNode::VarUse { name: var_use_name } if var_use_name == var_name){
+            if matches!(matched_expr.as_ref(), ASTNode::VarUse { name: var_use_name } if *var_use_name == var_name){
                 for pattern in patterns {
                     let pattern_type_inferred = infer_var_type_pattern(parser, &pattern.0, &pattern.1, range);
                     if pattern_type_inferred.is_some() {
@@ -118,12 +118,12 @@ pub fn _infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: 
         ASTNode::List { list: _ } => None,
         ASTNode::BinaryOp { op, lhs, rhs } => {
             let is_left_var = match lhs.as_ref() {
-                ASTNode::VarUse { name } => name == var_name, 
+                ASTNode::VarUse { name } => *name == var_name, 
                 _ => false,
             };
 
             let is_right_var = match rhs.as_ref() {
-                ASTNode::VarUse { name } => name == var_name, 
+                ASTNode::VarUse { name } => *name == var_name, 
                 _ => false,
             };
 
@@ -159,7 +159,7 @@ pub fn _infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: 
                 Some(Type::Function(a, _)) => {
                     for (arg, arg_type) in args.iter().zip(a) {
                         match arg {
-                            ASTNode::VarUse { name } if name == var_name => {
+                            ASTNode::VarUse { name } if *name == var_name => {
                                 return Some(arg_type.clone())
                             },
                             _ => {
@@ -180,9 +180,9 @@ pub fn _infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: 
 }
 
 // TODO : make this infallible (inference only gives infos, no need to crash if not found, only if they really need to be used we crash)
-pub fn infer_var_type(parser : &Parser, var_name: &str, node: &ASTNode, range: &Range<usize>) -> Result<Type, TypeInferenceErr> {
+pub fn infer_var_type(parser : &Parser, var_name: StringRef, node: &ASTNode, range: &Range<usize>) -> Result<Type, TypeInferenceErr> {
     match _infer_var_type(parser, var_name, node, range) {
         Some(t) => Ok(t),
-        None => Err(TypeInferenceErr::new(var_name.to_owned(), range.clone()))
+        None => Err(TypeInferenceErr::new(var_name.get_str(parser.str_interner).to_owned(), range.clone()))
     }
 }

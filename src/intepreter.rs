@@ -1,7 +1,8 @@
 use rustc_hash::FxHashMap;
 use std::{cmp::Ordering, process::ExitCode};
-use std::fmt::{Debug, Formatter};
+use std::fmt::{self, Debug, Formatter};
 
+use crate::string_intern::{StrInterner, StringRef, DebugWithInterner};
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
 
@@ -100,7 +101,7 @@ enum Val {
     Integer(i64),
     Float(f64),
     Bool(bool),
-    String(Box<String>), // TODO : replace the boxed string with a index to an interned string
+    String(StringRef),
     List(Box<List>),
     Unit,
 }
@@ -110,7 +111,7 @@ impl PartialOrd for Val {
         match (self, other) {
             (Val::Integer(nb_self), Val::Integer(nb_other)) => Some(nb_self.cmp(nb_other)),
             (Val::Float(nb_self), Val::Float(nb_other)) => nb_self.partial_cmp(nb_other),
-            (Val::String(str_self), Val::String(str_other)) => str_self.as_ref().partial_cmp(str_other),
+            (Val::String(str_self), Val::String(str_other)) => str_self.partial_cmp(str_other),
             _ => unreachable!(), // should do typechecking to avoid this
         }
     }
@@ -137,16 +138,40 @@ impl Val {
 
 #[derive(Debug, Clone)]
 struct FunctionDef {
-    name : String,
-    args : Vec<String>,
+    name : StringRef,
+    args : Vec<StringRef>,
     body : Box<ASTNode>,
     return_type : Type,
 }
 
-#[derive(Debug)]
-struct InterpretContext {
-    functions : FxHashMap<String, FunctionDef>,
-    vars: FxHashMap<String, Val>,
+
+struct InterpretContext<'intern> {
+    functions : FxHashMap<StringRef, FunctionDef>,
+    vars: FxHashMap<StringRef, Val>,
+    pub str_interner : &'intern mut StrInterner,
+}
+
+
+impl<'intern> Debug for InterpretContext<'intern> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("InterpretContext")
+            .field("functions", &self.functions)
+            .field("vars", &self.vars)
+            .finish()
+    }
+}
+
+// TODO
+impl<'intern> DebugWithInterner for InterpretContext<'intern> {
+    #[inline]
+    fn fmt_with_interner(&self, f: &mut fmt::Formatter, str_interner: &StrInterner) -> fmt::Result {
+        f.debug_struct("InterpretContext")
+            .field("functions", &self.functions)
+            .field("vars", &self.vars)
+            //.field_with("vars", |fmt| self.vars.fmt_with_interner(fmt, str_interner))
+            .finish()
+    }
 }
 
 // TODO : gc allocator (https://crates.io/crates/gc)
@@ -198,19 +223,19 @@ fn interpret_binop_bool(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     }
 }
 
-fn interpret_binop_str(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+fn interpret_binop_str(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let lhs_str = match lhs_val {
-        Val::String(s) => *s,
+        Val::String(s) => s,
         _ => panic!("Expected string in left-side of binary operation"),
     };
 
     let rhs_str = match rhs_val {
-        Val::String(s) => *s,
+        Val::String(s) => s,
         _ => panic!("Expected string in right-side of binary operation"),
     };
     
     match op {
-        Operator::StrAppend => Val::String(Box::new(lhs_str + &rhs_str)),
+        Operator::StrAppend => Val::String(lhs_str.add(rhs_str, context.str_interner)),
         _ => unreachable!()
     }
 }
@@ -248,16 +273,16 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : &ASTNode
     match op.get_type() {
         Type::Integer => interpret_binop_nb(op, lhs_val, rhs_val),
         Type::Bool => interpret_binop_bool(op, lhs_val, rhs_val),
-        Type::Str => interpret_binop_str(op, lhs_val, rhs_val),
+        Type::Str => interpret_binop_str(context, op, lhs_val, rhs_val),
         Type::List(_) => interpret_binop_list(op, lhs_val, rhs_val),
         _ => unreachable!(),
     }
 
 }
 
-fn interpret_function_call(context: &mut InterpretContext, name : &String, args : Vec<ASTNode>) -> Val {
+fn interpret_function_call(context: &mut InterpretContext, name : StringRef, args : Vec<ASTNode>) -> Val {
 
-    let func_def = context.functions.get(name).unwrap().clone(); // TODO : remove the clone ?
+    let func_def = context.functions.get(&name).unwrap().clone(); // TODO : remove the clone ?
 
     if args.len() != func_def.args.len() {
         panic!("Invalid args number in function call, expected {}, got {}", func_def.args.len(), args.len());
@@ -265,10 +290,10 @@ fn interpret_function_call(context: &mut InterpretContext, name : &String, args 
 
     let args_val = args.into_iter().map(|e| interpret_node(context, &e)).collect::<Vec<_>>();
     
-    let mut old_vals : Vec<(String, Val)> = Vec::new();
+    let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
     for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
         if let Some(old_val) = context.vars.get(arg_name) {
-            old_vals.push((arg_name.clone(), old_val.clone()));
+            old_vals.push((*arg_name, old_val.clone()));
         }
         context.vars.insert(arg_name.clone(), arg_val.clone());
     }
@@ -332,7 +357,7 @@ fn interpret_match_pattern(matched_val : &Val, pattern : &Pattern) -> bool {
         Pattern::String(s) => {
             match matched_val {
                 Val::String(matched_str) => {
-                    s == matched_str.as_ref()
+                    s == matched_str
                 },
                 _ => panic!("matching an expression that is not an integer with an integer pattern"),
             }
@@ -474,7 +499,7 @@ fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
         }
         ASTNode::FunctionDefinition { name, args, body, return_type } => {
             let func_def = FunctionDef { 
-                name: name.clone(), 
+                name: *name, 
                 args: args.iter().map(|arg| arg.name.clone()).collect(),
                 body: body.clone(),
                 return_type: return_type.clone(),
@@ -500,21 +525,22 @@ fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
             }
             
         },
-        ASTNode::VarUse { name } => context.vars.get(name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", &name)).clone(),
+        ASTNode::VarUse { name } => context.vars.get(name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", name.get_str(context.str_interner))).clone(),
         ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, *op, lhs.as_ref(), rhs.as_ref()),
-        ASTNode::FunctionCall { name, args } => interpret_function_call(context, name, args.clone()),
+        ASTNode::FunctionCall { name, args } => interpret_function_call(context, *name, args.clone()),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, cond_expr, then_body, else_body),
         ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr.as_ref(), patterns.as_slice()),
-        ASTNode::String { str } => Val::String(Box::new(str.clone())),
+        ASTNode::String { str } => Val::String(*str),
         ASTNode::List { list } => Val::List(Box::new(List::new(context, list))),
         //n => panic!("unexpected ast node when interpreting : {:?}", n),
     }
 }
 
-pub fn interpret(ast: ASTNode) -> ExitCode {
+pub fn interpret(ast: ASTNode, str_interner: &mut StrInterner) -> ExitCode {
     let mut context = InterpretContext {
         vars: FxHashMap::default(),
         functions: FxHashMap::default(),
+        str_interner,
     };
 
     interpret_node(&mut context, &ast);

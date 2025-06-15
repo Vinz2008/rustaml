@@ -1,10 +1,11 @@
 #![allow(clippy::needless_return)]
+#![feature(debug_closure_helpers)]
 
 use std::{fs, hint::black_box, path::{Path, PathBuf}, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 
-use crate::ast::ASTNode;
+use crate::{ast::ASTNode, string_intern::StrInterner};
 
 mod ast;
 mod intepreter;
@@ -48,7 +49,7 @@ struct Args {
 
 
 // used for every command (used for code deduplication)
-fn get_ast(filename : &Path) -> Result<ASTNode, ExitCode> {
+fn get_ast(filename : &Path, str_interner : &mut StrInterner) -> Result<ASTNode, ExitCode> {
     let content_bytes = fs::read(filename).unwrap_or_else(|err| {
             panic!("Error when opening {} : {}", filename.display(), err)
     });
@@ -62,7 +63,7 @@ fn get_ast(filename : &Path) -> Result<ASTNode, ExitCode> {
         },
     };
 
-    let ast = ast::parse(tokens);
+    let ast = ast::parse(tokens, str_interner);
     let ast = match ast {
         Ok(a) => a,
         Err(e) => {
@@ -78,18 +79,20 @@ fn get_ast(filename : &Path) -> Result<ASTNode, ExitCode> {
 fn main() -> ExitCode {
     let args = Args::parse();
 
+    let mut str_interner = StrInterner::new();
+
     match args.command.expect("No subcommand specified!") {
         Commands::Interpret { filename } => {
-            let ast = get_ast(&filename);
+            let ast = get_ast(&filename, &mut str_interner);
             let ast = match ast {
                 Ok(a) => a,
                 Err(e) => return e,
             };
 
-            intepreter::interpret(ast)
+            intepreter::interpret(ast, &mut str_interner)
         }
         Commands::Compile { filename } => {
-            let ast = get_ast(&filename);
+            let ast = get_ast(&filename, &mut str_interner);
             let ast = match ast {
                 Ok(a) => a,
                 Err(e) => return e,
@@ -99,7 +102,7 @@ fn main() -> ExitCode {
         },
 
         Commands::Check { filename } => {
-            let ast = get_ast(&filename);
+            let ast = get_ast(&filename, &mut str_interner);
             let _ast = match ast {
                 Ok(a) => a,
                 Err(e) => return e,
