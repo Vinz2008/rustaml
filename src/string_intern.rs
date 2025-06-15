@@ -11,7 +11,7 @@ pub struct StrInterner {
 }
 
 // TODO : remove Debug and add proper debug pringing (URGENT !! )
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
 pub struct StringRef(u32);
 
 impl StringRef {
@@ -36,7 +36,7 @@ pub struct DebugWrapInterner<'a, T> {
 }
 
 impl <'a, T> DebugWrapInterner<'a, T> {
-    fn new(value: &'a T, interner: &'a StrInterner) -> DebugWrapInterner<'a, T> {
+    pub fn new(value: &'a T, interner: &'a StrInterner) -> DebugWrapInterner<'a, T> {
         DebugWrapInterner { value, interner }
     }
 }
@@ -50,9 +50,48 @@ where
     }
 }
 
+impl<'a, T> DebugWithInterner for &'a T where T: DebugWithInterner {
+    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
+        (*self).fmt_with_interner(f, interner)
+    }
+}
+
 impl DebugWithInterner for StringRef {
     fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
         write!(f, "{}", interner.lookup(*self))
+    }
+}
+
+impl <T1, T2> DebugWithInterner for (T1, T2)
+where 
+    T1 : DebugWithInterner,
+    T2 : DebugWithInterner
+{
+    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
+        f.debug_tuple("").field_with(|fmt| self.0.fmt_with_interner(fmt, interner)).field_with(|fmt| self.1.fmt_with_interner(fmt, interner)).finish()
+    }
+}
+
+impl<T> DebugWithInterner for Vec<T>
+where
+    T: DebugWithInterner,
+{
+    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
+        f.debug_list()
+            .entries(self.iter().map(|item| DebugWrapInterner { value: item, interner }))
+            .finish()
+    }
+}
+
+impl<T> DebugWithInterner for Option<Box<T>>
+where
+    T: DebugWithInterner,
+{
+    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
+        match self {
+            Some(s) => s.fmt_with_interner(f, interner),
+            None => None::<()>.fmt(f),
+        }
     }
 }
 
@@ -68,6 +107,28 @@ where
             )))
             .finish()
     }
+}
+
+#[macro_export]
+macro_rules! dbg_intern {
+    // NOTE: We cannot use `concat!` to make a static string as a format argument
+    // of `eprintln!` because `file!` could contain a `{` or
+    // `$val` expression could be a block (`{ .. }`), in which case the `eprintln!`
+    // will be malformed.
+    () => {
+        eprintln!("[{}:{}:{}]", file!(), line!(), column!())
+    };
+    ($val:expr, $interner:expr) => {
+        // Use of `match` here is intentional because it affects the lifetimes
+        // of temporaries - https://stackoverflow.com/a/48732525/1063961
+        match $val {
+            tmp => {
+                eprintln!("[{}:{}:{}] {} = {:#?}",
+                    file!(), line!(), column!(), stringify!($val),  $crate::string_intern::DebugWrapInterner::new(&tmp, $interner));
+                tmp
+            }
+        }
+    };
 }
 
 impl StrInterner {

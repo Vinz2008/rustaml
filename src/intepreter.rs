@@ -1,7 +1,8 @@
 use rustc_hash::FxHashMap;
 use std::{cmp::Ordering, process::ExitCode};
-use std::fmt::{self, Debug, Formatter};
+use std::fmt::{self, Debug};
 
+use crate::dbg_intern;
 use crate::string_intern::{StrInterner, StringRef, DebugWithInterner};
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
@@ -78,25 +79,26 @@ impl<'a> Iterator for ListIter<'a> {
     }
 }
 
-impl Debug for List {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> { 
+impl DebugWithInterner for List {
+    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
         let mut current: &List = self;
         let mut iter_nb = 0;
         while let List::Node(v, next) = current {
             if iter_nb != 0 {
                 write!(f, ", ")?;
             }
-            write!(f, "{:?}", v)?;
+            v.fmt_with_interner(f, interner)?;
+            //write!(f, "{:?}", v)?;
             current = next.as_ref();
             iter_nb += 1;   
         }
-
         Ok(())
     }
+
 }
 
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 enum Val {
     Integer(i64),
     Float(f64),
@@ -104,6 +106,20 @@ enum Val {
     String(StringRef),
     List(Box<List>),
     Unit,
+}
+
+impl DebugWithInterner for Val {
+    
+    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
+        match self {
+            Self::Integer(arg0) => f.debug_tuple("Integer").field(arg0).finish(),
+            Self::Float(arg0) => f.debug_tuple("Float").field(arg0).finish(),
+            Self::Bool(arg0) => f.debug_tuple("Bool").field(arg0).finish(),
+            Self::String(arg0) => f.debug_tuple("String").field_with(|fmt| arg0.fmt_with_interner(fmt, interner)).finish(),
+            Self::List(arg0) => f.debug_tuple("List").field_with(|fmt| arg0.fmt_with_interner(fmt, interner)).finish(),
+            Self::Unit => write!(f, "Unit"),
+        }
+    }
 }
 
 impl PartialOrd for Val {
@@ -136,12 +152,18 @@ impl Val {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct FunctionDef {
     name : StringRef,
     args : Vec<StringRef>,
     body : Box<ASTNode>,
     return_type : Type,
+}
+
+impl DebugWithInterner for FunctionDef {
+    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
+        f.debug_struct("FunctionDef").field("name", &self.name.get_str(interner)).field_with("args", |fmt| self.args.fmt_with_interner(fmt, interner)).field_with("body", |fmt| self.body.fmt_with_interner(fmt, interner)).field("return_type", &self.return_type).finish()
+    }
 }
 
 
@@ -156,23 +178,22 @@ impl<'intern> Debug for InterpretContext<'intern> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("InterpretContext")
-            .field("functions", &self.functions)
-            .field("vars", &self.vars)
+            .field_with("functions", |fmt| self.functions.fmt_with_interner(fmt, &self.str_interner))
+            .field_with("vars", |fmt | self.vars.fmt_with_interner(fmt, &self.str_interner))
             .finish()
     }
 }
 
 // TODO
-impl<'intern> DebugWithInterner for InterpretContext<'intern> {
+/*impl<'intern> DebugWithInterner for InterpretContext<'intern> {
     #[inline]
     fn fmt_with_interner(&self, f: &mut fmt::Formatter, str_interner: &StrInterner) -> fmt::Result {
         f.debug_struct("InterpretContext")
-            .field("functions", &self.functions)
-            .field("vars", &self.vars)
-            //.field_with("vars", |fmt| self.vars.fmt_with_interner(fmt, str_interner))
+            .field_with("functions", |fmt| self.functions.fmt_with_interner(fmt, str_interner))
+            .field_with("vars", |fmt| self.vars.fmt_with_interner(fmt, str_interner))
             .finish()
     }
-}
+}*/
 
 // TODO : gc allocator (https://crates.io/crates/gc)
 

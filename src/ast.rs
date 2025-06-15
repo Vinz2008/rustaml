@@ -5,17 +5,17 @@ use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
-use crate::{lexer::{Operator, Token, TokenData, TokenDataTag}, string_intern::{DebugWithInterner, StrInterner, StringRef}, type_inference::{infer_var_type, TypeInferenceErr}};
+use crate::{dbg_intern, lexer::{Operator, Token, TokenData, TokenDataTag}, string_intern::{DebugWithInterner, StrInterner, StringRef}, type_inference::{infer_var_type, TypeInferenceErr}};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Arg {
     pub name : StringRef,
     arg_type : Type,
 }
 
-impl DebugWithInterner for Arg {
-    
-    
+
+
+impl DebugWithInterner for Arg {    
     fn fmt_with_interner(&self, f: &mut std::fmt::Formatter, interner: &StrInterner) -> std::fmt::Result {
         f.debug_struct("Arg")
         .field_with("name",  |fmt| {
@@ -26,7 +26,7 @@ impl DebugWithInterner for Arg {
 }
 
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Pattern {
     VarName(StringRef), // | x pattern
     Integer(i64), // | 2
@@ -38,9 +38,24 @@ pub enum Pattern {
     Underscore,
 }
 
+impl DebugWithInterner for Pattern {
+    fn fmt_with_interner(&self, f: &mut std::fmt::Formatter, interner: &StrInterner) -> std::fmt::Result {
+        match self {
+            Self::VarName(arg0) => f.debug_tuple("VarName").field(&arg0.get_str(interner)).finish(),
+            Self::Integer(arg0) => f.debug_tuple("Integer").field(arg0).finish(),
+            Self::Float(arg0) => f.debug_tuple("Float").field(arg0).finish(),
+            Self::Range(arg0, arg1, arg2) => f.debug_tuple("Range").field(arg0).field(arg1).field(arg2).finish(),
+            Self::String(arg0) => f.debug_tuple("String").field(&arg0.get_str(interner)).finish(),
+            Self::List(arg0) => f.debug_tuple("List").field_with(|fmt| arg0.fmt_with_interner(fmt, interner)).finish(),
+            Self::ListDestructure(arg0, arg1) => f.debug_tuple("ListDestructure").field(&arg0.get_str(interner)).field(&arg1.get_str(interner)).finish(),
+            Self::Underscore => write!(f, "Underscore"),
+        }
+    }
+}
+
 
 // TODO : flatten AST nodes (https://www.cs.cornell.edu/~asampson/blog/flattening.html)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum ASTNode {
     TopLevel {
         nodes: Vec<ASTNode>,
@@ -93,6 +108,26 @@ pub enum ASTNode {
     FunctionCall {
         name : StringRef,
         args : Vec<ASTNode>,
+    }
+}
+
+impl DebugWithInterner for ASTNode {
+    fn fmt_with_interner(&self, f: &mut std::fmt::Formatter, interner: &StrInterner) -> std::fmt::Result {
+        match self {
+            Self::TopLevel { nodes } => f.debug_struct("TopLevel").field_with("nodes", |fmt| nodes.fmt_with_interner(fmt, interner)).finish(),
+            Self::FunctionDefinition { name, args, body, return_type } => f.debug_struct("FunctionDefinition").field("name", &name.get_str(interner)).field_with("args", |fmt| args.fmt_with_interner(fmt, interner)).field_with("body", |fmt| body.fmt_with_interner(fmt, interner)).field("return_type", return_type).finish(),
+            Self::VarDecl { name, val, body } => f.debug_struct("VarDecl").field("name", &name.get_str(interner)).field_with("val", |fmt| val.fmt_with_interner(fmt, interner)).field_with("body", |fmt| body.fmt_with_interner(fmt, interner)).finish(),
+            Self::VarUse { name } => f.debug_struct("VarUse").field("name", &name.get_str(interner)).finish(),
+            Self::IfExpr { cond_expr, then_body, else_body } => f.debug_struct("IfExpr").field_with("cond_expr", |fmt| cond_expr.fmt_with_interner(fmt, interner)).field_with("then_body", |fmt| then_body.fmt_with_interner(fmt, interner)).field_with("else_body", |fmt| else_body.fmt_with_interner(fmt, interner)).finish(),
+            Self::MatchExpr { matched_expr, patterns } => f.debug_struct("MatchExpr").field_with("matched_expr", |fmt| matched_expr.fmt_with_interner(fmt, interner)).field_with("patterns", |fmt| patterns.fmt_with_interner(fmt, interner)).finish(),
+            Self::Integer { nb } => f.debug_struct("Integer").field("nb", nb).finish(),
+            Self::Float { nb } => f.debug_struct("Float").field("nb", nb).finish(),
+            Self::String { str } => f.debug_struct("String").field("str", &str.get_str(interner)).finish(),
+            Self::List { list } => f.debug_struct("List").field_with("list", |fmt| list.fmt_with_interner(fmt, interner)).finish(),
+            Self::Boolean { b } => f.debug_struct("Boolean").field("b", b).finish(),
+            Self::BinaryOp { op, lhs, rhs } => f.debug_struct("BinaryOp").field("op", op).field_with("lhs", |fmt| lhs.fmt_with_interner(fmt, interner)).field_with("rhs", |fmt| rhs.fmt_with_interner(fmt, interner)).finish(),
+            Self::FunctionCall { name, args } => f.debug_struct("FunctionCall").field("name", &name.get_str(interner)).field_with("args", |fmt| args.fmt_with_interner(fmt, interner)).finish(),
+        }
     }
 }
 
@@ -597,7 +632,7 @@ fn parse_match(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
 fn parse_parenthesis(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     //println!("PARSE PAREN");
     let expr = parse_node(parser)?;
-    dbg!(&expr);
+    dbg_intern!(&expr, &parser.str_interner);
     parser.eat_tok(Some(TokenDataTag::ParenClose))?;
     //println!("CLOSE PAREN");
     Ok(expr)
@@ -712,7 +747,7 @@ pub fn parse(tokens: Vec<Token>, str_interner : &mut StrInterner) -> Result<ASTN
         str_interner: str_interner,
     };
     let root_node = parse_top_level_node(&mut parser)?;
-    dbg!(&root_node);
+    dbg_intern!(&root_node, str_interner);
     Ok(root_node)
 }
 

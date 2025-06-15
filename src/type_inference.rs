@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::{ast::{ASTNode, Parser, Pattern, Type}, string_intern::StringRef};
+use crate::{ast::{ASTNode, Parser, Pattern, Type}, dbg_intern, string_intern::StringRef};
 
 
 // TODO : problem with type inference and Any types
@@ -140,7 +140,9 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: &ASTNode, ra
                     lhs.get_type(parser)
                 };
                 let operand_type = op.get_operand_type(is_left_var, &other_operand_type);
-                dbg!(&operand_type, &other_operand_type, var_name, node);
+                dbg!(&operand_type, &other_operand_type);
+                dbg_intern!(var_name, parser.str_interner); 
+                dbg_intern!(node, parser.str_interner);
                 Some(operand_type)
             } else {
                 let lhs_inferred =  _infer_var_type(parser, var_name, lhs.as_ref(), range);
