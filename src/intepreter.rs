@@ -2,8 +2,8 @@ use rustc_hash::FxHashMap;
 use std::{cmp::Ordering, process::ExitCode};
 use std::fmt::{self, Debug};
 
-use crate::dbg_intern;
-use crate::string_intern::{StrInterner, StringRef, DebugWithInterner};
+use crate::ast::{ASTPool, ASTRef};
+use crate::string_intern::{StrInterner, StringRef, DebugWithContext};
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
 
@@ -17,10 +17,10 @@ enum List {
 impl List {
     
     // intepret nodes here instead of doing before the call and passing a Vec<Val> to avoid not necessary allocations
-    fn new(context: &mut InterpretContext, v : &Vec<ASTNode>) -> List {
+    fn new(context: &mut InterpretContext, v : &Vec<ASTRef>) -> List {
         let mut l = List::None;
         for e in v {
-            let val = interpret_node(context, e);
+            let val = interpret_node(context, *e);
             l.append(val);
         }
         
@@ -79,15 +79,15 @@ impl<'a> Iterator for ListIter<'a> {
     }
 }
 
-impl DebugWithInterner for List {
-    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
+impl DebugWithContext for List {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
         let mut current: &List = self;
         let mut iter_nb = 0;
         while let List::Node(v, next) = current {
             if iter_nb != 0 {
                 write!(f, ", ")?;
             }
-            v.fmt_with_interner(f, interner)?;
+            v.fmt_with_context(f, interner, ast_pool)?;
             //write!(f, "{:?}", v)?;
             current = next.as_ref();
             iter_nb += 1;   
@@ -108,15 +108,15 @@ enum Val {
     Unit,
 }
 
-impl DebugWithInterner for Val {
+impl DebugWithContext for Val {
     
-    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
         match self {
             Self::Integer(arg0) => f.debug_tuple("Integer").field(arg0).finish(),
             Self::Float(arg0) => f.debug_tuple("Float").field(arg0).finish(),
             Self::Bool(arg0) => f.debug_tuple("Bool").field(arg0).finish(),
-            Self::String(arg0) => f.debug_tuple("String").field_with(|fmt| arg0.fmt_with_interner(fmt, interner)).finish(),
-            Self::List(arg0) => f.debug_tuple("List").field_with(|fmt| arg0.fmt_with_interner(fmt, interner)).finish(),
+            Self::String(arg0) => f.debug_tuple("String").field_with(|fmt| arg0.fmt_with_context(fmt, interner, ast_pool)).finish(),
+            Self::List(arg0) => f.debug_tuple("List").field_with(|fmt| arg0.fmt_with_context(fmt, interner, ast_pool)).finish(),
             Self::Unit => write!(f, "Unit"),
         }
     }
@@ -156,21 +156,22 @@ impl Val {
 struct FunctionDef {
     name : StringRef,
     args : Vec<StringRef>,
-    body : Box<ASTNode>,
+    body : ASTRef,
     return_type : Type,
 }
 
-impl DebugWithInterner for FunctionDef {
-    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
-        f.debug_struct("FunctionDef").field("name", &self.name.get_str(interner)).field_with("args", |fmt| self.args.fmt_with_interner(fmt, interner)).field_with("body", |fmt| self.body.fmt_with_interner(fmt, interner)).field("return_type", &self.return_type).finish()
+impl DebugWithContext for FunctionDef {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
+        f.debug_struct("FunctionDef").field("name", &self.name.get_str(interner)).field_with("args", |fmt| self.args.fmt_with_context(fmt, interner, ast_pool)).field_with("body", |fmt| self.body.fmt_with_context(fmt, interner, ast_pool)).field("return_type", &self.return_type).finish()
     }
 }
 
 
-struct InterpretContext<'intern> {
+struct InterpretContext<'refs> {
     functions : FxHashMap<StringRef, FunctionDef>,
     vars: FxHashMap<StringRef, Val>,
-    pub str_interner : &'intern mut StrInterner,
+    pub str_interner : &'refs mut StrInterner,
+    pub ast_pool : &'refs mut ASTPool,
 }
 
 
@@ -178,8 +179,8 @@ impl<'intern> Debug for InterpretContext<'intern> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("InterpretContext")
-            .field_with("functions", |fmt| self.functions.fmt_with_interner(fmt, &self.str_interner))
-            .field_with("vars", |fmt | self.vars.fmt_with_interner(fmt, &self.str_interner))
+            .field_with("functions", |fmt| self.functions.fmt_with_context(fmt, &self.str_interner, &self.ast_pool))
+            .field_with("vars", |fmt | self.vars.fmt_with_context(fmt, &self.str_interner, &self.ast_pool))
             .finish()
     }
 }
@@ -287,7 +288,7 @@ fn interpret_binop_list(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     }
 }
 
-fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : &ASTNode, rhs : &ASTNode) -> Val {
+fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, rhs : ASTRef) -> Val {
     let lhs_val = interpret_node(context, lhs);
     let rhs_val = interpret_node(context, rhs);
 
@@ -301,7 +302,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : &ASTNode
 
 }
 
-fn interpret_function_call(context: &mut InterpretContext, name : StringRef, args : Vec<ASTNode>) -> Val {
+fn interpret_function_call(context: &mut InterpretContext, name : StringRef, args : Vec<ASTRef>) -> Val {
 
     let func_def = context.functions.get(&name).unwrap().clone(); // TODO : remove the clone ?
 
@@ -309,7 +310,7 @@ fn interpret_function_call(context: &mut InterpretContext, name : StringRef, arg
         panic!("Invalid args number in function call, expected {}, got {}", func_def.args.len(), args.len());
     }
 
-    let args_val = args.into_iter().map(|e| interpret_node(context, &e)).collect::<Vec<_>>();
+    let args_val = args.into_iter().map(|e| interpret_node(context, e)).collect::<Vec<_>>();
     
     let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
     for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
@@ -319,7 +320,7 @@ fn interpret_function_call(context: &mut InterpretContext, name : StringRef, arg
         context.vars.insert(arg_name.clone(), arg_val.clone());
     }
 
-    let res_val = interpret_node(context, &func_def.body);
+    let res_val = interpret_node(context, func_def.body);
 
     for arg_name in &func_def.args {
         context.vars.remove(arg_name);
@@ -330,7 +331,7 @@ fn interpret_function_call(context: &mut InterpretContext, name : StringRef, arg
     res_val
 }
 
-fn interpret_if_expr(context: &mut InterpretContext, cond_expr : &ASTNode, then_body : &ASTNode, else_body : &ASTNode) -> Val {
+fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_body : ASTRef, else_body : ASTRef) -> Val {
     let cond_expr_val = match interpret_node(context, cond_expr) {
         Val::Bool(b) => b,
         _ => unreachable!(),
@@ -411,7 +412,7 @@ fn interpret_match_pattern(matched_val : &Val, pattern : &Pattern) -> bool {
     }
 }
 
-fn interpret_match(context: &mut InterpretContext, matched_expr : &ASTNode, patterns : &[(Pattern, ASTNode)]) -> Val {
+fn interpret_match(context: &mut InterpretContext, matched_expr : ASTRef, patterns : &[(Pattern, ASTRef)]) -> Val {
     let matched_expr_val = interpret_node(context, matched_expr);
     for (pattern, pattern_expr) in patterns {
 
@@ -422,7 +423,7 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : &ASTNode, patt
                 },
                 _ => {},
             }
-            let res_val = interpret_node(context, pattern_expr);
+            let res_val = interpret_node(context, *pattern_expr);
             match pattern {
                 Pattern::VarName(s) => { 
                     context.vars.remove(s);
@@ -510,11 +511,12 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : &ASTNode, patt
     panic!("No pattern was matched in match expressions (not exhaustive match)")
 }
 
-fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
-    match ast {
+fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
+    let ast_node = ast.get(context.ast_pool).clone(); // remove the clone ? (because there are indexes in the ast node, the clone is not a deep copy)
+    match &ast_node {
         ASTNode::TopLevel { nodes } => {
             for node in nodes {
-                interpret_node(context, node);
+                interpret_node(context, *node);
             }
             Val::Unit
         }
@@ -532,11 +534,11 @@ fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
         ASTNode::Integer { nb } => Val::Integer(*nb),
         ASTNode::Boolean { b } => Val::Bool(*b),
         ASTNode::VarDecl { name, val, body } => {
-            let val_node = interpret_node(context, val.as_ref());
+            let val_node = interpret_node(context, *val);
             context.vars.insert(name.clone(), val_node);
             match body {
                 Some(b) => {
-                    let body_val = interpret_node(context, b.as_ref());
+                    let body_val = interpret_node(context, *b);
                     context.vars.remove(name);
                     body_val
                 },
@@ -547,24 +549,25 @@ fn interpret_node(context: &mut InterpretContext, ast: &ASTNode) -> Val {
             
         },
         ASTNode::VarUse { name } => context.vars.get(name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", name.get_str(context.str_interner))).clone(),
-        ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, *op, lhs.as_ref(), rhs.as_ref()),
+        ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, *op, *lhs, *rhs),
         ASTNode::FunctionCall { name, args } => interpret_function_call(context, *name, args.clone()),
-        ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, cond_expr, then_body, else_body),
-        ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr.as_ref(), patterns.as_slice()),
+        ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, *cond_expr, *then_body, *else_body),
+        ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, *matched_expr, patterns.as_slice()),
         ASTNode::String { str } => Val::String(*str),
         ASTNode::List { list } => Val::List(Box::new(List::new(context, list))),
         //n => panic!("unexpected ast node when interpreting : {:?}", n),
     }
 }
 
-pub fn interpret(ast: ASTNode, str_interner: &mut StrInterner) -> ExitCode {
+pub fn interpret(ast: ASTRef, str_interner: &mut StrInterner, ast_pool : &mut ASTPool) -> ExitCode {
     let mut context = InterpretContext {
         vars: FxHashMap::default(),
         functions: FxHashMap::default(),
         str_interner,
+        ast_pool,
     };
 
-    interpret_node(&mut context, &ast);
+    interpret_node(&mut context, ast);
 
     dbg!(context);
 

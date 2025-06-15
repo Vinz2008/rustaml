@@ -5,7 +5,7 @@ use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
-use crate::{dbg_intern, lexer::{Operator, Token, TokenData, TokenDataTag}, string_intern::{DebugWithInterner, StrInterner, StringRef}, type_inference::{infer_var_type, TypeInferenceErr}};
+use crate::{dbg_intern, lexer::{Operator, Token, TokenData, TokenDataTag}, string_intern::{DebugWithContext, StrInterner, StringRef}, type_inference::{infer_var_type, TypeInferenceErr}};
 
 #[derive(Clone, PartialEq)]
 pub struct Arg {
@@ -15,11 +15,11 @@ pub struct Arg {
 
 
 
-impl DebugWithInterner for Arg {    
-    fn fmt_with_interner(&self, f: &mut std::fmt::Formatter, interner: &StrInterner) -> std::fmt::Result {
+impl DebugWithContext for Arg {    
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> std::fmt::Result {
         f.debug_struct("Arg")
         .field_with("name",  |fmt| {
-            self.name.fmt_with_interner(fmt, interner)
+            self.name.fmt_with_context(fmt, interner, ast_pool)
         })
         .field("arg_type", &self.arg_type).finish()
     }
@@ -38,18 +38,51 @@ pub enum Pattern {
     Underscore,
 }
 
-impl DebugWithInterner for Pattern {
-    fn fmt_with_interner(&self, f: &mut std::fmt::Formatter, interner: &StrInterner) -> std::fmt::Result {
+impl DebugWithContext for Pattern {
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> std::fmt::Result {
         match self {
             Self::VarName(arg0) => f.debug_tuple("VarName").field(&arg0.get_str(interner)).finish(),
             Self::Integer(arg0) => f.debug_tuple("Integer").field(arg0).finish(),
             Self::Float(arg0) => f.debug_tuple("Float").field(arg0).finish(),
             Self::Range(arg0, arg1, arg2) => f.debug_tuple("Range").field(arg0).field(arg1).field(arg2).finish(),
             Self::String(arg0) => f.debug_tuple("String").field(&arg0.get_str(interner)).finish(),
-            Self::List(arg0) => f.debug_tuple("List").field_with(|fmt| arg0.fmt_with_interner(fmt, interner)).finish(),
+            Self::List(arg0) => f.debug_tuple("List").field_with(|fmt| arg0.fmt_with_context(fmt, interner, ast_pool)).finish(),
             Self::ListDestructure(arg0, arg1) => f.debug_tuple("ListDestructure").field(&arg0.get_str(interner)).field(&arg1.get_str(interner)).finish(),
             Self::Underscore => write!(f, "Underscore"),
         }
+    }
+}
+
+pub struct ASTPool(Vec<ASTNode>);
+
+impl ASTPool {
+    pub fn new() -> ASTPool {
+        ASTPool(Vec::new())
+    }
+    pub fn get(&self, expr : ASTRef) -> &ASTNode {
+        &self.0[expr.0 as usize]
+    }
+
+    fn push(&mut self, node : ASTNode) -> ASTRef {
+        let idx = self.0.len();
+        self.0.push(node);
+        ASTRef(idx.try_into().expect("too many ast nodes in the pool"))
+    }
+}
+
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct ASTRef(u32);
+
+impl ASTRef {
+    pub fn get(self, ast_pool : &ASTPool) -> &ASTNode {
+        ast_pool.get(self)
+    }
+}
+
+impl DebugWithContext for ASTRef {
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> std::fmt::Result {
+        self.get(ast_pool).fmt_with_context(f, interner, ast_pool)
     }
 }
 
@@ -58,31 +91,31 @@ impl DebugWithInterner for Pattern {
 #[derive(Clone, PartialEq)]
 pub enum ASTNode {
     TopLevel {
-        nodes: Vec<ASTNode>,
+        nodes: Vec<ASTRef>,
     },
     FunctionDefinition {
         name : StringRef,
         args : Vec<Arg>,
-        body : Box<ASTNode>,
+        body : ASTRef,
         return_type : Type,
     },
     VarDecl {
         // TODO : intern all strings and replace these by refs to strings ?
         name: StringRef,
-        val: Box<ASTNode>,
-        body : Option<Box<ASTNode>>,
+        val: ASTRef,
+        body : Option<ASTRef>,
     },
     VarUse {
         name : StringRef,
     },
     IfExpr {
-        cond_expr : Box<ASTNode>,
-        then_body : Box<ASTNode>,
-        else_body : Box<ASTNode>,
+        cond_expr : ASTRef,
+        then_body : ASTRef,
+        else_body : ASTRef,
     },
     MatchExpr {
-        matched_expr : Box<ASTNode>,
-        patterns : Vec<(Pattern, ASTNode)>
+        matched_expr : ASTRef,
+        patterns : Vec<(Pattern, ASTRef)>
     },
     Integer {
         nb: i64,
@@ -94,39 +127,39 @@ pub enum ASTNode {
         str : StringRef
     },
     List {
-        list : Vec<ASTNode>,
+        list : Vec<ASTRef>,
     },
     Boolean {
         b : bool,
     },
     BinaryOp {
         op: Operator,
-        lhs: Box<ASTNode>,
-        rhs: Box<ASTNode>,
+        lhs: ASTRef,
+        rhs: ASTRef,
     },
     // TODO : UnaryOp
     FunctionCall {
         name : StringRef,
-        args : Vec<ASTNode>,
+        args : Vec<ASTRef>,
     }
 }
 
-impl DebugWithInterner for ASTNode {
-    fn fmt_with_interner(&self, f: &mut std::fmt::Formatter, interner: &StrInterner) -> std::fmt::Result {
+impl DebugWithContext for ASTNode {
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> std::fmt::Result {
         match self {
-            Self::TopLevel { nodes } => f.debug_struct("TopLevel").field_with("nodes", |fmt| nodes.fmt_with_interner(fmt, interner)).finish(),
-            Self::FunctionDefinition { name, args, body, return_type } => f.debug_struct("FunctionDefinition").field("name", &name.get_str(interner)).field_with("args", |fmt| args.fmt_with_interner(fmt, interner)).field_with("body", |fmt| body.fmt_with_interner(fmt, interner)).field("return_type", return_type).finish(),
-            Self::VarDecl { name, val, body } => f.debug_struct("VarDecl").field("name", &name.get_str(interner)).field_with("val", |fmt| val.fmt_with_interner(fmt, interner)).field_with("body", |fmt| body.fmt_with_interner(fmt, interner)).finish(),
+            Self::TopLevel { nodes } => f.debug_struct("TopLevel").field_with("nodes", |fmt| nodes.fmt_with_context(fmt, interner, ast_pool)).finish(),
+            Self::FunctionDefinition { name, args, body, return_type } => f.debug_struct("FunctionDefinition").field("name", &name.get_str(interner)).field_with("args", |fmt| args.fmt_with_context(fmt, interner, ast_pool)).field_with("body", |fmt| body.get(ast_pool).fmt_with_context(fmt, interner, ast_pool)).field("return_type", return_type).finish(),
+            Self::VarDecl { name, val, body } => f.debug_struct("VarDecl").field("name", &name.get_str(interner)).field_with("val", |fmt| val.get(ast_pool).fmt_with_context(fmt, interner, ast_pool)).field_with("body", |fmt| body.fmt_with_context(fmt, interner, ast_pool)).finish(),
             Self::VarUse { name } => f.debug_struct("VarUse").field("name", &name.get_str(interner)).finish(),
-            Self::IfExpr { cond_expr, then_body, else_body } => f.debug_struct("IfExpr").field_with("cond_expr", |fmt| cond_expr.fmt_with_interner(fmt, interner)).field_with("then_body", |fmt| then_body.fmt_with_interner(fmt, interner)).field_with("else_body", |fmt| else_body.fmt_with_interner(fmt, interner)).finish(),
-            Self::MatchExpr { matched_expr, patterns } => f.debug_struct("MatchExpr").field_with("matched_expr", |fmt| matched_expr.fmt_with_interner(fmt, interner)).field_with("patterns", |fmt| patterns.fmt_with_interner(fmt, interner)).finish(),
+            Self::IfExpr { cond_expr, then_body, else_body } => f.debug_struct("IfExpr").field_with("cond_expr", |fmt|  cond_expr.get(ast_pool).fmt_with_context(fmt, interner, ast_pool)).field_with("then_body", |fmt| then_body.fmt_with_context(fmt, interner, ast_pool)).field_with("else_body", |fmt| else_body.fmt_with_context(fmt, interner, ast_pool)).finish(),
+            Self::MatchExpr { matched_expr, patterns } => f.debug_struct("MatchExpr").field_with("matched_expr", |fmt| matched_expr.get(ast_pool).fmt_with_context(fmt, interner, ast_pool)).field_with("patterns", |fmt| patterns.fmt_with_context(fmt, interner, ast_pool)).finish(),
             Self::Integer { nb } => f.debug_struct("Integer").field("nb", nb).finish(),
             Self::Float { nb } => f.debug_struct("Float").field("nb", nb).finish(),
             Self::String { str } => f.debug_struct("String").field("str", &str.get_str(interner)).finish(),
-            Self::List { list } => f.debug_struct("List").field_with("list", |fmt| list.fmt_with_interner(fmt, interner)).finish(),
+            Self::List { list } => f.debug_struct("List").field_with("list", |fmt| list.fmt_with_context(fmt, interner, ast_pool)).finish(),
             Self::Boolean { b } => f.debug_struct("Boolean").field("b", b).finish(),
-            Self::BinaryOp { op, lhs, rhs } => f.debug_struct("BinaryOp").field("op", op).field_with("lhs", |fmt| lhs.fmt_with_interner(fmt, interner)).field_with("rhs", |fmt| rhs.fmt_with_interner(fmt, interner)).finish(),
-            Self::FunctionCall { name, args } => f.debug_struct("FunctionCall").field("name", &name.get_str(interner)).field_with("args", |fmt| args.fmt_with_interner(fmt, interner)).finish(),
+            Self::BinaryOp { op, lhs, rhs } => f.debug_struct("BinaryOp").field("op", op).field_with("lhs", |fmt| lhs.fmt_with_context(fmt, interner, ast_pool)).field_with("rhs", |fmt| rhs.fmt_with_context(fmt, interner, ast_pool)).finish(),
+            Self::FunctionCall { name, args } => f.debug_struct("FunctionCall").field("name", &name.get_str(interner)).field_with("args", |fmt| args.fmt_with_context(fmt, interner, ast_pool)).finish(),
         }
     }
 }
@@ -153,7 +186,7 @@ impl ASTNode {
             ASTNode::String { str: _ } => Type::Str,
             ASTNode::List { list } => { 
                 let elem_type = match list.first() {
-                    Some(f) => f.get_type(parser),
+                    Some(f) => f.get(&parser.ast_pool).get_type(parser),
                     None => Type::Any,
                 };
                 Type::List(Box::new(elem_type)) 
@@ -165,8 +198,8 @@ impl ASTNode {
                 Some(t) => t.clone(),
                 None => unreachable!("Unknown var {}", name.get_str(&parser.str_interner))
              },
-            ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get_type(parser), // no need for typechecking the two branches because it is done when constructing the IfExpr
-            ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get_type(parser),
+            ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get(&parser.ast_pool).get_type(parser), // no need for typechecking the two branches because it is done when constructing the IfExpr
+            ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get(parser.ast_pool).get_type(parser),
             ASTNode::TopLevel { nodes: _ } => Type::Unit,
             ASTNode::FunctionDefinition { name: _, args: _, body: _, return_type: _ } => Type::Unit,
         }
@@ -199,13 +232,14 @@ pub enum Associativity {
     Right, // ::
 }
 
-pub struct Parser<'intern> {
+pub struct Parser<'refs> {
     tokens: Vec<Token>,
     pos: usize,
     // optional types because of type inference of return values of functions that need to be inserted for recursive functions (TODO ?)
     pub vars : FxHashMap<StringRef, Type>, // include functions (which are just vars with function types)
     precedences : FxHashMap<Operator, (i32, Associativity)>,
-    pub str_interner : &'intern mut StrInterner,
+    pub str_interner : &'refs mut StrInterner,
+    pub ast_pool : &'refs mut ASTPool,
 }
 
 #[derive(Debug, Tag)]
@@ -279,16 +313,16 @@ impl Parser<'_> {
     }
 }
 
-fn parse_integer(nb: i64) -> ASTNode {
-    ASTNode::Integer { nb }
+fn parse_integer(parser: &mut Parser, nb: i64) -> ASTRef {
+    parser.ast_pool.push(ASTNode::Integer { nb })
 }
 
-fn parse_float(nb: f64) -> ASTNode {
-    ASTNode::Float { nb }
+fn parse_float(parser: &mut Parser, nb: f64) -> ASTRef {
+    parser.ast_pool.push(ASTNode::Float { nb })
 }
 
-fn parse_string(parser: &mut Parser, buf : Vec<char>) -> ASTNode {
-    ASTNode::String { str: parser.str_interner.intern(&buf.iter().collect::<String>()) }
+fn parse_string(parser: &mut Parser, buf : Vec<char>) -> ASTRef {
+    parser.ast_pool.push(ASTNode::String { str: parser.str_interner.intern(&buf.iter().collect::<String>()) })
 }
 
 
@@ -349,7 +383,7 @@ fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
     Ok(type_parsed)
 }
 
-fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
+fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     // TODO : pass error handling (by making all parse functions return results, than handling in the main function)
     let name_tok = parser.eat_tok(Some(TokenDataTag::Identifier))?;
     let name = match name_tok.tok_data {
@@ -410,14 +444,14 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         let body = parse_node(parser)?;
 
         if matches!(return_type.as_ref(), Type::Any){
-            let body_type = body.get_type(parser);
+            let body_type = body.get(&parser.ast_pool).get_type(parser);
             return_type = Box::new(body_type);
         }
         
 
         for (arg, arg_range) in args.iter_mut().zip(arg_ranges) {
             if matches!(arg.arg_type, Type::Any){
-                arg.arg_type = infer_var_type(parser, arg.name, &body, &arg_range)?;
+                arg.arg_type = infer_var_type(parser, arg.name, body, &arg_range)?;
                 parser.vars.insert(arg.name.clone(), arg.arg_type.clone());
             }
         }
@@ -432,7 +466,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         ASTNode::FunctionDefinition { 
             name, 
             args, 
-            body: Box::new(body),
+            body,
             return_type: *return_type,
         }
     } else {
@@ -450,7 +484,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
 
         let val_node = parse_node(parser)?;
         if var_type.is_none() {
-            var_type = Some(val_node.get_type(parser))
+            var_type = Some(val_node.get(parser.ast_pool).get_type(parser))
         }
 
         parser.vars.insert(name.clone(), var_type.unwrap());
@@ -458,7 +492,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         let body = match parser.current_tok_data() {
             Some(TokenData::In) => {
                 parser.eat_tok(Some(TokenDataTag::In))?;
-                Some(Box::new(parse_node(parser)?))
+                Some(parse_node(parser)?)
             },
             _ => None,
         };
@@ -470,7 +504,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
 
         ASTNode::VarDecl {
             name,
-            val: Box::new(val_node),
+            val: val_node,
             body,
         }
     };
@@ -479,7 +513,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         parser.eat_tok(Some(TokenDataTag::EndOfExpr)).unwrap();
     }
 
-    Ok(node)
+    Ok(parser.ast_pool.push(node))
     
 }
 
@@ -487,7 +521,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
 
 
 
-fn parse_function_call(parser: &mut Parser, function_name : StringRef) -> Result<ASTNode, ParserErr> {
+fn parse_function_call(parser: &mut Parser, function_name : StringRef) -> Result<ASTRef, ParserErr> {
     let mut args = Vec::new();
 
     fn function_call_parse_continue(tok_data : Option<&TokenData>) -> bool {
@@ -499,13 +533,13 @@ fn parse_function_call(parser: &mut Parser, function_name : StringRef) -> Result
         args.push(arg);
     }
     //dbg!(&args);
-    Ok(ASTNode::FunctionCall { 
+    Ok(parser.ast_pool.push(ASTNode::FunctionCall { 
         name: function_name, 
         args,
-    })
+    }))
 }
 
-fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Result<ASTNode, ParserErr> {
+fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Result<ASTRef, ParserErr> {
     let identifier = parser.str_interner.intern(&identifier_buf.iter().collect::<String>());
     let is_function = match parser.vars.get(&identifier) {
         Some(t) => matches!(t, Type::Function(_, _)),
@@ -515,15 +549,15 @@ fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Res
         parse_function_call(parser, identifier)
     } else {
         // var use
-        Ok(ASTNode::VarUse { name: identifier })
+        Ok(parser.ast_pool.push(ASTNode::VarUse { name: identifier }))
     }
     
 }
 
-fn parse_if(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
+fn parse_if(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let cond_expr = parse_node(parser)?;
 
-    match cond_expr.get_type(parser) {
+    match cond_expr.get(parser.ast_pool).get_type(parser) {
         Type::Bool => {},
         t => panic!("Error in type checking : {:?} type passed in if expr", t), // TODO : return a result instead
     }
@@ -536,11 +570,11 @@ fn parse_if(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
 
     let else_body = parse_node(parser)?;
     
-    Ok(ASTNode::IfExpr { 
-        cond_expr: Box::new(cond_expr), 
-        then_body: Box::new(then_body), 
-        else_body: Box::new(else_body) 
-    })
+    Ok(parser.ast_pool.push(ASTNode::IfExpr { 
+        cond_expr: cond_expr, 
+        then_body: then_body, 
+        else_body: else_body 
+    }))
 }
 
 
@@ -607,7 +641,7 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
 
 }
 
-fn parse_match(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
+fn parse_match(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let matched_expr = parse_primary(parser)?;
     parser.eat_tok(Some(TokenDataTag::With))?;
     let mut patterns = Vec::new();
@@ -621,41 +655,41 @@ fn parse_match(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
         patterns.push((pattern, pattern_expr));
     }
 
-    Ok(ASTNode::MatchExpr { 
-        matched_expr: Box::new(matched_expr), 
+    Ok(parser.ast_pool.push(ASTNode::MatchExpr { 
+        matched_expr, 
         patterns, 
-    })
+    }))
 }
 
 
 // TODO : fix parsing parenthesis in parenthesis ex : (fib_list (i-1))
-fn parse_parenthesis(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
+fn parse_parenthesis(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     //println!("PARSE PAREN");
     let expr = parse_node(parser)?;
-    dbg_intern!(&expr, &parser.str_interner);
+    dbg_intern!(&expr, parser.str_interner, parser.ast_pool);
     parser.eat_tok(Some(TokenDataTag::ParenClose))?;
     //println!("CLOSE PAREN");
     Ok(expr)
 }
 
-fn parse_static_list(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
+fn parse_static_list(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let elems = parse_list_form(parser, parse_node)?;
     
-    Ok(ASTNode::List { list: elems })
+    Ok(parser.ast_pool.push(ASTNode::List { list: elems }))
 }
 
-fn parse_primary(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
+fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let tok = parser.eat_tok(None).unwrap();
     let node = match tok.tok_data {
         TokenData::Let => parse_let(parser),
         TokenData::If => parse_if(parser),
         TokenData::Match => parse_match(parser),
-        TokenData::Integer(nb) => Ok(parse_integer(nb)),
-        TokenData::Float(nb) => Ok(parse_float(nb)),
+        TokenData::Integer(nb) => Ok(parse_integer(parser, nb)),
+        TokenData::Float(nb) => Ok(parse_float(parser, nb)),
         TokenData::String(buf) => Ok(parse_string(parser, buf)),
         TokenData::Identifier(buf) => parse_identifier_expr(parser, buf),
-        TokenData::True => Ok(ASTNode::Boolean { b: true }),
-        TokenData::False => Ok(ASTNode::Boolean { b: false }),
+        TokenData::True => Ok(parser.ast_pool.push(ASTNode::Boolean { b: true })),
+        TokenData::False => Ok(parser.ast_pool.push(ASTNode::Boolean { b: false })),
         TokenData::ParenOpen => parse_parenthesis(parser), // TODO : move this to the start of parse_node and make it unreachable! ? (because each time there are parenthesis, parse_node -> parse_primary -> parse_node is added to the call stack) 
         TokenData::ArrayOpen => parse_static_list(parser),
         t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))
@@ -664,7 +698,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
     return node;
 }
 
-fn parse_binary_rec(parser: &mut Parser, lhs: ASTNode, min_precedence: i32) -> Result<ASTNode, ParserErr> {
+fn parse_binary_rec(parser: &mut Parser, lhs: ASTRef, min_precedence: i32) -> Result<ASTRef, ParserErr> {
     let mut lhs = lhs;
 
     while parser.has_tokens_left() {
@@ -709,45 +743,46 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTNode, min_precedence: i32) -> R
             rhs = parse_binary_rec(parser, rhs, new_precedence)?;
         }
 
-        lhs = ASTNode::BinaryOp {
+        lhs = parser.ast_pool.push(ASTNode::BinaryOp {
             op: operator,
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-        };
+            lhs: lhs,
+            rhs: rhs,
+        });
     }
 
     Ok(lhs)
 }
 
-fn parse_binary(parser: &mut Parser, lhs: ASTNode) -> Result<ASTNode, ParserErr> {
+fn parse_binary(parser: &mut Parser, lhs: ASTRef) -> Result<ASTRef, ParserErr> {
     parse_binary_rec(parser, lhs, 0)
 }
 
-fn parse_node(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
+fn parse_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let lhs = parse_primary(parser)?;
     let ret_expr = parse_binary(parser, lhs)?;
     Ok(ret_expr)
 }
 
-fn parse_top_level_node(parser: &mut Parser) -> Result<ASTNode, ParserErr> {
-    let mut nodes: Vec<ASTNode> = Vec::new();
+fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
+    let mut nodes: Vec<ASTRef> = Vec::new();
     while parser.has_tokens_left() {
         nodes.push(parse_node(parser)?);
     }
-    Ok(ASTNode::TopLevel { nodes })
+    Ok(parser.ast_pool.push(ASTNode::TopLevel { nodes }))
 }
 
 // TODO : pass str interner by ref
-pub fn parse(tokens: Vec<Token>, str_interner : &mut StrInterner) -> Result<ASTNode, ParserErr> {
+pub fn parse(tokens: Vec<Token>, str_interner : &mut StrInterner, ast_pool : &mut ASTPool) -> Result<ASTRef, ParserErr> {
     let mut parser = Parser { 
         tokens, 
         pos: 0,
         vars: FxHashMap::default(),
         precedences: init_precedences(),
         str_interner: str_interner,
+        ast_pool: ast_pool,
     };
     let root_node = parse_top_level_node(&mut parser)?;
-    dbg_intern!(&root_node, str_interner);
+    dbg_intern!(&root_node, str_interner, ast_pool);
     Ok(root_node)
 }
 

@@ -2,6 +2,8 @@ use std::fmt::{self, Debug};
 
 use rustc_hash::FxHashMap;
 
+use crate::ast::ASTPool;
+
 // TODO : use this (will need code for debug displaying, look at the code for the flatten AST, because they have the same problem)
 // TODO : optimize this (https://matklad.github.io/2020/03/22/fast-simple-rust-interner.html)
 
@@ -26,84 +28,94 @@ impl StringRef {
     }
 }
 
-pub trait DebugWithInterner {
-    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result;
+pub trait DebugWithContext {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result;
 }
 
-pub struct DebugWrapInterner<'a, T> {
+pub struct DebugWrapContext<'a, T> {
     value: &'a T,
     interner: &'a StrInterner,
+    ast_pool : &'a ASTPool,
 }
 
-impl <'a, T> DebugWrapInterner<'a, T> {
-    pub fn new(value: &'a T, interner: &'a StrInterner) -> DebugWrapInterner<'a, T> {
-        DebugWrapInterner { value, interner }
+impl <'a, T> DebugWrapContext<'a, T> {
+    pub fn new(value: &'a T, interner: &'a StrInterner, ast_pool : &'a ASTPool) -> DebugWrapContext<'a, T> {
+        DebugWrapContext { value, interner, ast_pool }
     }
 }
 
-impl<'a, T> Debug for DebugWrapInterner<'a, T>
+impl<'a, T> Debug for DebugWrapContext<'a, T>
 where
-    T: DebugWithInterner,
+    T: DebugWithContext,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.value.fmt_with_interner(f, self.interner)
+        self.value.fmt_with_context(f, self.interner, self.ast_pool)
     }
 }
 
-impl<'a, T> DebugWithInterner for &'a T where T: DebugWithInterner {
-    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
-        (*self).fmt_with_interner(f, interner)
+impl<'a, T> DebugWithContext for &'a T where T: DebugWithContext {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
+        (*self).fmt_with_context(f, interner, ast_pool)
     }
 }
 
-impl DebugWithInterner for StringRef {
-    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
+impl DebugWithContext for StringRef {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, _ast_pool : &ASTPool) -> fmt::Result {
         write!(f, "{}", interner.lookup(*self))
     }
 }
 
-impl <T1, T2> DebugWithInterner for (T1, T2)
+impl <T1, T2> DebugWithContext for (T1, T2)
 where 
-    T1 : DebugWithInterner,
-    T2 : DebugWithInterner
+    T1 : DebugWithContext,
+    T2 : DebugWithContext
 {
-    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
-        f.debug_tuple("").field_with(|fmt| self.0.fmt_with_interner(fmt, interner)).field_with(|fmt| self.1.fmt_with_interner(fmt, interner)).finish()
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
+        f.debug_tuple("").field_with(|fmt| self.0.fmt_with_context(fmt, interner, ast_pool)).field_with(|fmt| self.1.fmt_with_context(fmt, interner, ast_pool)).finish()
     }
 }
 
-impl<T> DebugWithInterner for Vec<T>
+impl<T> DebugWithContext for Vec<T>
 where
-    T: DebugWithInterner,
+    T: DebugWithContext,
 {
-    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
         f.debug_list()
-            .entries(self.iter().map(|item| DebugWrapInterner { value: item, interner }))
+            .entries(self.iter().map(|item| DebugWrapContext { value: item, interner, ast_pool }))
             .finish()
     }
 }
 
-impl<T> DebugWithInterner for Option<Box<T>>
+impl<T> DebugWithContext for Option<T>
 where
-    T: DebugWithInterner,
+    T: DebugWithContext,
 {
-    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
         match self {
-            Some(s) => s.fmt_with_interner(f, interner),
+            Some(s) => s.fmt_with_context(f, interner, ast_pool),
             None => None::<()>.fmt(f),
         }
     }
 }
 
-impl<K, V> DebugWithInterner for FxHashMap<K, V> 
-where 
-    K : DebugWithInterner,
-    V : DebugWithInterner,
+impl<T> DebugWithContext for Box<T>
+where
+    T: DebugWithContext,
 {
-    fn fmt_with_interner(&self, f: &mut fmt::Formatter, interner: &StrInterner) -> fmt::Result {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
+        self.as_ref().fmt_with_context(f, interner, ast_pool)
+    }
+}
+
+impl<K, V> DebugWithContext for FxHashMap<K, V> 
+where 
+    K : DebugWithContext,
+    V : DebugWithContext,
+{
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
         f.debug_map()
             .entries(self.iter().map(|(k, v)| (
-                DebugWrapInterner::new(k, interner), DebugWrapInterner::new(v, interner)
+                DebugWrapContext::new(k, interner, ast_pool), DebugWrapContext::new(v, interner, ast_pool)
             )))
             .finish()
     }
@@ -118,13 +130,13 @@ macro_rules! dbg_intern {
     () => {
         eprintln!("[{}:{}:{}]", file!(), line!(), column!())
     };
-    ($val:expr, $interner:expr) => {
+    ($val:expr, $interner:expr, $ast_pool:expr) => {
         // Use of `match` here is intentional because it affects the lifetimes
         // of temporaries - https://stackoverflow.com/a/48732525/1063961
         match $val {
             tmp => {
                 eprintln!("[{}:{}:{}] {} = {:#?}",
-                    file!(), line!(), column!(), stringify!($val),  $crate::string_intern::DebugWrapInterner::new(&tmp, $interner));
+                    file!(), line!(), column!(), stringify!($val),  $crate::string_intern::DebugWrapContext::new(&tmp, $interner, $ast_pool));
                 tmp
             }
         }

@@ -1,13 +1,13 @@
 use std::ops::Range;
 
-use crate::{ast::{ASTNode, Parser, Pattern, Type}, dbg_intern, string_intern::StringRef};
+use crate::{ast::{ASTNode, ASTRef, Parser, Pattern, Type}, dbg_intern, string_intern::StringRef};
 
 
 // TODO : problem with type inference and Any types
 // there could be cases where we find a type with an Any, then we return the type even though a more precise type could be deduced in the body
 // solution : get all the types found instead of hot plugging, and put them in a vec, and do a .max() on it (need to implement ord on types)
 
-fn infer_var_type_pattern(parser : &Parser, pattern: &Pattern, body : &ASTNode, range : &Range<usize>) -> Option<Type> {
+fn infer_var_type_pattern(parser : &Parser, pattern: &Pattern, body : ASTRef, range : &Range<usize>) -> Option<Type> {
     // TODO
     match pattern {
         Pattern::Float(_) => Some(Type::Float),
@@ -51,11 +51,11 @@ impl TypeInferenceErr {
 
 // TODO : return a result with a real error ?
 // TODO : split this function into subfunctions
-pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: &ASTNode, range: &Range<usize>) -> Option<Type> {
-    match node {
+pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Option<Type> {
+    match node.get(&parser.ast_pool) {
         ASTNode::TopLevel { nodes } => {
             for n in nodes {
-                let type_inferred = _infer_var_type(parser, var_name, n, range);
+                let type_inferred = _infer_var_type(parser, var_name, *n, range);
                 if type_inferred.is_some() {
                     return type_inferred;
                 }
@@ -63,39 +63,39 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: &ASTNode, ra
             None
         },
         ASTNode::FunctionDefinition { name, args: _, body, return_type: _ } => {
-            _infer_var_type(parser, *name, body, range)
+            _infer_var_type(parser, *name, *body, range)
         }
         ASTNode::VarDecl { name, val, body } => {
-            let val_type_inferred = _infer_var_type(parser, *name, val.as_ref(), range);
+            let val_type_inferred = _infer_var_type(parser, *name, *val, range);
             if val_type_inferred.is_some() {
                 return val_type_inferred
             }
 
             if let Some(b) = body {
-                return _infer_var_type(parser, *name, b, range);
+                return _infer_var_type(parser, *name, *b, range);
             } 
             None
         },
         ASTNode::VarUse { name: _ } => None, // no infos on type in var use
         ASTNode::IfExpr { cond_expr, then_body, else_body } => {
-            let cond_type_inferred = _infer_var_type(parser, var_name, cond_expr, range);
+            let cond_type_inferred = _infer_var_type(parser, var_name, *cond_expr, range);
             if cond_type_inferred.is_some(){
                 return cond_type_inferred;
             }
-            let then_type_inferred = _infer_var_type(parser, var_name, then_body, range);
+            let then_type_inferred = _infer_var_type(parser, var_name, *then_body, range);
             if then_type_inferred.is_some() {
                 return then_type_inferred;
             }
-            return _infer_var_type(parser, var_name, else_body, range);
+            return _infer_var_type(parser, var_name, *else_body, range);
         },
         ASTNode::MatchExpr { matched_expr, patterns } => {
-            let matched_expr_type_inferred = _infer_var_type(parser, var_name, matched_expr, range);
+            let matched_expr_type_inferred = _infer_var_type(parser, var_name, *matched_expr, range);
             if matched_expr_type_inferred.is_some(){
                 return matched_expr_type_inferred;
             }
-            if matches!(matched_expr.as_ref(), ASTNode::VarUse { name: var_use_name } if *var_use_name == var_name){
+            if matches!(matched_expr.get(parser.ast_pool), ASTNode::VarUse { name: var_use_name } if *var_use_name == var_name){
                 for pattern in patterns {
-                    let pattern_type_inferred = infer_var_type_pattern(parser, &pattern.0, &pattern.1, range);
+                    let pattern_type_inferred = infer_var_type_pattern(parser, &pattern.0, pattern.1, range);
                     if pattern_type_inferred.is_some() {
                         return pattern_type_inferred;
                     }
@@ -103,7 +103,7 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: &ASTNode, ra
             }
 
             for pattern in patterns {
-                let pattern_body_type_inferred = _infer_var_type(parser, var_name, &pattern.1, range);
+                let pattern_body_type_inferred = _infer_var_type(parser, var_name, pattern.1, range);
                 if pattern_body_type_inferred.is_some() {
                     return pattern_body_type_inferred;
                 }
@@ -117,12 +117,12 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: &ASTNode, ra
         ASTNode::Boolean { b: _ } => None,
         ASTNode::List { list: _ } => None,
         ASTNode::BinaryOp { op, lhs, rhs } => {
-            let is_left_var = match lhs.as_ref() {
+            let is_left_var = match lhs .get(parser.ast_pool) {
                 ASTNode::VarUse { name } => *name == var_name, 
                 _ => false,
             };
 
-            let is_right_var = match rhs.as_ref() {
+            let is_right_var = match rhs.get(parser.ast_pool) {
                 ASTNode::VarUse { name } => *name == var_name, 
                 _ => false,
             };
@@ -135,21 +135,21 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: &ASTNode, ra
 
             if is_left_var || is_right_var {
                 let other_operand_type = if is_left_var {
-                    rhs.get_type(parser)
+                    rhs.get(parser.ast_pool).get_type(parser)
                 } else {
-                    lhs.get_type(parser)
+                    lhs.get(parser.ast_pool).get_type(parser)
                 };
                 let operand_type = op.get_operand_type(is_left_var, &other_operand_type);
                 dbg!(&operand_type, &other_operand_type);
-                dbg_intern!(var_name, parser.str_interner); 
-                dbg_intern!(node, parser.str_interner);
+                dbg_intern!(var_name, parser.str_interner, parser.ast_pool); 
+                dbg_intern!(node, parser.str_interner, parser.ast_pool);
                 Some(operand_type)
             } else {
-                let lhs_inferred =  _infer_var_type(parser, var_name, lhs.as_ref(), range);
+                let lhs_inferred =  _infer_var_type(parser, var_name, *lhs, range);
                 if lhs_inferred.is_some() {
                     return lhs_inferred;
                 }
-                let rhs_inferred =  _infer_var_type(parser, var_name, rhs.as_ref(), range);
+                let rhs_inferred =  _infer_var_type(parser, var_name, *rhs, range);
                 if rhs_inferred.is_some() {
                     return rhs_inferred;
                 }
@@ -160,12 +160,12 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: &ASTNode, ra
             match parser.vars.get(function_name) {
                 Some(Type::Function(a, _)) => {
                     for (arg, arg_type) in args.iter().zip(a) {
-                        match arg {
+                        match arg.get(parser.ast_pool) {
                             ASTNode::VarUse { name } if *name == var_name => {
                                 return Some(arg_type.clone())
                             },
                             _ => {
-                                let inferred_arg_type = _infer_var_type(parser, var_name, arg, range);
+                                let inferred_arg_type = _infer_var_type(parser, var_name, *arg, range);
                                 if inferred_arg_type.is_some() {
                                     return inferred_arg_type;
                                 }
@@ -182,7 +182,7 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: &ASTNode, ra
 }
 
 // TODO : make this infallible (inference only gives infos, no need to crash if not found, only if they really need to be used we crash)
-pub fn infer_var_type(parser : &Parser, var_name: StringRef, node: &ASTNode, range: &Range<usize>) -> Result<Type, TypeInferenceErr> {
+pub fn infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Result<Type, TypeInferenceErr> {
     match _infer_var_type(parser, var_name, node, range) {
         Some(t) => Ok(t),
         None => Err(TypeInferenceErr::new(var_name.get_str(parser.str_interner).to_owned(), range.clone()))
