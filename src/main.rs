@@ -5,7 +5,7 @@ use std::{fs, hint::black_box, path::{Path, PathBuf}, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 
-use crate::{ast::{ASTNode, ASTPool, ASTRef}, string_intern::StrInterner};
+use crate::{ast::{ASTPool, ASTRef}, string_intern::StrInterner};
 
 mod ast;
 mod intepreter;

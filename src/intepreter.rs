@@ -1,4 +1,6 @@
 use rustc_hash::FxHashMap;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::{cmp::Ordering, process::ExitCode};
 use std::fmt::{self, Debug};
 
@@ -10,44 +12,82 @@ use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 #[derive(Clone, PartialEq)]
 enum List {
     None,
-    Node(Val, Box<List>),
+    Node(Val, Rc<RefCell<List>>),
 }
 
 
 impl List {
     
     // intepret nodes here instead of doing before the call and passing a Vec<Val> to avoid not necessary allocations
-    fn new(context: &mut InterpretContext, v : &Vec<ASTRef>) -> List {
-        let mut l = List::None;
+    fn new(context: &mut InterpretContext, v : &Vec<ASTRef>) -> Rc<RefCell<List>> {
+        let l = Rc::new(RefCell::new(List::None));
         for e in v {
             let val = interpret_node(context, *e);
-            l.append(val);
+            List::append(Rc::clone(&l), val);
         }
         
         l
     }
 
-    fn append(&mut self, val : Val){
-        let mut current: &mut List = self;
-        while let List::Node(_, next) = current {
-            current = next.as_mut();   
+    fn append(head : Rc<RefCell<List>>, val : Val){
+        let mut current = head;
+        loop {
+            let next_current = {
+                let mut current_borrow = current.borrow_mut();
+                match &mut *current_borrow {
+                    List::None => {
+                        *current_borrow = List::Node(val, Rc::new(RefCell::new(List::None)));
+                        return;
+                    }
+                    List::Node(_, next) => {
+                        Rc::clone(next)
+                    }
+                }
+            };
+            current = next_current;
         }
-        *current = List::Node(val, Box::new(List::None));
+
+        /*let mut current= self;
+        while let List::Node(_, next_rc) = current {
+            let mut next = next_rc.borrow_mut();
+            current = &mut *next;   
+        }
+        *current = List::Node(val, Rc::new(RefCell::new(List::None)));*/
 
     }
 
-    fn iter(self : &List) -> ListIter<'_> {
-        ListIter { current: self }
+    fn iter(list : Rc<RefCell<List>>) -> ListIter {
+        ListIter { current:  Some(list) }
     }
 
-    fn len(&self) -> usize {
+    fn len(head : Rc<RefCell<List>>) -> usize {
         let mut count = 0;
+
+        let mut current = head;
+        loop {
+            let next_current = {
+                let current_borrow = current.borrow();
+                match &*current_borrow {
+                    List::None => {
+                        return count;
+                    }
+                    List::Node(_, next) => {
+                        // Borrow the next RefCell mutably to continue down the list
+                        Rc::clone(&next)
+                    }
+                }
+            };
+            current = next_current;
+            count += 1;
+        }
+
+        /*let mut count = 0;
         let mut current: &List = self;
         while let List::Node(_, next) = current {
             current = next.as_ref();
             count += 1;
         }
-        count
+        count*/
     }
 
     fn empty(&self) -> bool {
@@ -59,29 +99,51 @@ impl List {
 }
 
 
-struct ListIter<'a> {
-    current : &'a List
+struct ListIter {
+    current : Option<Rc<RefCell<List>>>
 }
 
 // TODO : is it needed ?
-impl<'a> Iterator for ListIter<'a> {
-    type Item = &'a Val;
+impl Iterator for ListIter {
+    type Item = Val;
 
-    fn next(&mut self) -> Option<Self::Item> { 
-        match self.current {
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = self.current.take()?;
+        let current_ref = current.borrow();
+
+        match &*current_ref {
             List::None => None,
-            List::Node(v, next) => {
-                let current = v;
-                self.current = next;
-                Some(current)
+            List::Node(val, next) => {
+                self.current = Some(Rc::clone(next));
+                Some(val.clone())
             }
         }
     }
 }
 
-impl DebugWithContext for List {
+impl DebugWithContext for Rc<RefCell<List>> {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
-        let mut current: &List = self;
+        let mut current = Rc::clone(self);
+        let mut iter_nb = 0;
+        loop {
+            let rc_list = current;
+            let borrowed = rc_list.borrow();
+
+            match &*borrowed {
+                List::None => break,
+                List::Node(val, next) => {
+                    if iter_nb != 0 {
+                        write!(f, ", ")?;
+                    }
+                    val.fmt_with_context(f, interner, ast_pool)?;
+                    current = Rc::clone(next);
+                    iter_nb += 1;
+                }
+            }
+        }
+
+
+        /*let mut current: &List = self;
         let mut iter_nb = 0;
         while let List::Node(v, next) = current {
             if iter_nb != 0 {
@@ -91,7 +153,9 @@ impl DebugWithContext for List {
             //write!(f, "{:?}", v)?;
             current = next.as_ref();
             iter_nb += 1;   
-        }
+        }*/
+
+
         Ok(())
     }
 
@@ -104,7 +168,7 @@ enum Val {
     Float(f64),
     Bool(bool),
     String(StringRef),
-    List(Box<List>),
+    List(Rc<RefCell<List>>),
     Unit,
 }
 
@@ -141,7 +205,7 @@ impl Val {
             Val::Bool(_) => Type::Bool,
             Val::String(_) => Type::Str,
             Val::List(l) => {
-                let elem_type = match l.as_ref() {
+                let elem_type = match & *l.as_ref().borrow() {
                     List::Node(v, _next) => v.get_type(),
                     List::None => Type::Any,
                 };
@@ -267,7 +331,7 @@ fn interpret_binop_list(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let rhs_type = rhs_val.get_type();
 
     let rhs_list = match rhs_val {
-        Val::List(l) => *l,
+        Val::List(l) => l,
         _ => panic!("Expected list in right-side of binary operation"),
     };
 
@@ -278,12 +342,13 @@ fn interpret_binop_list(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
 
     dbg!(lhs_val.get_type(), &rhs_elem_type);
 
-    if !rhs_list.empty() && lhs_val.get_type() != rhs_elem_type {
+    if !rhs_list.as_ref().borrow().empty() && lhs_val.get_type() != rhs_elem_type {
         panic!("Trying to add to an array of a type an element of another type");
     }
 
     match op {
-        Operator::ListAppend => Val::List(Box::new(List::Node(lhs_val, Box::new(rhs_list)))),
+        // use the already existing subtree, should it be clone ?
+        Operator::ListAppend => Val::List(Rc::new(RefCell::new(List::Node(lhs_val, Rc::clone(&rhs_list))))),
         _ => unreachable!(),
     }
 }
@@ -389,26 +454,70 @@ fn interpret_match_pattern(matched_val : &Val, pattern : &Pattern) -> bool {
                 Val::List(l) => l,
                 _ => panic!("matching an expression that is not a list with a list pattern"),
             };
-            if l.is_empty() && matches!(matched_expr_list.as_ref(), List::None){
+            if l.is_empty() && matches!(&*matched_expr_list.as_ref().borrow(), List::None){
                 return true;
             }
                 
             // TODO : refactor this if it is a performance problem (profile it ?)
             let mut pattern_matched_nb = 0;
-            for (p, v) in l.iter().zip(matched_expr_list.iter()) {
-                if !interpret_match_pattern(v, p){
+            for (p, v) in l.iter().zip(List::iter(Rc::clone(matched_expr_list))) {
+                if !interpret_match_pattern(&v, p){
                     return false;
                 }
                 pattern_matched_nb += 1;
             }
 
 
-            if pattern_matched_nb == l.len() && pattern_matched_nb == matched_expr_list.len(){
+            if pattern_matched_nb == l.len() && pattern_matched_nb == List::len(Rc::clone(matched_expr_list)) {
                 return true;
             }
             false
         },
-        Pattern::ListDestructure(_, _) => todo!(),
+        Pattern::ListDestructure(_, tail_pattern) => {
+            let matched_expr_list = match matched_val {
+                Val::List(l) => l,
+                _ => panic!("matching an expression that is not a list with a list destructure pattern"),
+            };
+
+            if matched_expr_list.as_ref().borrow().empty(){
+                return false;
+            }
+
+            let matched_expr_list_borrow = matched_expr_list.as_ref().borrow();
+            let tail = match &*matched_expr_list_borrow {
+                List::Node(_, next) => next,
+                List::None => unreachable!(),
+            };
+
+            let tail_val = Val::List(Rc::clone(tail));
+            if !interpret_match_pattern(&tail_val, tail_pattern.as_ref()){
+                return false;
+            }
+
+            return true;
+        },
+    }
+}
+
+fn handle_match_pattern_start(context: &mut InterpretContext, pattern : &Pattern, matched_expr_val : &Val){
+    match pattern {
+        Pattern::VarName(s) => { 
+            context.vars.insert(s.clone(), matched_expr_val.clone());
+        },
+        // TODO : destructure
+        Pattern::ListDestructure(head, tail_pattern) => {
+                    
+        }
+        _ => {},
+    }
+}
+
+fn handle_match_pattern_end(context: &mut InterpretContext, pattern : &Pattern){
+    match pattern {
+        Pattern::VarName(s) => { 
+            context.vars.remove(s);
+        },
+        _ => {},
     }
 }
 
@@ -417,95 +526,11 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : ASTRef, patter
     for (pattern, pattern_expr) in patterns {
 
         if interpret_match_pattern(&matched_expr_val, pattern) {
-            match pattern {
-                Pattern::VarName(s) => { 
-                    context.vars.insert(s.clone(), matched_expr_val.clone());
-                },
-                _ => {},
-            }
+            handle_match_pattern_start(context, pattern, &matched_expr_val);
             let res_val = interpret_node(context, *pattern_expr);
-            match pattern {
-                Pattern::VarName(s) => { 
-                    context.vars.remove(s);
-                },
-                _ => {},
-            }
-
+            handle_match_pattern_end(context, pattern);
             return res_val;
         }
-        /*match pattern {
-            Pattern::VarName(s) => {
-                context.vars.insert(s.clone(), matched_expr_val.clone());
-                let res_val = interpret_node(context, pattern_expr);
-                context.vars.remove(s);
-
-                return res_val;
-            },
-            Pattern::Underscore => return interpret_node(context, pattern_expr),
-            Pattern::Integer(nb) => {
-                match matched_expr_val {
-                    Val::Integer(matched_nb) => {
-                        dbg!((*nb, matched_nb));
-                        if *nb == matched_nb {
-                            return interpret_node(context, pattern_expr);
-                        }
-                    },
-                    _ => panic!("matching an expression that is not an integer with an integer pattern"),
-                }
-            },
-            Pattern::Float(nb) => {
-                match matched_expr_val {
-                    Val::Float(matched_nb) => {
-                        if *nb == matched_nb {
-                            return interpret_node(context, pattern_expr);
-                        }
-                    },
-                    _ => panic!("matching an expression that is not a float with a float pattern"),
-                }
-            },
-            Pattern::Range(start, end, inclusivity) => {
-                match matched_expr_val {
-                    Val::Integer(matched_nb) => {
-                        if *inclusivity {
-                            if *start <= matched_nb && matched_nb <= *end {
-                                return interpret_node(context, pattern_expr);
-                            }
-                        } else {
-                            if *start < matched_nb && matched_nb < *end {
-                                return interpret_node(context, pattern_expr);
-                            }
-                        }
-                    },
-                    _ => panic!("matching an expression that is not an integer with an range integer pattern"),
-                }
-            },
-            Pattern::String(s) => {
-                match matched_expr_val {
-                    Val::String(ref matched_str) => {
-                        if s == matched_str.as_ref() {
-                            return interpret_node(context, pattern_expr);
-                        }
-                    },
-                    _ => panic!("matching an expression that is not an integer with an integer pattern"),
-                }
-            },
-            Pattern::List(l) => {
-                let matched_expr_list = match matched_expr_val {
-                    Val::List(ref l) => l,
-                    _ => panic!("matching an expression that is not a list with a list pattern"),
-                };
-                if l.is_empty() && matches!(matched_expr_list.as_ref(), List::None){
-                    return interpret_node(context, pattern_expr);
-                }
-                
-                // TODO : refactor this if it is a performance problem (profile it ?)
-                for (p, v) in l.iter().zip(matched_expr_list.iter()) {
-                    // can't compare pattern and vals !!
-                    todo!()
-                }
-            },
-            Pattern::ListDestructure(_, _) => todo!(),
-        }*/
     }
 
     panic!("No pattern was matched in match expressions (not exhaustive match)")
@@ -554,7 +579,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, *cond_expr, *then_body, *else_body),
         ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, *matched_expr, patterns.as_slice()),
         ASTNode::String { str } => Val::String(*str),
-        ASTNode::List { list } => Val::List(Box::new(List::new(context, list))),
+        ASTNode::List { list } => Val::List(List::new(context, list)),
         //n => panic!("unexpected ast node when interpreting : {:?}", n),
     }
 }

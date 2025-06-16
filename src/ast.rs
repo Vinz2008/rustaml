@@ -25,6 +25,7 @@ impl DebugWithContext for Arg {
     }
 }
 
+// TODO : create a pattern pool ?
 
 #[derive(Clone, PartialEq)]
 pub enum Pattern {
@@ -34,7 +35,7 @@ pub enum Pattern {
     Range(i64, i64, bool), // bool is for the inclusivity | 0..1
     String(StringRef), // | "test"
     List(Vec<Pattern>), // | [1, 2, 3]
-    ListDestructure(StringRef, StringRef), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
+    ListDestructure(StringRef, Box<Pattern>), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
     Underscore,
 }
 
@@ -47,7 +48,7 @@ impl DebugWithContext for Pattern {
             Self::Range(arg0, arg1, arg2) => f.debug_tuple("Range").field(arg0).field(arg1).field(arg2).finish(),
             Self::String(arg0) => f.debug_tuple("String").field(&arg0.get_str(interner)).finish(),
             Self::List(arg0) => f.debug_tuple("List").field_with(|fmt| arg0.fmt_with_context(fmt, interner, ast_pool)).finish(),
-            Self::ListDestructure(arg0, arg1) => f.debug_tuple("ListDestructure").field(&arg0.get_str(interner)).field(&arg1.get_str(interner)).finish(),
+            Self::ListDestructure(arg0, arg1) => f.debug_tuple("ListDestructure").field(&arg0.get_str(interner)).field_with(|fmt| arg1.fmt_with_context(fmt, interner, ast_pool)).finish(),
             Self::Underscore => write!(f, "Underscore"),
         }
     }
@@ -603,11 +604,20 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
 
     let pattern = match pattern_tok.tok_data {
         TokenData::Identifier(buf) => {
-            let s = buf.iter().collect::<String>();
-            match s.as_str() {
-                "_" => Pattern::Underscore,
-                s_ref => Pattern::VarName(parser.str_interner.intern(s_ref)),
+            if matches!(parser.current_tok_data(), Some(TokenData::Op(Operator::ListAppend))){
+                parser.eat_tok(Some(TokenDataTag::Op))?;
+
+                let head = buf.iter().collect::<String>();
+                let tail_pattern = parse_pattern(parser)?;
+                Pattern::ListDestructure(parser.str_interner.intern(&head), Box::new(tail_pattern))
+            } else {
+                let s = buf.iter().collect::<String>();
+                match s.as_str() {
+                    "_" => Pattern::Underscore,
+                    s_ref => Pattern::VarName(parser.str_interner.intern(s_ref)),
+                }
             }
+            
         },
         TokenData::Integer(nb) => { 
             if matches!(parser.current_tok_data(), Some(TokenData::Range) | Some(TokenData::Op(Operator::Equal))) {

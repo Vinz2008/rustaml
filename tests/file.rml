@@ -59,13 +59,13 @@ let q = [2, 3, 4] ;;
 let test_list a = 
   match a with
   | [] -> "empty"
-  | [1, 2, 3] -> "1, 2, 3" ;;
-//  | e :: l -> "list" ;;
+  | [1, 2, 3] -> "1, 2, 3"
+  | e :: l -> "list" ;;
 
 
 let r = test_list [] ;;
 let s = test_list [1, 2, 3] ;;
-
+let s_two = test_list [1, 2] ;;
 
 let append e l = e :: l ;;
 
