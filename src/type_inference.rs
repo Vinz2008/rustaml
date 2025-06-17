@@ -139,17 +139,18 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
                 } else {
                     lhs.get(parser.ast_pool).get_type(parser)
                 };
+                dbg!(&other_operand_type);
                 let operand_type = op.get_operand_type(is_left_var, &other_operand_type);
                 dbg!(&operand_type, &other_operand_type);
                 dbg_intern!(var_name, parser.str_interner, parser.ast_pool); 
                 dbg_intern!(node, parser.str_interner, parser.ast_pool);
                 Some(operand_type)
             } else {
-                let lhs_inferred =  _infer_var_type(parser, var_name, *lhs, range);
+                let lhs_inferred = _infer_var_type(parser, var_name, *lhs, range);
                 if lhs_inferred.is_some() {
                     return lhs_inferred;
                 }
-                let rhs_inferred =  _infer_var_type(parser, var_name, *rhs, range);
+                let rhs_inferred = _infer_var_type(parser, var_name, *rhs, range);
                 if rhs_inferred.is_some() {
                     return rhs_inferred;
                 }

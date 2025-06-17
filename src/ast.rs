@@ -34,7 +34,7 @@ pub enum Pattern {
     Float(f64), // | 2.6
     Range(i64, i64, bool), // bool is for the inclusivity | 0..1
     String(StringRef), // | "test"
-    List(Vec<Pattern>), // | [1, 2, 3]
+    List(Vec<Pattern>), // | [1, 2, 3] // TODO : replace vec with Box<[Pattern]
     ListDestructure(StringRef, Box<Pattern>), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
     Underscore,
 }
@@ -254,6 +254,9 @@ pub enum ParserErrData {
         expected_tok : TokenDataTag,
         got_tok : TokenData,
     },
+    UnknownTypeAnnotation {
+
+    },
     TypeInferenceErr {
         arg_name: String,
     }
@@ -339,7 +342,13 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<Type, ParserErr> {
                 "bool" => Type::Bool,
                 "float" => Type::Float,
                 "str" => Type::Str,
-                _ => panic!("Unknown type"),
+                "list" => {
+                    parser.eat_tok(Some(TokenDataTag::ArrayOpen))?;
+                    let elem_type = parse_annotation_simple(parser)?; // TODO : replace with parse_annotation to have access to more complicated types ?
+                    parser.eat_tok(Some(TokenDataTag::ArrayClose))?;
+                    Type::List(Box::new(elem_type))
+                },
+                _ => return Err(ParserErr::new(ParserErrData::UnknownTypeAnnotation {  }, tok.range.clone())),
             };
             Ok(type_annot)
         },
@@ -544,7 +553,8 @@ fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Res
     let identifier = parser.str_interner.intern(&identifier_buf.iter().collect::<String>());
     let is_function = match parser.vars.get(&identifier) {
         Some(t) => matches!(t, Type::Function(_, _)),
-        None => panic!("ERROR : unknown identifier {}", identifier.get_str(&mut parser.str_interner)),
+        None => false, // no error because there are variables that are created in match that are not accounted for in vars (TODO !!!)
+        //None => panic!("ERROR : unknown identifier {}", identifier.get_str(&mut parser.str_interner)),
     };
     if is_function {
         parse_function_call(parser, identifier)
@@ -655,13 +665,22 @@ fn parse_match(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let matched_expr = parse_primary(parser)?;
     parser.eat_tok(Some(TokenDataTag::With))?;
     let mut patterns = Vec::new();
+
+    if !matches!(parser.current_tok_data(), Some(TokenData::Pipe)){
+        let err = match parser.current_tok() {
+            Some(t) => ParserErr::new(ParserErrData::WrongTok { expected_tok: TokenDataTag::Pipe, got_tok: t.tok_data.clone() }, parser.current_tok().unwrap().range.clone()),
+            None => ParserErr::new(ParserErrData::UnexpectedEOF, parser.tokens.len()-1..parser.tokens.len()-1),
+        };
+        return Err(err)
+    }
+
     while parser.current_tok().is_some() && matches!(parser.current_tok_data().unwrap(), TokenData::Pipe) {
         parser.eat_tok(Some(TokenDataTag::Pipe))?;
         let pattern = parse_pattern(parser)?;
         //dbg!(&pattern);
         parser.eat_tok(Some(TokenDataTag::Arrow))?;
         // TODO : add vars from match pattern ? (will need a function that from a pattern and the type of the matched pattern will return the names and the types of the vars)
-        let pattern_expr = parse_primary(parser)?;
+        let pattern_expr = parse_node(parser)?;
         patterns.push((pattern, pattern_expr));
     }
 
@@ -768,6 +787,14 @@ fn parse_binary(parser: &mut Parser, lhs: ASTRef) -> Result<ASTRef, ParserErr> {
 }
 
 fn parse_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
+    // TODO : problem with precedence 
+    // for example match e with | a -> 1 :: a ;; becomes (match ... 1) :: a and not match ... -> (1 :: a) 
+    /*let lhs = match parser.current_tok_data() {
+        Some(TokenData::Match) => parse_match(parser)?,
+        Some(TokenData::If) => parse_if(parser)?,
+        Some(TokenData::Let) => parse_let(parser)?,
+        _ => parse_primary(parser)?,
+    };*/
     let lhs = parse_primary(parser)?;
     let ret_expr = parse_binary(parser, lhs)?;
     Ok(ret_expr)

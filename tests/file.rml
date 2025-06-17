@@ -74,3 +74,9 @@ let t = append 1 [] ;;
 let append2 e l = e :: e :: l ;;
 
 let u = append2 3 [4] ;;
+
+let test_destructure a : list[int] -> list[int] =
+  match a with
+  | e :: l -> e
+
+let v = test_destructure [2] ;;

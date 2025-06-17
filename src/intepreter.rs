@@ -369,7 +369,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
 
 fn interpret_function_call(context: &mut InterpretContext, name : StringRef, args : Vec<ASTRef>) -> Val {
 
-    let func_def = context.functions.get(&name).unwrap().clone(); // TODO : remove the clone ?
+    let func_def = context.functions.get(&name).unwrap_or_else(|| panic!("Function {} not found", name.get_str(context.str_interner))).clone(); // TODO : remove the clone ?
 
     if args.len() != func_def.args.len() {
         panic!("Invalid args number in function call, expected {}, got {}", func_def.args.len(), args.len());
@@ -504,9 +504,19 @@ fn handle_match_pattern_start(context: &mut InterpretContext, pattern : &Pattern
         Pattern::VarName(s) => { 
             context.vars.insert(s.clone(), matched_expr_val.clone());
         },
-        // TODO : destructure
-        Pattern::ListDestructure(head, tail_pattern) => {
-                    
+        Pattern::ListDestructure(head_name, tail_pattern) => {
+            let matched_expr_list = match matched_expr_val {
+                Val::List(l) => l,
+                _ => panic!("matching an expression that is not a list with a list destructure pattern"),
+            };
+            let matched_expr_list_borrow = matched_expr_list.as_ref().borrow();
+            let (head_val, tail) = match &*matched_expr_list_borrow {
+                List::Node(val, next) => (val, next),
+                List::None => unreachable!(),
+            };
+            context.vars.insert(*head_name, head_val.clone());
+            let tail_val = Val::List(Rc::clone(tail));
+            handle_match_pattern_start(context, tail_pattern.as_ref(), &tail_val);
         }
         _ => {},
     }
@@ -516,6 +526,10 @@ fn handle_match_pattern_end(context: &mut InterpretContext, pattern : &Pattern){
     match pattern {
         Pattern::VarName(s) => { 
             context.vars.remove(s);
+        },
+        Pattern::ListDestructure(head_name, tail_pattern) => {
+            context.vars.remove(head_name);
+            handle_match_pattern_end(context, &tail_pattern);
         },
         _ => {},
     }
