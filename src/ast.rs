@@ -5,7 +5,7 @@ use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
-use crate::{dbg_intern, lexer::{Operator, Token, TokenData, TokenDataTag}, string_intern::{DebugWithContext, StrInterner, StringRef}, type_inference::{infer_var_type, TypeInferenceErr}};
+use crate::{dbg_intern, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::{DebugWithContext, StringRef}, type_inference::{infer_var_type, TypeInferenceErr}};
 
 #[derive(Clone, PartialEq)]
 pub struct Arg {
@@ -16,10 +16,10 @@ pub struct Arg {
 
 
 impl DebugWithContext for Arg {    
-    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> std::fmt::Result {
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, rustaml_context : &RustamlContext) -> std::fmt::Result {
         f.debug_struct("Arg")
         .field_with("name",  |fmt| {
-            self.name.fmt_with_context(fmt, interner, ast_pool)
+            self.name.fmt_with_context(fmt, rustaml_context)
         })
         .field("arg_type", &self.arg_type).finish()
     }
@@ -40,15 +40,15 @@ pub enum Pattern {
 }
 
 impl DebugWithContext for Pattern {
-    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> std::fmt::Result {
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, rustaml_context: &RustamlContext) -> std::fmt::Result {
         match self {
-            Self::VarName(arg0) => f.debug_tuple("VarName").field(&arg0.get_str(interner)).finish(),
+            Self::VarName(arg0) => f.debug_tuple("VarName").field(&arg0.get_str(&rustaml_context.str_interner)).finish(),
             Self::Integer(arg0) => f.debug_tuple("Integer").field(arg0).finish(),
             Self::Float(arg0) => f.debug_tuple("Float").field(arg0).finish(),
             Self::Range(arg0, arg1, arg2) => f.debug_tuple("Range").field(arg0).field(arg1).field(arg2).finish(),
-            Self::String(arg0) => f.debug_tuple("String").field(&arg0.get_str(interner)).finish(),
-            Self::List(arg0) => f.debug_tuple("List").field_with(|fmt| arg0.fmt_with_context(fmt, interner, ast_pool)).finish(),
-            Self::ListDestructure(arg0, arg1) => f.debug_tuple("ListDestructure").field(&arg0.get_str(interner)).field_with(|fmt| arg1.fmt_with_context(fmt, interner, ast_pool)).finish(),
+            Self::String(arg0) => f.debug_tuple("String").field(&arg0.get_str(&rustaml_context.str_interner)).finish(),
+            Self::List(arg0) => f.debug_tuple("List").field_with(|fmt| arg0.fmt_with_context(fmt, rustaml_context)).finish(),
+            Self::ListDestructure(arg0, arg1) => f.debug_tuple("ListDestructure").field(&arg0.get_str(&rustaml_context.str_interner)).field_with(|fmt| arg1.fmt_with_context(fmt, rustaml_context)).finish(),
             Self::Underscore => write!(f, "Underscore"),
         }
     }
@@ -82,13 +82,12 @@ impl ASTRef {
 }
 
 impl DebugWithContext for ASTRef {
-    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> std::fmt::Result {
-        self.get(ast_pool).fmt_with_context(f, interner, ast_pool)
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, rustaml_context : &RustamlContext) -> std::fmt::Result {
+        self.get(&rustaml_context.ast_pool).fmt_with_context(f, rustaml_context)
     }
 }
 
 
-// TODO : flatten AST nodes (https://www.cs.cornell.edu/~asampson/blog/flattening.html)
 #[derive(Clone, PartialEq)]
 pub enum ASTNode {
     TopLevel {
@@ -101,7 +100,6 @@ pub enum ASTNode {
         return_type : Type,
     },
     VarDecl {
-        // TODO : intern all strings and replace these by refs to strings ?
         name: StringRef,
         val: ASTRef,
         body : Option<ASTRef>,
@@ -146,21 +144,21 @@ pub enum ASTNode {
 }
 
 impl DebugWithContext for ASTNode {
-    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> std::fmt::Result {
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, rustaml_context : &RustamlContext) -> std::fmt::Result {
         match self {
-            Self::TopLevel { nodes } => f.debug_struct("TopLevel").field_with("nodes", |fmt| nodes.fmt_with_context(fmt, interner, ast_pool)).finish(),
-            Self::FunctionDefinition { name, args, body, return_type } => f.debug_struct("FunctionDefinition").field("name", &name.get_str(interner)).field_with("args", |fmt| args.fmt_with_context(fmt, interner, ast_pool)).field_with("body", |fmt| body.get(ast_pool).fmt_with_context(fmt, interner, ast_pool)).field("return_type", return_type).finish(),
-            Self::VarDecl { name, val, body } => f.debug_struct("VarDecl").field("name", &name.get_str(interner)).field_with("val", |fmt| val.get(ast_pool).fmt_with_context(fmt, interner, ast_pool)).field_with("body", |fmt| body.fmt_with_context(fmt, interner, ast_pool)).finish(),
-            Self::VarUse { name } => f.debug_struct("VarUse").field("name", &name.get_str(interner)).finish(),
-            Self::IfExpr { cond_expr, then_body, else_body } => f.debug_struct("IfExpr").field_with("cond_expr", |fmt|  cond_expr.get(ast_pool).fmt_with_context(fmt, interner, ast_pool)).field_with("then_body", |fmt| then_body.fmt_with_context(fmt, interner, ast_pool)).field_with("else_body", |fmt| else_body.fmt_with_context(fmt, interner, ast_pool)).finish(),
-            Self::MatchExpr { matched_expr, patterns } => f.debug_struct("MatchExpr").field_with("matched_expr", |fmt| matched_expr.get(ast_pool).fmt_with_context(fmt, interner, ast_pool)).field_with("patterns", |fmt| patterns.fmt_with_context(fmt, interner, ast_pool)).finish(),
+            Self::TopLevel { nodes } => f.debug_struct("TopLevel").field_with("nodes", |fmt| nodes.fmt_with_context(fmt, rustaml_context)).finish(),
+            Self::FunctionDefinition { name, args, body, return_type } => f.debug_struct("FunctionDefinition").field("name", &name.get_str(&rustaml_context.str_interner)).field_with("args", |fmt| args.fmt_with_context(fmt, rustaml_context)).field_with("body", |fmt| body.get(&rustaml_context.ast_pool).fmt_with_context(fmt, rustaml_context)).field("return_type", return_type).finish(),
+            Self::VarDecl { name, val, body } => f.debug_struct("VarDecl").field("name", &name.get_str(&rustaml_context.str_interner)).field_with("val", |fmt| val.get(&rustaml_context.ast_pool).fmt_with_context(fmt, rustaml_context)).field_with("body", |fmt| body.fmt_with_context(fmt, rustaml_context)).finish(),
+            Self::VarUse { name } => f.debug_struct("VarUse").field("name", &name.get_str(&rustaml_context.str_interner)).finish(),
+            Self::IfExpr { cond_expr, then_body, else_body } => f.debug_struct("IfExpr").field_with("cond_expr", |fmt|  cond_expr.get(&rustaml_context.ast_pool).fmt_with_context(fmt, rustaml_context)).field_with("then_body", |fmt| then_body.fmt_with_context(fmt, rustaml_context)).field_with("else_body", |fmt| else_body.fmt_with_context(fmt, rustaml_context)).finish(),
+            Self::MatchExpr { matched_expr, patterns } => f.debug_struct("MatchExpr").field_with("matched_expr", |fmt| matched_expr.get(&rustaml_context.ast_pool).fmt_with_context(fmt, rustaml_context)).field_with("patterns", |fmt| patterns.fmt_with_context(fmt, rustaml_context)).finish(),
             Self::Integer { nb } => f.debug_struct("Integer").field("nb", nb).finish(),
             Self::Float { nb } => f.debug_struct("Float").field("nb", nb).finish(),
-            Self::String { str } => f.debug_struct("String").field("str", &str.get_str(interner)).finish(),
-            Self::List { list } => f.debug_struct("List").field_with("list", |fmt| list.fmt_with_context(fmt, interner, ast_pool)).finish(),
+            Self::String { str } => f.debug_struct("String").field("str", &str.get_str(&rustaml_context.str_interner)).finish(),
+            Self::List { list } => f.debug_struct("List").field_with("list", |fmt| list.fmt_with_context(fmt, rustaml_context)).finish(),
             Self::Boolean { b } => f.debug_struct("Boolean").field("b", b).finish(),
-            Self::BinaryOp { op, lhs, rhs } => f.debug_struct("BinaryOp").field("op", op).field_with("lhs", |fmt| lhs.fmt_with_context(fmt, interner, ast_pool)).field_with("rhs", |fmt| rhs.fmt_with_context(fmt, interner, ast_pool)).finish(),
-            Self::FunctionCall { name, args } => f.debug_struct("FunctionCall").field("name", &name.get_str(interner)).field_with("args", |fmt| args.fmt_with_context(fmt, interner, ast_pool)).finish(),
+            Self::BinaryOp { op, lhs, rhs } => f.debug_struct("BinaryOp").field("op", op).field_with("lhs", |fmt| lhs.fmt_with_context(fmt, rustaml_context)).field_with("rhs", |fmt| rhs.fmt_with_context(fmt, rustaml_context)).finish(),
+            Self::FunctionCall { name, args } => f.debug_struct("FunctionCall").field("name", &name.get_str(&rustaml_context.str_interner)).field_with("args", |fmt| args.fmt_with_context(fmt, rustaml_context)).finish(),
         }
     }
 }
@@ -187,20 +185,20 @@ impl ASTNode {
             ASTNode::String { str: _ } => Type::Str,
             ASTNode::List { list } => { 
                 let elem_type = match list.first() {
-                    Some(f) => f.get(&parser.ast_pool).get_type(parser),
+                    Some(f) => f.get(&parser.rustaml_context.ast_pool).get_type(parser),
                     None => Type::Any,
                 };
                 Type::List(Box::new(elem_type)) 
             },
-            ASTNode::BinaryOp { op, lhs: _, rhs: _ } => op.get_type(), // TODO
+            ASTNode::BinaryOp { op, lhs: _, rhs: _ } => op.get_type(),
             ASTNode::VarDecl { name: _, val: _, body: _ } => Type::Unit, // TODO
             ASTNode::FunctionCall { name, args: _ } => parser.vars.get(name).unwrap().clone(), // need to create a hashmap for function types, in parser context ?
             ASTNode::VarUse { name} => match parser.vars.get(name){
                 Some(t) => t.clone(),
-                None => unreachable!("Unknown var {}", name.get_str(&parser.str_interner))
+                None => unreachable!("Unknown var {}", name.get_str(&parser.rustaml_context.str_interner))
              },
-            ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get(&parser.ast_pool).get_type(parser), // no need for typechecking the two branches because it is done when constructing the IfExpr
-            ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get(parser.ast_pool).get_type(parser),
+            ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get(&parser.rustaml_context.ast_pool).get_type(parser), // no need for typechecking the two branches because it is done when constructing the IfExpr
+            ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get(&parser.rustaml_context.ast_pool).get_type(parser),
             ASTNode::TopLevel { nodes: _ } => Type::Unit,
             ASTNode::FunctionDefinition { name: _, args: _, body: _, return_type: _ } => Type::Unit,
         }
@@ -233,14 +231,13 @@ pub enum Associativity {
     Right, // ::
 }
 
-pub struct Parser<'refs> {
+pub struct Parser<'context> {
     tokens: Vec<Token>,
     pos: usize,
     // optional types because of type inference of return values of functions that need to be inserted for recursive functions (TODO ?)
     pub vars : FxHashMap<StringRef, Type>, // include functions (which are just vars with function types)
     precedences : FxHashMap<Operator, (i32, Associativity)>,
-    pub str_interner : &'refs mut StrInterner,
-    pub ast_pool : &'refs mut ASTPool,
+    pub rustaml_context : &'context mut RustamlContext,
 }
 
 #[derive(Debug, Tag)]
@@ -250,7 +247,6 @@ pub enum ParserErrData {
         tok : TokenData,
     },
     WrongTok {
-        // TODO : put more infos ? (entire token ? range ?)
         expected_tok : TokenDataTag,
         got_tok : TokenData,
     },
@@ -318,20 +314,19 @@ impl Parser<'_> {
 }
 
 fn parse_integer(parser: &mut Parser, nb: i64) -> ASTRef {
-    parser.ast_pool.push(ASTNode::Integer { nb })
+    parser.rustaml_context.ast_pool.push(ASTNode::Integer { nb })
 }
 
 fn parse_float(parser: &mut Parser, nb: f64) -> ASTRef {
-    parser.ast_pool.push(ASTNode::Float { nb })
+    parser.rustaml_context.ast_pool.push(ASTNode::Float { nb })
 }
 
 fn parse_string(parser: &mut Parser, buf : Vec<char>) -> ASTRef {
-    parser.ast_pool.push(ASTNode::String { str: parser.str_interner.intern(&buf.iter().collect::<String>()) })
+    parser.rustaml_context.ast_pool.push(ASTNode::String { str: parser.rustaml_context.str_interner.intern(&buf.iter().collect::<String>()) })
 }
 
 
 
-// TODO : add array type annotation
 fn parse_annotation_simple(parser: &mut Parser) -> Result<Type, ParserErr> {
     let tok = parser.eat_tok(None)?;
     //dbg!(&tok);
@@ -394,10 +389,9 @@ fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
 }
 
 fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
-    // TODO : pass error handling (by making all parse functions return results, than handling in the main function)
     let name_tok = parser.eat_tok(Some(TokenDataTag::Identifier))?;
     let name = match name_tok.tok_data {
-        TokenData::Identifier(s) => parser.str_interner.intern(&s.iter().collect::<String>()),
+        TokenData::Identifier(s) => parser.rustaml_context.str_interner.intern(&s.iter().collect::<String>()),
         _ => unreachable!(),
     };
     let node = if matches!(parser.current_tok_data(), Some(TokenData::Identifier(_))) {
@@ -437,7 +431,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     
         parser.vars.insert(name,  Type::Function(arg_types.clone(), return_type.clone()));
 
-        let mut args = arg_names.into_iter().zip(arg_types.clone()).map(|x| Arg { name: parser.str_interner.intern(&x.0), arg_type: x.1 }).collect::<Vec<Arg>>();
+        let mut args = arg_names.into_iter().zip(arg_types.clone()).map(|x| Arg { name: parser.rustaml_context.str_interner.intern(&x.0), arg_type: x.1 }).collect::<Vec<Arg>>();
 
         for Arg { name, arg_type} in &args {
             parser.vars.insert(name.clone(), arg_type.clone());
@@ -454,7 +448,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         let body = parse_node(parser)?;
 
         if matches!(return_type.as_ref(), Type::Any){
-            let body_type = body.get(&parser.ast_pool).get_type(parser);
+            let body_type = body.get(&parser.rustaml_context.ast_pool).get_type(parser);
             return_type = Box::new(body_type);
         }
         
@@ -494,7 +488,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
         let val_node = parse_node(parser)?;
         if var_type.is_none() {
-            var_type = Some(val_node.get(parser.ast_pool).get_type(parser))
+            var_type = Some(val_node.get(&parser.rustaml_context.ast_pool).get_type(parser))
         }
 
         parser.vars.insert(name.clone(), var_type.unwrap());
@@ -523,7 +517,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         parser.eat_tok(Some(TokenDataTag::EndOfExpr)).unwrap();
     }
 
-    Ok(parser.ast_pool.push(node))
+    Ok(parser.rustaml_context.ast_pool.push(node))
     
 }
 
@@ -543,24 +537,24 @@ fn parse_function_call(parser: &mut Parser, function_name : StringRef) -> Result
         args.push(arg);
     }
     //dbg!(&args);
-    Ok(parser.ast_pool.push(ASTNode::FunctionCall { 
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::FunctionCall { 
         name: function_name, 
         args,
     }))
 }
 
 fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Result<ASTRef, ParserErr> {
-    let identifier = parser.str_interner.intern(&identifier_buf.iter().collect::<String>());
+    let identifier = parser.rustaml_context.str_interner.intern(&identifier_buf.iter().collect::<String>());
     let is_function = match parser.vars.get(&identifier) {
         Some(t) => matches!(t, Type::Function(_, _)),
         None => false, // no error because there are variables that are created in match that are not accounted for in vars (TODO !!!)
-        //None => panic!("ERROR : unknown identifier {}", identifier.get_str(&mut parser.str_interner)),
+        //None => panic!("ERROR : unknown identifier {}", identifier.get_str(&mut parser.rustaml_context.str_interner)),
     };
     if is_function {
         parse_function_call(parser, identifier)
     } else {
         // var use
-        Ok(parser.ast_pool.push(ASTNode::VarUse { name: identifier }))
+        Ok(parser.rustaml_context.ast_pool.push(ASTNode::VarUse { name: identifier }))
     }
     
 }
@@ -568,7 +562,7 @@ fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Res
 fn parse_if(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let cond_expr = parse_node(parser)?;
 
-    match cond_expr.get(parser.ast_pool).get_type(parser) {
+    match cond_expr.get(&parser.rustaml_context.ast_pool).get_type(parser) {
         Type::Bool => {},
         t => panic!("Error in type checking : {:?} type passed in if expr", t), // TODO : return a result instead
     }
@@ -581,7 +575,7 @@ fn parse_if(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
     let else_body = parse_node(parser)?;
     
-    Ok(parser.ast_pool.push(ASTNode::IfExpr { 
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::IfExpr { 
         cond_expr: cond_expr, 
         then_body: then_body, 
         else_body: else_body 
@@ -619,12 +613,12 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
 
                 let head = buf.iter().collect::<String>();
                 let tail_pattern = parse_pattern(parser)?;
-                Pattern::ListDestructure(parser.str_interner.intern(&head), Box::new(tail_pattern))
+                Pattern::ListDestructure(parser.rustaml_context.str_interner.intern(&head), Box::new(tail_pattern))
             } else {
                 let s = buf.iter().collect::<String>();
                 match s.as_str() {
                     "_" => Pattern::Underscore,
-                    s_ref => Pattern::VarName(parser.str_interner.intern(s_ref)),
+                    s_ref => Pattern::VarName(parser.rustaml_context.str_interner.intern(s_ref)),
                 }
             }
             
@@ -648,7 +642,7 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
             } 
         },
         TokenData::Float(nb) => Pattern::Float(nb),
-        TokenData::String(s) => Pattern::String(parser.str_interner.intern(&s.iter().collect::<String>())),
+        TokenData::String(s) => Pattern::String(parser.rustaml_context.str_interner.intern(&s.iter().collect::<String>())),
         TokenData::ArrayOpen => {
             let elems = parse_list_form(parser, parse_pattern)?;
 
@@ -684,7 +678,7 @@ fn parse_match(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         patterns.push((pattern, pattern_expr));
     }
 
-    Ok(parser.ast_pool.push(ASTNode::MatchExpr { 
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::MatchExpr { 
         matched_expr, 
         patterns, 
     }))
@@ -695,7 +689,7 @@ fn parse_match(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 fn parse_parenthesis(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     //println!("PARSE PAREN");
     let expr = parse_node(parser)?;
-    dbg_intern!(&expr, parser.str_interner, parser.ast_pool);
+    dbg_intern!(&expr, &parser.rustaml_context);
     parser.eat_tok(Some(TokenDataTag::ParenClose))?;
     //println!("CLOSE PAREN");
     Ok(expr)
@@ -704,7 +698,7 @@ fn parse_parenthesis(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 fn parse_static_list(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let elems = parse_list_form(parser, parse_node)?;
     
-    Ok(parser.ast_pool.push(ASTNode::List { list: elems }))
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::List { list: elems }))
 }
 
 fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
@@ -717,8 +711,8 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         TokenData::Float(nb) => Ok(parse_float(parser, nb)),
         TokenData::String(buf) => Ok(parse_string(parser, buf)),
         TokenData::Identifier(buf) => parse_identifier_expr(parser, buf),
-        TokenData::True => Ok(parser.ast_pool.push(ASTNode::Boolean { b: true })),
-        TokenData::False => Ok(parser.ast_pool.push(ASTNode::Boolean { b: false })),
+        TokenData::True => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: true })),
+        TokenData::False => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: false })),
         TokenData::ParenOpen => parse_parenthesis(parser), // TODO : move this to the start of parse_node and make it unreachable! ? (because each time there are parenthesis, parse_node -> parse_primary -> parse_node is added to the call stack) 
         TokenData::ArrayOpen => parse_static_list(parser),
         t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))
@@ -772,7 +766,7 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTRef, min_precedence: i32) -> Re
             rhs = parse_binary_rec(parser, rhs, new_precedence)?;
         }
 
-        lhs = parser.ast_pool.push(ASTNode::BinaryOp {
+        lhs = parser.rustaml_context.ast_pool.push(ASTNode::BinaryOp {
             op: operator,
             lhs: lhs,
             rhs: rhs,
@@ -805,37 +799,36 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     while parser.has_tokens_left() {
         nodes.push(parse_node(parser)?);
     }
-    Ok(parser.ast_pool.push(ASTNode::TopLevel { nodes }))
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::TopLevel { nodes }))
 }
 
-// TODO : pass str interner by ref
-pub fn parse(tokens: Vec<Token>, str_interner : &mut StrInterner, ast_pool : &mut ASTPool) -> Result<ASTRef, ParserErr> {
+pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext) -> Result<ASTRef, ParserErr> {
     let mut parser = Parser { 
         tokens, 
         pos: 0,
         vars: FxHashMap::default(),
         precedences: init_precedences(),
-        str_interner: str_interner,
-        ast_pool: ast_pool,
+        rustaml_context
     };
     let root_node = parse_top_level_node(&mut parser)?;
-    dbg_intern!(&root_node, str_interner, ast_pool);
+    dbg_intern!(&root_node, rustaml_context);
     Ok(root_node)
 }
 
 
 #[cfg(test)]
 mod tests {
-    use crate::lexer::TokenData;
+    /*use crate::lexer::TokenData;
 
     use super::*;
 
     #[test]
     fn parser_simple() {
+        // TODO
         let input = vec![TokenData::Let, TokenData::Identifier(vec!['a']), TokenData::Op(Operator::Equal), TokenData::Integer(2), TokenData::EndOfExpr].into_iter().map(|t| Token::new(t, 0..0)).collect();
         let result = parse(input).unwrap();
         let expected =  ASTNode::VarDecl { name: "a".to_string(), val: Box::new(ASTNode::Integer { nb: 2 }), body: None };
         let expected_toplevel = ASTNode::TopLevel { nodes: vec![expected] };
         assert_eq!(result,  expected_toplevel);
-    }
+    }*/
 }

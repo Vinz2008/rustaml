@@ -2,7 +2,7 @@ use std::fmt::{self, Debug};
 
 use rustc_hash::FxHashMap;
 
-use crate::ast::ASTPool;
+use crate::rustaml::RustamlContext;
 
 // TODO : use this (will need code for debug displaying, look at the code for the flatten AST, because they have the same problem)
 // TODO : optimize this (https://matklad.github.io/2020/03/22/fast-simple-rust-interner.html)
@@ -29,18 +29,17 @@ impl StringRef {
 }
 
 pub trait DebugWithContext {
-    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result;
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result;
 }
 
 pub struct DebugWrapContext<'a, T> {
     value: &'a T,
-    interner: &'a StrInterner,
-    ast_pool : &'a ASTPool,
+    context: &'a RustamlContext
 }
 
 impl <'a, T> DebugWrapContext<'a, T> {
-    pub fn new(value: &'a T, interner: &'a StrInterner, ast_pool : &'a ASTPool) -> DebugWrapContext<'a, T> {
-        DebugWrapContext { value, interner, ast_pool }
+    pub fn new(value: &'a T, context: &'a RustamlContext) -> DebugWrapContext<'a, T> {
+        DebugWrapContext { value, context }
     }
 }
 
@@ -49,19 +48,19 @@ where
     T: DebugWithContext,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.value.fmt_with_context(f, self.interner, self.ast_pool)
+        self.value.fmt_with_context(f, self.context)
     }
 }
 
 impl<'a, T> DebugWithContext for &'a T where T: DebugWithContext {
-    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
-        (*self).fmt_with_context(f, interner, ast_pool)
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
+        (*self).fmt_with_context(f, rustaml_context)
     }
 }
 
 impl DebugWithContext for StringRef {
-    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, _ast_pool : &ASTPool) -> fmt::Result {
-        write!(f, "{}", interner.lookup(*self))
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context : &RustamlContext) -> fmt::Result {
+        write!(f, "{}", rustaml_context.str_interner.lookup(*self))
     }
 }
 
@@ -70,8 +69,8 @@ where
     T1 : DebugWithContext,
     T2 : DebugWithContext
 {
-    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
-        f.debug_tuple("").field_with(|fmt| self.0.fmt_with_context(fmt, interner, ast_pool)).field_with(|fmt| self.1.fmt_with_context(fmt, interner, ast_pool)).finish()
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
+        f.debug_tuple("").field_with(|fmt| self.0.fmt_with_context(fmt, rustaml_context)).field_with(|fmt| self.1.fmt_with_context(fmt, rustaml_context)).finish()
     }
 }
 
@@ -79,9 +78,9 @@ impl<T> DebugWithContext for Vec<T>
 where
     T: DebugWithContext,
 {
-    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         f.debug_list()
-            .entries(self.iter().map(|item| DebugWrapContext { value: item, interner, ast_pool }))
+            .entries(self.iter().map(|item| DebugWrapContext { value: item, context: rustaml_context }))
             .finish()
     }
 }
@@ -90,9 +89,9 @@ impl<T> DebugWithContext for Option<T>
 where
     T: DebugWithContext,
 {
-    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         match self {
-            Some(s) => s.fmt_with_context(f, interner, ast_pool),
+            Some(s) => s.fmt_with_context(f, rustaml_context),
             None => None::<()>.fmt(f),
         }
     }
@@ -102,8 +101,8 @@ impl<T> DebugWithContext for Box<T>
 where
     T: DebugWithContext,
 {
-    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
-        self.as_ref().fmt_with_context(f, interner, ast_pool)
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
+        self.as_ref().fmt_with_context(f, rustaml_context)
     }
 }
 
@@ -112,10 +111,10 @@ where
     K : DebugWithContext,
     V : DebugWithContext,
 {
-    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         f.debug_map()
             .entries(self.iter().map(|(k, v)| (
-                DebugWrapContext::new(k, interner, ast_pool), DebugWrapContext::new(v, interner, ast_pool)
+                DebugWrapContext::new(k, rustaml_context), DebugWrapContext::new(v, rustaml_context)
             )))
             .finish()
     }
@@ -130,13 +129,13 @@ macro_rules! dbg_intern {
     () => {
         eprintln!("[{}:{}:{}]", file!(), line!(), column!())
     };
-    ($val:expr, $interner:expr, $ast_pool:expr) => {
+    ($val:expr, $context:expr) => {
         // Use of `match` here is intentional because it affects the lifetimes
         // of temporaries - https://stackoverflow.com/a/48732525/1063961
         match $val {
             tmp => {
                 eprintln!("[{}:{}:{}] {} = {:#?}",
-                    file!(), line!(), column!(), stringify!($val),  $crate::string_intern::DebugWrapContext::new(&tmp, $interner, $ast_pool));
+                    file!(), line!(), column!(), stringify!($val),  $crate::string_intern::DebugWrapContext::new(&tmp, $context));
                 tmp
             }
         }

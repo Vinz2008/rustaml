@@ -4,15 +4,18 @@ use std::rc::Rc;
 use std::{cmp::Ordering, process::ExitCode};
 use std::fmt::{self, Debug};
 
-use crate::ast::{ASTPool, ASTRef};
-use crate::string_intern::{StrInterner, StringRef, DebugWithContext};
+use crate::ast::{ASTRef};
+use crate::rustaml::RustamlContext;
+use crate::string_intern::{StringRef, DebugWithContext};
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
+
+// TODO : replace vals with val refs to make it easier to create a gc (and for better performance ?)
 
 #[derive(Clone, PartialEq)]
 enum List {
     None,
-    Node(Val, Rc<RefCell<List>>),
+    Node(Val, Rc<RefCell<List>>), // TODO : replace this with indexes
 }
 
 
@@ -122,7 +125,7 @@ impl Iterator for ListIter {
 }
 
 impl DebugWithContext for Rc<RefCell<List>> {
-    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         let mut current = Rc::clone(self);
         let mut iter_nb = 0;
         loop {
@@ -135,7 +138,7 @@ impl DebugWithContext for Rc<RefCell<List>> {
                     if iter_nb != 0 {
                         write!(f, ", ")?;
                     }
-                    val.fmt_with_context(f, interner, ast_pool)?;
+                    val.fmt_with_context(f, rustaml_context)?;
                     current = Rc::clone(next);
                     iter_nb += 1;
                 }
@@ -149,7 +152,7 @@ impl DebugWithContext for Rc<RefCell<List>> {
             if iter_nb != 0 {
                 write!(f, ", ")?;
             }
-            v.fmt_with_context(f, interner, ast_pool)?;
+            v.fmt_with_context(f, rustaml_context)?;
             //write!(f, "{:?}", v)?;
             current = next.as_ref();
             iter_nb += 1;   
@@ -174,13 +177,13 @@ enum Val {
 
 impl DebugWithContext for Val {
     
-    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         match self {
             Self::Integer(arg0) => f.debug_tuple("Integer").field(arg0).finish(),
             Self::Float(arg0) => f.debug_tuple("Float").field(arg0).finish(),
             Self::Bool(arg0) => f.debug_tuple("Bool").field(arg0).finish(),
-            Self::String(arg0) => f.debug_tuple("String").field_with(|fmt| arg0.fmt_with_context(fmt, interner, ast_pool)).finish(),
-            Self::List(arg0) => f.debug_tuple("List").field_with(|fmt| arg0.fmt_with_context(fmt, interner, ast_pool)).finish(),
+            Self::String(arg0) => f.debug_tuple("String").field_with(|fmt| arg0.fmt_with_context(fmt, rustaml_context)).finish(),
+            Self::List(arg0) => f.debug_tuple("List").field_with(|fmt| arg0.fmt_with_context(fmt, rustaml_context)).finish(),
             Self::Unit => write!(f, "Unit"),
         }
     }
@@ -225,26 +228,25 @@ struct FunctionDef {
 }
 
 impl DebugWithContext for FunctionDef {
-    fn fmt_with_context(&self, f: &mut fmt::Formatter, interner: &StrInterner, ast_pool : &ASTPool) -> fmt::Result {
-        f.debug_struct("FunctionDef").field("name", &self.name.get_str(interner)).field_with("args", |fmt| self.args.fmt_with_context(fmt, interner, ast_pool)).field_with("body", |fmt| self.body.fmt_with_context(fmt, interner, ast_pool)).field("return_type", &self.return_type).finish()
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
+        f.debug_struct("FunctionDef").field("name", &self.name.get_str(&rustaml_context.str_interner)).field_with("args", |fmt| self.args.fmt_with_context(fmt, rustaml_context)).field_with("body", |fmt| self.body.fmt_with_context(fmt, rustaml_context)).field("return_type", &self.return_type).finish()
     }
 }
 
 
-struct InterpretContext<'refs> {
+struct InterpretContext<'context> {
     functions : FxHashMap<StringRef, FunctionDef>,
     vars: FxHashMap<StringRef, Val>,
-    pub str_interner : &'refs mut StrInterner,
-    pub ast_pool : &'refs mut ASTPool,
+    pub rustaml_context : &'context mut RustamlContext,
 }
 
 
-impl<'intern> Debug for InterpretContext<'intern> {
+impl<'context> Debug for InterpretContext<'context> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("InterpretContext")
-            .field_with("functions", |fmt| self.functions.fmt_with_context(fmt, &self.str_interner, &self.ast_pool))
-            .field_with("vars", |fmt | self.vars.fmt_with_context(fmt, &self.str_interner, &self.ast_pool))
+            .field_with("functions", |fmt| self.functions.fmt_with_context(fmt, self.rustaml_context))
+            .field_with("vars", |fmt | self.vars.fmt_with_context(fmt, self.rustaml_context))
             .finish()
     }
 }
@@ -321,7 +323,7 @@ fn interpret_binop_str(context: &mut InterpretContext, op : Operator, lhs_val : 
     };
     
     match op {
-        Operator::StrAppend => Val::String(lhs_str.add(rhs_str, context.str_interner)),
+        Operator::StrAppend => Val::String(lhs_str.add(rhs_str, &mut context.rustaml_context.str_interner)),
         _ => unreachable!()
     }
 }
@@ -369,7 +371,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
 
 fn interpret_function_call(context: &mut InterpretContext, name : StringRef, args : Vec<ASTRef>) -> Val {
 
-    let func_def = context.functions.get(&name).unwrap_or_else(|| panic!("Function {} not found", name.get_str(context.str_interner))).clone(); // TODO : remove the clone ?
+    let func_def = context.functions.get(&name).unwrap_or_else(|| panic!("Function {} not found", name.get_str(&context.rustaml_context.str_interner))).clone(); // TODO : remove the clone ?
 
     if args.len() != func_def.args.len() {
         panic!("Invalid args number in function call, expected {}, got {}", func_def.args.len(), args.len());
@@ -551,7 +553,7 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : ASTRef, patter
 }
 
 fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
-    let ast_node = ast.get(context.ast_pool).clone(); // remove the clone ? (because there are indexes in the ast node, the clone is not a deep copy)
+    let ast_node = ast.get(&context.rustaml_context.ast_pool).clone(); // remove the clone ? (because there are indexes in the ast node, the clone is not a deep copy)
     match &ast_node {
         ASTNode::TopLevel { nodes } => {
             for node in nodes {
@@ -587,7 +589,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
             }
             
         },
-        ASTNode::VarUse { name } => context.vars.get(name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", name.get_str(context.str_interner))).clone(),
+        ASTNode::VarUse { name } => context.vars.get(name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", name.get_str(&context.rustaml_context.str_interner))).clone(),
         ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, *op, *lhs, *rhs),
         ASTNode::FunctionCall { name, args } => interpret_function_call(context, *name, args.clone()),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, *cond_expr, *then_body, *else_body),
@@ -598,12 +600,11 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
     }
 }
 
-pub fn interpret(ast: ASTRef, str_interner: &mut StrInterner, ast_pool : &mut ASTPool) -> ExitCode {
+pub fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext) -> ExitCode {
     let mut context = InterpretContext {
         vars: FxHashMap::default(),
         functions: FxHashMap::default(),
-        str_interner,
-        ast_pool,
+        rustaml_context 
     };
 
     interpret_node(&mut context, ast);

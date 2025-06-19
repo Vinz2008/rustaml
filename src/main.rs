@@ -5,7 +5,7 @@ use std::{fs, hint::black_box, path::{Path, PathBuf}, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 
-use crate::{ast::{ASTPool, ASTRef}, string_intern::StrInterner};
+use crate::{ast::{ASTPool, ASTRef}, rustaml::RustamlContext, string_intern::StrInterner};
 
 mod ast;
 mod intepreter;
@@ -13,6 +13,7 @@ mod lexer;
 mod type_inference;
 mod string_intern;
 mod print_error;
+mod rustaml;
 
 
 // TODO : create lsp server
@@ -44,12 +45,10 @@ struct Args {
     command: Option<Commands>,
 }
 
-// TODO : use https://crates.io/crates/ariadne for printing errors
-
 
 
 // used for every command (used for code deduplication)
-fn get_ast(filename : &Path, str_interner : &mut StrInterner, ast_pool : &mut ASTPool) -> Result<ASTRef, ExitCode> {
+fn get_ast(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<ASTRef, ExitCode> {
     let content_bytes = fs::read(filename).unwrap_or_else(|err| {
             panic!("Error when opening {} : {}", filename.display(), err)
     });
@@ -63,7 +62,7 @@ fn get_ast(filename : &Path, str_interner : &mut StrInterner, ast_pool : &mut AS
         },
     };
 
-    let ast = ast::parse(tokens, str_interner, ast_pool);
+    let ast = ast::parse(tokens, rustaml_context);
     let ast = match ast {
         Ok(a) => a,
         Err(e) => {
@@ -79,21 +78,23 @@ fn get_ast(filename : &Path, str_interner : &mut StrInterner, ast_pool : &mut AS
 fn main() -> ExitCode {
     let args = Args::parse();
 
-    let mut str_interner = StrInterner::new();
-    let mut ast_pool = ASTPool::new();
+    /*let mut str_interner = StrInterner::new();
+    let mut ast_pool = ASTPool::new();*/
+
+    let mut rustaml_context = RustamlContext::new(StrInterner::new(), ASTPool::new());
 
     match args.command.expect("No subcommand specified!") {
         Commands::Interpret { filename } => {
-            let ast = get_ast(&filename, &mut str_interner, &mut ast_pool);
+            let ast = get_ast(&filename, &mut rustaml_context);
             let ast = match ast {
                 Ok(a) => a,
                 Err(e) => return e,
             };
 
-            intepreter::interpret(ast, &mut str_interner,&mut ast_pool)
+            intepreter::interpret(ast, &mut rustaml_context)
         }
         Commands::Compile { filename } => {
-            let ast = get_ast(&filename, &mut str_interner, &mut ast_pool);
+            let ast = get_ast(&filename, &mut rustaml_context);
             let ast = match ast {
                 Ok(a) => a,
                 Err(e) => return e,
@@ -103,7 +104,7 @@ fn main() -> ExitCode {
         },
 
         Commands::Check { filename } => {
-            let ast = get_ast(&filename, &mut str_interner,&mut ast_pool);
+            let ast = get_ast(&filename, &mut rustaml_context);
             let _ast = match ast {
                 Ok(a) => a,
                 Err(e) => return e,

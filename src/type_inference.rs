@@ -52,7 +52,7 @@ impl TypeInferenceErr {
 // TODO : return a result with a real error ?
 // TODO : split this function into subfunctions
 pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Option<Type> {
-    match node.get(&parser.ast_pool) {
+    match node.get(&parser.rustaml_context.ast_pool) {
         ASTNode::TopLevel { nodes } => {
             for n in nodes {
                 let type_inferred = _infer_var_type(parser, var_name, *n, range);
@@ -93,7 +93,7 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
             if matched_expr_type_inferred.is_some(){
                 return matched_expr_type_inferred;
             }
-            if matches!(matched_expr.get(parser.ast_pool), ASTNode::VarUse { name: var_use_name } if *var_use_name == var_name){
+            if matches!(matched_expr.get(&parser.rustaml_context.ast_pool), ASTNode::VarUse { name: var_use_name } if *var_use_name == var_name){
                 for pattern in patterns {
                     let pattern_type_inferred = infer_var_type_pattern(parser, &pattern.0, pattern.1, range);
                     if pattern_type_inferred.is_some() {
@@ -117,12 +117,12 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
         ASTNode::Boolean { b: _ } => None,
         ASTNode::List { list: _ } => None,
         ASTNode::BinaryOp { op, lhs, rhs } => {
-            let is_left_var = match lhs .get(parser.ast_pool) {
+            let is_left_var = match lhs .get(&parser.rustaml_context.ast_pool) {
                 ASTNode::VarUse { name } => *name == var_name, 
                 _ => false,
             };
 
-            let is_right_var = match rhs.get(parser.ast_pool) {
+            let is_right_var = match rhs.get(&parser.rustaml_context.ast_pool) {
                 ASTNode::VarUse { name } => *name == var_name, 
                 _ => false,
             };
@@ -135,15 +135,15 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
 
             if is_left_var || is_right_var {
                 let other_operand_type = if is_left_var {
-                    rhs.get(parser.ast_pool).get_type(parser)
+                    rhs.get(&parser.rustaml_context.ast_pool).get_type(parser)
                 } else {
-                    lhs.get(parser.ast_pool).get_type(parser)
+                    lhs.get(&parser.rustaml_context.ast_pool).get_type(parser)
                 };
                 dbg!(&other_operand_type);
                 let operand_type = op.get_operand_type(is_left_var, &other_operand_type);
                 dbg!(&operand_type, &other_operand_type);
-                dbg_intern!(var_name, parser.str_interner, parser.ast_pool); 
-                dbg_intern!(node, parser.str_interner, parser.ast_pool);
+                dbg_intern!(var_name, &parser.rustaml_context); 
+                dbg_intern!(node, &parser.rustaml_context);
                 Some(operand_type)
             } else {
                 let lhs_inferred = _infer_var_type(parser, var_name, *lhs, range);
@@ -161,7 +161,7 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
             match parser.vars.get(function_name) {
                 Some(Type::Function(a, _)) => {
                     for (arg, arg_type) in args.iter().zip(a) {
-                        match arg.get(parser.ast_pool) {
+                        match arg.get(&parser.rustaml_context.ast_pool) {
                             ASTNode::VarUse { name } if *name == var_name => {
                                 return Some(arg_type.clone())
                             },
@@ -186,6 +186,6 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
 pub fn infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Result<Type, TypeInferenceErr> {
     match _infer_var_type(parser, var_name, node, range) {
         Some(t) => Ok(t),
-        None => Err(TypeInferenceErr::new(var_name.get_str(parser.str_interner).to_owned(), range.clone()))
+        None => Err(TypeInferenceErr::new(var_name.get_str(&parser.rustaml_context.str_interner).to_owned(), range.clone()))
     }
 }
