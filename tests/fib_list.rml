@@ -10,4 +10,4 @@ let list_fib i =
   else
     fib i :: list_fib ( i - 1 ) ;;
 
-let l_fib = list_fib 10 ;;
+let l_fib = list_fib 35 ;;

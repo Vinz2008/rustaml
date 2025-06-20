@@ -2,7 +2,7 @@
 
 use std::{path::Path, process::ExitCode};
 
-use crate::{ast::ASTPool, rustaml::RustamlContext, string_intern::StrInterner};
+use crate::rustaml::RustamlContext;
 
 pub mod rustaml;
 pub mod ast;
@@ -11,9 +11,10 @@ pub mod lexer;
 pub mod type_inference;
 pub mod string_intern;
 pub mod print_error;
+pub mod debug;
 
 pub fn interpret_code(code : &str, filename : &Path) -> Result<(), ExitCode> {
-    let mut rustaml_context = RustamlContext::new(StrInterner::new(), ASTPool::new());
+    let mut rustaml_context = RustamlContext::new();
     let content = code.chars().collect::<Vec<_>>();
     let tokens = lexer::lex(content);
     let tokens = match tokens {

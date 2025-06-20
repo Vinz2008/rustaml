@@ -5,7 +5,7 @@ use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
-use crate::{dbg_intern, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::{DebugWithContext, StringRef}, type_inference::{infer_var_type, TypeInferenceErr}};
+use crate::{dbg_intern, debug::DebugWithContext, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef, type_inference::{infer_var_type, TypeInferenceErr}};
 
 #[derive(Clone, PartialEq)]
 pub struct Arg {

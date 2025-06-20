@@ -1,96 +1,106 @@
 use rustc_hash::FxHashMap;
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::{cmp::Ordering, process::ExitCode};
 use std::fmt::{self, Debug};
 
 use crate::ast::{ASTRef};
+use crate::debug::DebugWithContext;
 use crate::rustaml::RustamlContext;
-use crate::string_intern::{StringRef, DebugWithContext};
+use crate::string_intern::{StrInterner, StringRef};
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
 
 // TODO : replace vals with val refs to make it easier to create a gc (and for better performance ?)
 
+
+pub struct ListPool(Vec<List>);
+
+impl ListPool {
+    pub fn new() -> ListPool {
+        ListPool(Vec::new())
+    }
+
+    fn get(&self, list_node : ListRef) -> &List {
+        &self.0[list_node.0 as usize]
+    }
+
+    fn get_mut(&mut self, list_node : ListRef) -> &mut List {
+        &mut self.0[list_node.0 as usize]
+    } 
+
+    fn push(&mut self, node : List) -> ListRef {
+        let idx = self.0.len();
+        self.0.push(node);
+        ListRef(idx.try_into().expect("too many list nodes in the pool"))
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct ListRef(u32);
+
+impl ListRef {
+    pub fn get(self, list_pool : &ListPool) -> &List {
+        list_pool.get(self)
+    }
+
+    pub fn get_mut(self, list_pool : &mut ListPool) -> &mut List {
+        list_pool.get_mut(self)
+    } 
+}
+
+impl DebugWithContext for ListRef {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
+        self.get(&rustaml_context.list_node_pool).fmt_with_context(f, rustaml_context)
+    }
+}
+
+
+
+// TODO : replace this enum with a struct with a Val and an ListRef, with the value for none the max size of the u32 ref 
+
 #[derive(Clone, PartialEq)]
-enum List {
+pub enum List {
     None,
-    Node(Val, Rc<RefCell<List>>), // TODO : replace this with indexes
+    Node(Val, ListRef), // TODO : replace this with indexes
+
 }
 
 
 impl List {
-    
     // intepret nodes here instead of doing before the call and passing a Vec<Val> to avoid not necessary allocations
-    fn new(context: &mut InterpretContext, v : &Vec<ASTRef>) -> Rc<RefCell<List>> {
-        let l = Rc::new(RefCell::new(List::None));
+    fn new(context: &mut InterpretContext, v : &Vec<ASTRef>) -> ListRef {
+        let mut l = List::None;
         for e in v {
             let val = interpret_node(context, *e);
-            List::append(Rc::clone(&l), val);
+            l.append(&mut context.rustaml_context.list_node_pool, val);
         }
         
-        l
+        context.rustaml_context.list_node_pool.push(l)
     }
 
-    fn append(head : Rc<RefCell<List>>, val : Val){
-        let mut current = head;
-        loop {
-            let next_current = {
-                let mut current_borrow = current.borrow_mut();
-                match &mut *current_borrow {
-                    List::None => {
-                        *current_borrow = List::Node(val, Rc::new(RefCell::new(List::None)));
-                        return;
-                    }
-                    List::Node(_, next) => {
-                        Rc::clone(next)
-                    }
-                }
-            };
-            current = next_current;
+    fn append(&mut self, list_pool: &mut ListPool, val : Val){
+        let new_node = list_pool.push(List::None);
+        let mut current: &mut List = self;
+        while let List::Node(_, next) = current {
+            current = next.get_mut(list_pool);
         }
-
-        /*let mut current= self;
-        while let List::Node(_, next_rc) = current {
-            let mut next = next_rc.borrow_mut();
-            current = &mut *next;   
-        }
-        *current = List::Node(val, Rc::new(RefCell::new(List::None)));*/
+        
+        *current = List::Node(val, new_node);
 
     }
 
-    fn iter(list : Rc<RefCell<List>>) -> ListIter {
-        ListIter { current:  Some(list) }
+    fn iter<'a>(&'a self, list_pool : &'a ListPool) -> ListIter<'a> {
+        ListIter { current: self, list_pool: list_pool }
     }
 
-    fn len(head : Rc<RefCell<List>>) -> usize {
+    fn len(&self, list_pool : &ListPool) -> usize {
         let mut count = 0;
 
-        let mut current = head;
-        loop {
-            let next_current = {
-                let current_borrow = current.borrow();
-                match &*current_borrow {
-                    List::None => {
-                        return count;
-                    }
-                    List::Node(_, next) => {
-                        // Borrow the next RefCell mutably to continue down the list
-                        Rc::clone(&next)
-                    }
-                }
-            };
-            current = next_current;
-            count += 1;
-        }
-
-        /*let mut count = 0;
         let mut current: &List = self;
         while let List::Node(_, next) = current {
-            current = next.as_ref();
+            current = next.get(list_pool);
             count += 1;
         }
-        count*/
+        count
     }
 
     fn empty(&self) -> bool {
@@ -102,62 +112,41 @@ impl List {
 }
 
 
-struct ListIter {
-    current : Option<Rc<RefCell<List>>>
+struct ListIter<'a> {
+    current : &'a List,
+    list_pool : &'a ListPool,
 }
 
 // TODO : is it needed ?
-impl Iterator for ListIter {
-    type Item = Val;
+impl<'a> Iterator for ListIter<'a> {
+    type Item = &'a Val;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let current = self.current.take()?;
-        let current_ref = current.borrow();
-
-        match &*current_ref {
+        match self.current {
             List::None => None,
-            List::Node(val, next) => {
-                self.current = Some(Rc::clone(next));
-                Some(val.clone())
+            List::Node(v, next) => {
+                let current = v;
+                self.current = next.get(self.list_pool);
+                Some(current)
             }
         }
     }
 }
 
-impl DebugWithContext for Rc<RefCell<List>> {
+impl DebugWithContext for List {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
-        let mut current = Rc::clone(self);
+        let mut current = self;
         let mut iter_nb = 0;
-        loop {
-            let rc_list = current;
-            let borrowed = rc_list.borrow();
 
-            match &*borrowed {
-                List::None => break,
-                List::Node(val, next) => {
-                    if iter_nb != 0 {
-                        write!(f, ", ")?;
-                    }
-                    val.fmt_with_context(f, rustaml_context)?;
-                    current = Rc::clone(next);
-                    iter_nb += 1;
-                }
-            }
-        }
-
-
-        /*let mut current: &List = self;
-        let mut iter_nb = 0;
         while let List::Node(v, next) = current {
             if iter_nb != 0 {
                 write!(f, ", ")?;
             }
-            v.fmt_with_context(f, rustaml_context)?;
-            //write!(f, "{:?}", v)?;
-            current = next.as_ref();
-            iter_nb += 1;   
-        }*/
 
+            v.fmt_with_context(f, rustaml_context)?;
+            current = next.get(&rustaml_context.list_node_pool);
+            iter_nb += 1;
+        }
 
         Ok(())
     }
@@ -166,17 +155,16 @@ impl DebugWithContext for Rc<RefCell<List>> {
 
 
 #[derive(Clone, PartialEq)]
-enum Val {
+pub enum Val {
     Integer(i64),
     Float(f64),
     Bool(bool),
     String(StringRef),
-    List(Rc<RefCell<List>>),
+    List(ListRef),
     Unit,
 }
 
 impl DebugWithContext for Val {
-    
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         match self {
             Self::Integer(arg0) => f.debug_tuple("Integer").field(arg0).finish(),
@@ -201,15 +189,15 @@ impl PartialOrd for Val {
 }
 
 impl Val {
-    fn get_type(&self) -> Type {
+    fn get_type(&self, list_pool: &ListPool) -> Type {
         match self {
             Val::Integer(_) => Type::Integer,
             Val::Float(_) => Type::Float,
             Val::Bool(_) => Type::Bool,
             Val::String(_) => Type::Str,
             Val::List(l) => {
-                let elem_type = match & *l.as_ref().borrow() {
-                    List::Node(v, _next) => v.get_type(),
+                let elem_type = match l.get(list_pool) {
+                    List::Node(v, _next) => v.get_type(list_pool),
                     List::None => Type::Any,
                 };
                 Type::List(Box::new(elem_type))
@@ -294,10 +282,10 @@ fn interpret_binop_nb(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     Val::Integer(res_nb)
 }
 
-fn interpret_binop_bool(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
-    let lhs_val_type = lhs_val.get_type();
-    let rhs_val_type = rhs_val.get_type();
-    if rhs_val.get_type() != lhs_val.get_type() {
+fn interpret_binop_bool(list_pool:  &ListPool, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+    let lhs_val_type = lhs_val.get_type(list_pool);
+    let rhs_val_type = rhs_val.get_type(list_pool);
+    if rhs_val.get_type(list_pool) != lhs_val.get_type(list_pool) {
         panic!("Not the same types around operators (lhs : {:?}, rhs : {:?})", lhs_val_type, rhs_val_type)
     }
     
@@ -311,7 +299,7 @@ fn interpret_binop_bool(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     }
 }
 
-fn interpret_binop_str(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+fn interpret_binop_str(str_interner : &mut StrInterner, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let lhs_str = match lhs_val {
         Val::String(s) => s,
         _ => panic!("Expected string in left-side of binary operation"),
@@ -323,14 +311,14 @@ fn interpret_binop_str(context: &mut InterpretContext, op : Operator, lhs_val : 
     };
     
     match op {
-        Operator::StrAppend => Val::String(lhs_str.add(rhs_str, &mut context.rustaml_context.str_interner)),
+        Operator::StrAppend => Val::String(lhs_str.add(rhs_str, str_interner)),
         _ => unreachable!()
     }
 }
 
-fn interpret_binop_list(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+fn interpret_binop_list(list_pool : &mut ListPool, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
 
-    let rhs_type = rhs_val.get_type();
+    let rhs_type = rhs_val.get_type(list_pool);
 
     let rhs_list = match rhs_val {
         Val::List(l) => l,
@@ -342,15 +330,15 @@ fn interpret_binop_list(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
         _ => unreachable!(),
     };
 
-    dbg!(lhs_val.get_type(), &rhs_elem_type);
+    dbg!(lhs_val.get_type(list_pool), &rhs_elem_type);
 
-    if !rhs_list.as_ref().borrow().empty() && lhs_val.get_type() != rhs_elem_type {
+    if !rhs_list.get(list_pool).empty() && lhs_val.get_type(list_pool) != rhs_elem_type {
         panic!("Trying to add to an array of a type an element of another type");
     }
 
     match op {
         // use the already existing subtree, should it be clone ?
-        Operator::ListAppend => Val::List(Rc::new(RefCell::new(List::Node(lhs_val, Rc::clone(&rhs_list))))),
+        Operator::ListAppend => Val::List(list_pool.push(List::Node(lhs_val, rhs_list))),
         _ => unreachable!(),
     }
 }
@@ -361,9 +349,9 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
 
     match op.get_type() {
         Type::Integer => interpret_binop_nb(op, lhs_val, rhs_val),
-        Type::Bool => interpret_binop_bool(op, lhs_val, rhs_val),
-        Type::Str => interpret_binop_str(context, op, lhs_val, rhs_val),
-        Type::List(_) => interpret_binop_list(op, lhs_val, rhs_val),
+        Type::Bool => interpret_binop_bool(&context.rustaml_context.list_node_pool, op, lhs_val, rhs_val),
+        Type::Str => interpret_binop_str(&mut context.rustaml_context.str_interner, op, lhs_val, rhs_val),
+        Type::List(_) => interpret_binop_list(&mut context.rustaml_context.list_node_pool, op, lhs_val, rhs_val),
         _ => unreachable!(),
     }
 
@@ -411,7 +399,7 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_bo
     }
 }
 
-fn interpret_match_pattern(matched_val : &Val, pattern : &Pattern) -> bool {
+fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : &Pattern) -> bool {
     match pattern {
         Pattern::VarName(_) | Pattern::Underscore => true,
         Pattern::Integer(nb) => {
@@ -456,21 +444,21 @@ fn interpret_match_pattern(matched_val : &Val, pattern : &Pattern) -> bool {
                 Val::List(l) => l,
                 _ => panic!("matching an expression that is not a list with a list pattern"),
             };
-            if l.is_empty() && matches!(&*matched_expr_list.as_ref().borrow(), List::None){
+            if l.is_empty() && matches!(matched_expr_list.get(list_pool), List::None){
                 return true;
             }
                 
             // TODO : refactor this if it is a performance problem (profile it ?)
             let mut pattern_matched_nb = 0;
-            for (p, v) in l.iter().zip(List::iter(Rc::clone(matched_expr_list))) {
-                if !interpret_match_pattern(&v, p){
+            for (p, v) in l.iter().zip(matched_expr_list.get(list_pool).iter(list_pool)) {
+                if !interpret_match_pattern(list_pool, &v, p){
                     return false;
                 }
                 pattern_matched_nb += 1;
             }
 
 
-            if pattern_matched_nb == l.len() && pattern_matched_nb == List::len(Rc::clone(matched_expr_list)) {
+            if pattern_matched_nb == l.len() && pattern_matched_nb == matched_expr_list.get(list_pool).len(list_pool) {
                 return true;
             }
             false
@@ -481,18 +469,17 @@ fn interpret_match_pattern(matched_val : &Val, pattern : &Pattern) -> bool {
                 _ => panic!("matching an expression that is not a list with a list destructure pattern"),
             };
 
-            if matched_expr_list.as_ref().borrow().empty(){
+            if matched_expr_list.get(list_pool).empty(){
                 return false;
             }
 
-            let matched_expr_list_borrow = matched_expr_list.as_ref().borrow();
-            let tail = match &*matched_expr_list_borrow {
+            let tail = match matched_expr_list.get(list_pool) {
                 List::Node(_, next) => next,
                 List::None => unreachable!(),
             };
 
-            let tail_val = Val::List(Rc::clone(tail));
-            if !interpret_match_pattern(&tail_val, tail_pattern.as_ref()){
+            let tail_val = Val::List(*tail);
+            if !interpret_match_pattern(list_pool, &tail_val, tail_pattern.as_ref()){
                 return false;
             }
 
@@ -511,13 +498,12 @@ fn handle_match_pattern_start(context: &mut InterpretContext, pattern : &Pattern
                 Val::List(l) => l,
                 _ => panic!("matching an expression that is not a list with a list destructure pattern"),
             };
-            let matched_expr_list_borrow = matched_expr_list.as_ref().borrow();
-            let (head_val, tail) = match &*matched_expr_list_borrow {
+            let (head_val, tail) = match matched_expr_list.get(&context.rustaml_context.list_node_pool) {
                 List::Node(val, next) => (val, next),
                 List::None => unreachable!(),
             };
             context.vars.insert(*head_name, head_val.clone());
-            let tail_val = Val::List(Rc::clone(tail));
+            let tail_val = Val::List(*tail);
             handle_match_pattern_start(context, tail_pattern.as_ref(), &tail_val);
         }
         _ => {},
@@ -541,7 +527,7 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : ASTRef, patter
     let matched_expr_val = interpret_node(context, matched_expr);
     for (pattern, pattern_expr) in patterns {
 
-        if interpret_match_pattern(&matched_expr_val, pattern) {
+        if interpret_match_pattern(&context.rustaml_context.list_node_pool, &matched_expr_val, pattern) {
             handle_match_pattern_start(context, pattern, &matched_expr_val);
             let res_val = interpret_node(context, *pattern_expr);
             handle_match_pattern_end(context, pattern);

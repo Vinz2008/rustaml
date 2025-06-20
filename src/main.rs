@@ -5,7 +5,7 @@ use std::{fs, hint::black_box, path::{Path, PathBuf}, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 
-use crate::{ast::{ASTPool, ASTRef}, rustaml::RustamlContext, string_intern::StrInterner};
+use crate::{ast::ASTRef, rustaml::RustamlContext};
 
 mod ast;
 mod intepreter;
@@ -14,7 +14,10 @@ mod type_inference;
 mod string_intern;
 mod print_error;
 mod rustaml;
+mod debug;
 
+
+// TODO : replace dbg calls for println (buffered print and use of stdout)
 
 // TODO : create lsp server
 
@@ -81,7 +84,7 @@ fn main() -> ExitCode {
     /*let mut str_interner = StrInterner::new();
     let mut ast_pool = ASTPool::new();*/
 
-    let mut rustaml_context = RustamlContext::new(StrInterner::new(), ASTPool::new());
+    let mut rustaml_context = RustamlContext::new();
 
     match args.command.expect("No subcommand specified!") {
         Commands::Interpret { filename } => {

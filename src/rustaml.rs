@@ -1,12 +1,13 @@
-use crate::{ast::ASTPool, string_intern::StrInterner};
+use crate::{ast::ASTPool, intepreter::ListPool, string_intern::StrInterner};
 
 pub struct RustamlContext {
     pub str_interner : StrInterner,
     pub ast_pool : ASTPool,
+    pub list_node_pool : ListPool,
 }
 
 impl RustamlContext {
-    pub fn new(str_interner : StrInterner, ast_pool : ASTPool) -> RustamlContext {
-        RustamlContext { str_interner, ast_pool }
+    pub fn new() -> RustamlContext {
+        RustamlContext { str_interner: StrInterner::new(), ast_pool: ASTPool::new(), list_node_pool: ListPool::new() }
     }
 }
