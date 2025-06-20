@@ -377,7 +377,8 @@ pub fn lex(content: Vec<char>) -> Result<Vec<Token>, LexerErr> {
         }
     }
 
-    dbg!(&tokens);
+    //dbg!(&tokens);
+    println!("tokens = {:#?}", tokens);
 
     Ok(tokens)
 }

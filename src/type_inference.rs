@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::{ast::{ASTNode, ASTRef, Parser, Pattern, Type}, dbg_intern, string_intern::StringRef};
+use crate::{ast::{ASTNode, ASTRef, Parser, Pattern, Type}, debug::DebugWrapContext, string_intern::StringRef};
 
 
 // TODO : problem with type inference and Any types
@@ -131,7 +131,11 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
 
             // TODO : fix the case car there is e :: l with e an integer, it should detect l as a list of integer and not as a list of any
 
-            dbg!(is_left_var, is_right_var);
+            println!("is_left_var = {}", is_left_var);
+
+            //dbg!(is_left_var);
+            println!("is_right_var = {}", is_right_var);
+            //dbg!(is_right_var);
 
             if is_left_var || is_right_var {
                 let other_operand_type = if is_left_var {
@@ -139,11 +143,16 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
                 } else {
                     lhs.get(&parser.rustaml_context.ast_pool).get_type(parser)
                 };
-                dbg!(&other_operand_type);
+                println!("other_operand_type : {:#?}", &other_operand_type);
+                //dbg!(&other_operand_type);
                 let operand_type = op.get_operand_type(is_left_var, &other_operand_type);
-                dbg!(&operand_type, &other_operand_type);
-                dbg_intern!(var_name, &parser.rustaml_context); 
-                dbg_intern!(node, &parser.rustaml_context);
+                println!("operand_type : {:#?}", &operand_type);
+                //dbg!(&operand_type);
+                println!("other_operand_type : {:#?}", &other_operand_type);
+                //dbg!(&other_operand_type);
+                // TODO : create prinln_context for these ?
+                println!("var_name = {:#?}", DebugWrapContext::new(&var_name, parser.rustaml_context));
+                println!("node = {:#?}", DebugWrapContext::new(&node, parser.rustaml_context));
                 Some(operand_type)
             } else {
                 let lhs_inferred = _infer_var_type(parser, var_name, *lhs, range);

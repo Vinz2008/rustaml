@@ -86,7 +86,7 @@ where
     }
 }
 
-#[macro_export]
+/*#[macro_export]
 macro_rules! dbg_intern {
     // NOTE: We cannot use `concat!` to make a static string as a format argument
     // of `eprintln!` because `file!` could contain a `{` or
@@ -106,7 +106,7 @@ macro_rules! dbg_intern {
             }
         }
     };
-}
+}*/
 
 impl<'a, T> DebugWithContext for &'a T where T: DebugWithContext {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {

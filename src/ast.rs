@@ -5,7 +5,7 @@ use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
-use crate::{dbg_intern, debug::DebugWithContext, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef, type_inference::{infer_var_type, TypeInferenceErr}};
+use crate::{debug::{DebugWithContext, DebugWrapContext}, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef, type_inference::{infer_var_type, TypeInferenceErr}};
 
 #[derive(Clone, PartialEq)]
 pub struct Arg {
@@ -363,12 +363,11 @@ fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
 
     let type_parsed = match parser.current_tok_data() {
         Some(TokenData::Arrow) => {
-            println!("function type");
             // only simple types can be returned or passed to functions, need to refator this code to support cases like (int -> int) -> (int -> int)
             let mut function_type_parts = vec![simple_type];
-            dbg!(parser.current_tok_data());
+            println!("parser.current_tok_data() = {:#?}", parser.current_tok_data());
+            //dbg!(parser.current_tok_data());
             while let Some(t) = parser.current_tok_data() && matches!(t, TokenData::Arrow) {
-                //println!("PARSE FUNCTION TYPE PART");
                 parser.eat_tok(Some(TokenDataTag::Arrow))?;
                 let function_type_part = parse_annotation_simple(parser)?;
                 function_type_parts.push(function_type_part);
@@ -687,11 +686,10 @@ fn parse_match(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
 // TODO : fix parsing parenthesis in parenthesis ex : (fib_list (i-1))
 fn parse_parenthesis(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
-    //println!("PARSE PAREN");
     let expr = parse_node(parser)?;
-    dbg_intern!(&expr, &parser.rustaml_context);
+    println!("expr = {:#?}", DebugWrapContext::new(&expr, parser.rustaml_context));
+    //dbg_intern!(&expr, &parser.rustaml_context);
     parser.eat_tok(Some(TokenDataTag::ParenClose))?;
-    //println!("CLOSE PAREN");
     Ok(expr)
 }
 
@@ -811,7 +809,7 @@ pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext) -> Resul
         rustaml_context
     };
     let root_node = parse_top_level_node(&mut parser)?;
-    dbg_intern!(&root_node, rustaml_context);
+    println!("root_node = {:#?}", DebugWrapContext::new(&root_node, rustaml_context));
     Ok(root_node)
 }
 

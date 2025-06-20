@@ -330,7 +330,10 @@ fn interpret_binop_list(list_pool : &mut ListPool, op : Operator, lhs_val : Val,
         _ => unreachable!(),
     };
 
-    dbg!(lhs_val.get_type(list_pool), &rhs_elem_type);
+    println!("lhs_val.get_type(list_pool) : {:#?}", lhs_val.get_type(list_pool));
+    //dbg!(lhs_val.get_type(list_pool))
+    println!("rhs_elem_type : {:#?}", &rhs_elem_type);
+    //dbg!(&rhs_elem_type);
 
     if !rhs_list.get(list_pool).empty() && lhs_val.get_type(list_pool) != rhs_elem_type {
         panic!("Trying to add to an array of a type an element of another type");
@@ -595,7 +598,9 @@ pub fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext) -> ExitCode 
 
     interpret_node(&mut context, ast);
 
-    dbg!(context);
+    
+    println!("content = {:#?}", context);
+    //dbg!(context);
 
     ExitCode::SUCCESS
 }
