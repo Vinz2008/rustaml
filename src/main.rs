@@ -1,9 +1,10 @@
 #![allow(clippy::needless_return)]
 #![feature(debug_closure_helpers)]
 
-use std::{fs, hint::black_box, path::{Path, PathBuf}, process::ExitCode};
+use std::{fs, path::{Path, PathBuf}, process::ExitCode};
 
 use clap::{Parser, Subcommand};
+
 
 use crate::{ast::ASTRef, rustaml::RustamlContext};
 
@@ -16,6 +17,12 @@ mod print_error;
 mod rustaml;
 mod debug;
 
+#[cfg(feature = "native")]
+mod compiler;
+
+
+#[cfg(feature = "native")]
+use crate::compiler::compile;
 
 // TODO : replace dbg calls for println (buffered print and use of stdout)
 
@@ -78,6 +85,11 @@ fn get_ast(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<AS
 
 }
 
+#[cfg(not(feature = "native"))]
+pub fn compile(_ast : ASTRef, _rustaml_context: &RustamlContext) -> ExitCode {
+    panic!("the compiler feature was not enabled");
+}
+
 fn main() -> ExitCode {
     let args = Args::parse();
 
@@ -102,8 +114,7 @@ fn main() -> ExitCode {
                 Ok(a) => a,
                 Err(e) => return e,
             };
-            black_box(ast); // TODO : only for linting, remove this after adding compiler
-            todo!()
+            compile(ast, &rustaml_context)
         },
 
         Commands::Check { filename } => {

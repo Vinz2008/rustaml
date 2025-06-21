@@ -13,6 +13,9 @@ pub mod string_intern;
 pub mod print_error;
 pub mod debug;
 
+#[cfg(feature = "native")]
+pub mod compiler;
+
 pub fn interpret_code(code : &str, filename : &Path) -> Result<(), ExitCode> {
     let mut rustaml_context = RustamlContext::new();
     let content = code.chars().collect::<Vec<_>>();
@@ -37,3 +40,5 @@ pub fn interpret_code(code : &str, filename : &Path) -> Result<(), ExitCode> {
     }
     Ok(())
 }
+
+// TODO : add compiler
