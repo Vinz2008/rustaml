@@ -10,7 +10,7 @@ use crate::{debug::{DebugWithContext, DebugWrapContext}, lexer::{Operator, Token
 #[derive(Clone, PartialEq)]
 pub struct Arg {
     pub name : StringRef,
-    arg_type : Type,
+    pub arg_type : Type,
 }
 
 
@@ -163,6 +163,8 @@ impl DebugWithContext for ASTNode {
     }
 }
 
+
+// TODO : add a type pool to remove boxes (test performance ?)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Integer,
@@ -192,7 +194,13 @@ impl ASTNode {
             },
             ASTNode::BinaryOp { op, lhs: _, rhs: _ } => op.get_type(),
             ASTNode::VarDecl { name: _, val: _, body: _ } => Type::Unit, // TODO
-            ASTNode::FunctionCall { name, args: _ } => parser.vars.get(name).unwrap().clone(), // need to create a hashmap for function types, in parser context ?
+            ASTNode::FunctionCall { name, args: _ } => { 
+                let func_type = parser.vars.get(name).unwrap();
+                match func_type {
+                    Type::Function(_args, ret) => ret.as_ref().clone(),
+                    _ => panic!("Trying to call a function"),
+                } 
+            },
             ASTNode::VarUse { name} => match parser.vars.get(name){
                 Some(t) => t.clone(),
                 None => unreachable!("Unknown var {}", name.get_str(&parser.rustaml_context.str_interner))
@@ -800,17 +808,21 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::TopLevel { nodes }))
 }
 
-pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext) -> Result<ASTRef, ParserErr> {
-    let mut parser = Parser { 
-        tokens, 
-        pos: 0,
-        vars: FxHashMap::default(),
-        precedences: init_precedences(),
-        rustaml_context
+pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext) -> Result<(ASTRef, FxHashMap<StringRef, Type>), ParserErr> {
+    let (root_node, vars) = { 
+        let mut parser = Parser { 
+            tokens, 
+            pos: 0,
+            vars: FxHashMap::default(),
+            precedences: init_precedences(),
+            rustaml_context
+        };
+        let root_node = parse_top_level_node(&mut parser)?;
+        (root_node, parser.vars)
     };
-    let root_node = parse_top_level_node(&mut parser)?;
-    println!("root_node = {:#?}", DebugWrapContext::new(&root_node, rustaml_context));
-    Ok(root_node)
+
+    println!("root_node = {:#?}", DebugWrapContext::new(&root_node, &rustaml_context));
+    Ok((root_node, vars))
 }
 
 

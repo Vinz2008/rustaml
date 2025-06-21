@@ -27,9 +27,9 @@ pub fn interpret_code(code : &str, filename : &Path) -> Result<(), ExitCode> {
         },
     };
 
-    let ast = ast::parse(tokens, &mut rustaml_context);
-    let ast = match ast {
-        Ok(a) => a,
+    let ast_and_vars = ast::parse(tokens, &mut rustaml_context);
+    let (ast, _vars) = match ast_and_vars {
+        Ok(a_v) => a_v,
         Err(e) => {
             return Err(print_error::print_parser_error(e, filename, code))
         },
