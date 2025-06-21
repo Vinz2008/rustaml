@@ -209,8 +209,8 @@ fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
                 Operator::IsEqual => inkwell::IntPredicate::EQ,
                 Operator::Inferior => inkwell::IntPredicate::SLT,
                 Operator::Superior => inkwell::IntPredicate::SGT,
-                Operator::InferiorOrEqual => inkwell::IntPredicate::SGE,
-                Operator::SuperiorOrEqual => inkwell::IntPredicate::SLE,
+                Operator::InferiorOrEqual => inkwell::IntPredicate::SLE,
+                Operator::SuperiorOrEqual => inkwell::IntPredicate::SGE,
                 _ => unreachable!(),
             };
             compile_context.builder.build_int_compare(predicate, i, i2, &name).unwrap().into()
@@ -296,11 +296,12 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             let entry = compile_context.context.append_basic_block(function, "entry");
             compile_context.builder.position_at_end(entry);
 
-            for arg in args {
+            for (arg, arg_val) in args.iter().zip(function.get_param_iter()) {
                 let arg_type = get_llvm_type(compile_context.context, &arg.arg_type);
+                compile_context.var_types.insert(arg.name, arg.arg_type.clone());
                 let arg_alloca = create_entry_block_alloca(compile_context, arg.name.get_str(&compile_context.rustaml_context.str_interner), arg_type);
                 compile_context.var_vals.insert(arg.name, arg_alloca);
-                compile_context.var_types.insert(arg.name, arg.arg_type.clone());
+                compile_context.builder.build_store(arg_alloca, arg_val).unwrap();
             }
 
             let ret = compile_expr(compile_context, *body);
