@@ -110,7 +110,7 @@ fn main() -> ExitCode {
     match args.command.expect("No subcommand specified!") {
         Commands::Interpret { filename } => {
             let ast_and_vars = get_ast(&filename, &mut rustaml_context);
-            let (ast, vars) = match ast_and_vars {
+            let (ast, _vars) = match ast_and_vars {
                 Ok(a_v) => a_v,
                 Err(e) => return e,
             };

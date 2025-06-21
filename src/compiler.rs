@@ -1,7 +1,7 @@
 
 use std::{hash::{Hash, Hasher}, path::Path, process::{Command, ExitCode}, time::{SystemTime, UNIX_EPOCH}};
-use crate::{ast::{ASTNode, ASTRef, Type}, debug::DebugWrapContext, rustaml::RustamlContext, string_intern::StringRef};
-use inkwell::{builder::Builder, context::Context, module::Module, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType}, values::{AnyValueEnum, FunctionValue, PointerValue}, AddressSpace, OptimizationLevel};
+use crate::{ast::{ASTNode, ASTRef, Type}, debug::DebugWrapContext, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
+use inkwell::{builder::Builder, context::Context, module::Module, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType}, values::{AnyValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHasher};
 
@@ -117,19 +117,64 @@ fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_,
 
 fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : ASTRef, body : Option<ASTRef>) -> AnyValueEnum<'llvm_ctx> {
     let var_type = compile_context.var_types.get(&name).unwrap();
-    create_entry_block_alloca(compile_context, name.get_str(&compile_context.rustaml_context.str_interner), get_llvm_type(compile_context.context, var_type));
+    let var_alloca = create_entry_block_alloca(compile_context, name.get_str(&compile_context.rustaml_context.str_interner), get_llvm_type(compile_context.context, var_type));
     //todo!()
 
-    compile_context.context.f64_type().const_float(32.0).into()
+    let val = compile_expr(compile_context, val);
+
+    compile_context.builder.build_store(var_alloca, TryInto::<BasicValueEnum>::try_into(val).unwrap()).unwrap();
+
+    match body {
+        Some(b) => compile_expr(compile_context, b),
+        None => val,
+    }
+}
+
+fn compile_if<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, cond_expr : ASTRef, then_body : ASTRef, else_body : ASTRef) -> AnyValueEnum<'llvm_ctx> {
+    let this_function = get_current_function(compile_context.builder);
+    let then_bb= compile_context.context.append_basic_block(this_function, "if");
+    let else_bb = compile_context.context.append_basic_block(this_function, "else");
+    let after_bb = compile_context.context.append_basic_block(this_function, "afterif");
+
+    
+    // TODO : create br
+
+    let bool_val = compile_expr(compile_context, cond_expr);
+
+    compile_context.builder.build_conditional_branch(TryInto::<IntValue>::try_into(bool_val).unwrap(), then_bb, else_bb).unwrap();
+
+    compile_context.builder.position_at_end(then_bb);
+
+    let if_val = compile_expr(compile_context, then_body);
+
+    compile_context.builder.position_at_end(else_bb);
+
+    let else_val = compile_expr(compile_context, else_body);
+
+    compile_context.builder.position_at_end(after_bb);
+
+    compile_context.builder.build_phi(TryInto::<BasicTypeEnum>::try_into(if_val.get_type()).unwrap(), "if_phi").unwrap().into()
+}
+
+fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, args: &[ASTRef]) -> AnyValueEnum<'llvm_ctx>{
+    todo!()
+}
+
+fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs : ASTRef, rhs : ASTRef)-> AnyValueEnum<'llvm_ctx> {
+    todo!()
 }
 
 fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef) -> AnyValueEnum<'llvm_ctx> {
-
     match ast_node.get(&compile_context.rustaml_context.ast_pool){
         ASTNode::Integer { nb } =>  compile_context.context.i64_type().const_int(*nb as u64, false).into(), // TODO : sign extend or not ?
         ASTNode::Float { nb } => compile_context.context.f64_type().const_float(*nb).into(),
+        ASTNode::Boolean { b } => compile_context.context.i8_type().const_int(*b as u64, false).into(),
         ASTNode::VarDecl { name, val, body } => compile_var_decl(compile_context, *name, *val, *body),
-        _ => todo!()
+        ASTNode::IfExpr { cond_expr, then_body, else_body } => compile_if(compile_context, *cond_expr, *then_body, *else_body),
+        ASTNode::FunctionCall { name, args } => compile_function_call(compile_context, *name, &args),
+        ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, *op, *lhs, *rhs),
+        t => panic!("unknown AST : {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)), 
+        //_ => todo!()
     }
 }
 
@@ -140,7 +185,17 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             let return_type_llvm = get_llvm_type(compile_context.context, return_type);
             let param_types = args.iter().map(|a| get_llvm_type(compile_context.context, &a.arg_type).try_into().unwrap()).collect::<Vec<_>>();
             let function_type = get_fn_type(compile_context.context, return_type_llvm, &param_types, false);
-            compile_context.module.add_function(name.get_str(&compile_context.rustaml_context.str_interner), function_type, Some(inkwell::module::Linkage::Internal));
+            let function = compile_context.module.add_function(name.get_str(&compile_context.rustaml_context.str_interner), function_type, Some(inkwell::module::Linkage::Internal));
+            let entry = compile_context.context.append_basic_block(function, "entry");
+            compile_context.builder.position_at_end(entry);
+            let ret = compile_expr(compile_context, *body);
+
+            let return_val: Option<&dyn BasicValue<'_>> = match return_type {
+                Type::Unit => None,
+                _ => Some(&TryInto::<BasicValueEnum>::try_into(ret).unwrap()),
+            };
+
+            compile_context.builder.build_return(return_val).unwrap();
         },
 
         ASTNode::VarDecl { name, val, body } => {
@@ -174,7 +229,9 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path){
 pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &RustamlContext, filename : &Path, filename_out : &Path, should_keep_temp : bool) -> ExitCode{
     let context = Context::create();
     let builder = context.create_builder();
-    let module = context.create_module("tmp");
+
+    let filename_str = filename.as_os_str().to_str().expect("not UTF-8 filename");
+    let module = context.create_module(filename_str);
 
     let main_function = get_main_function(&context, &module);
 
