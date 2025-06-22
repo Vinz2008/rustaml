@@ -1,13 +1,15 @@
 use std::ops::Range;
 
-use crate::{ast::{ASTNode, ASTRef, Parser, Pattern, Type}, debug::DebugWrapContext, string_intern::StringRef};
+use rustc_hash::FxHashMap;
+
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug::DebugWrapContext, rustaml::RustamlContext, string_intern::StringRef};
 
 
 // TODO : problem with type inference and Any types
 // there could be cases where we find a type with an Any, then we return the type even though a more precise type could be deduced in the body
 // solution : get all the types found instead of hot plugging, and put them in a vec, and do a .max() on it (need to implement ord on types)
 
-fn infer_var_type_pattern(parser : &Parser, pattern: &Pattern, body : ASTRef, range : &Range<usize>) -> Option<Type> {
+fn infer_var_type_pattern(rustaml_context : &RustamlContext, vars : &FxHashMap<StringRef, Type>, pattern: &Pattern, body : ASTRef, range : &Range<usize>) -> Option<Type> {
     // TODO
     match pattern {
         Pattern::Float(_) => Some(Type::Float),
@@ -16,7 +18,7 @@ fn infer_var_type_pattern(parser : &Parser, pattern: &Pattern, body : ASTRef, ra
         Pattern::List(l) => { 
             let elem_type = match l.first() {
                 Some(first) => { 
-                    match infer_var_type_pattern(parser, first, body, range) {
+                    match infer_var_type_pattern(rustaml_context, vars, first, body, range) {
                         Some(t) => t,
                         None => Type::Any,
                     }
@@ -30,7 +32,7 @@ fn infer_var_type_pattern(parser : &Parser, pattern: &Pattern, body : ASTRef, ra
         Pattern::Underscore => None,
         Pattern::VarName(var_name) => {
             // get the type of the var name in the body
-            _infer_var_type(parser, *var_name, body, range)
+            _infer_var_type(rustaml_context, vars, *var_name, body, range)
         }
     }
 }
@@ -51,11 +53,11 @@ impl TypeInferenceErr {
 
 // TODO : return a result with a real error ?
 // TODO : split this function into subfunctions
-pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Option<Type> {
-    match node.get(&parser.rustaml_context.ast_pool) {
+pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<StringRef, Type>, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Option<Type> {
+    match node.get(&rustaml_context.ast_pool) {
         ASTNode::TopLevel { nodes } => {
             for n in nodes {
-                let type_inferred = _infer_var_type(parser, var_name, *n, range);
+                let type_inferred = _infer_var_type(rustaml_context, vars, var_name, *n, range);
                 if type_inferred.is_some() {
                     return type_inferred;
                 }
@@ -63,39 +65,39 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
             None
         },
         ASTNode::FunctionDefinition { name, args: _, body, return_type: _ } => {
-            _infer_var_type(parser, *name, *body, range)
+            _infer_var_type(rustaml_context, vars, *name, *body, range)
         }
         ASTNode::VarDecl { name, val, body } => {
-            let val_type_inferred = _infer_var_type(parser, *name, *val, range);
+            let val_type_inferred = _infer_var_type(rustaml_context, vars, *name, *val, range);
             if val_type_inferred.is_some() {
                 return val_type_inferred
             }
 
             if let Some(b) = body {
-                return _infer_var_type(parser, *name, *b, range);
+                return _infer_var_type(rustaml_context, vars, *name, *b, range);
             } 
             None
         },
         ASTNode::VarUse { name: _ } => None, // no infos on type in var use
         ASTNode::IfExpr { cond_expr, then_body, else_body } => {
-            let cond_type_inferred = _infer_var_type(parser, var_name, *cond_expr, range);
+            let cond_type_inferred = _infer_var_type(rustaml_context, vars, var_name, *cond_expr, range);
             if cond_type_inferred.is_some(){
                 return cond_type_inferred;
             }
-            let then_type_inferred = _infer_var_type(parser, var_name, *then_body, range);
+            let then_type_inferred = _infer_var_type(rustaml_context, vars, var_name, *then_body, range);
             if then_type_inferred.is_some() {
                 return then_type_inferred;
             }
-            return _infer_var_type(parser, var_name, *else_body, range);
+            return _infer_var_type(rustaml_context, vars, var_name, *else_body, range);
         },
         ASTNode::MatchExpr { matched_expr, patterns } => {
-            let matched_expr_type_inferred = _infer_var_type(parser, var_name, *matched_expr, range);
+            let matched_expr_type_inferred = _infer_var_type(rustaml_context, vars, var_name, *matched_expr, range);
             if matched_expr_type_inferred.is_some(){
                 return matched_expr_type_inferred;
             }
-            if matches!(matched_expr.get(&parser.rustaml_context.ast_pool), ASTNode::VarUse { name: var_use_name } if *var_use_name == var_name){
+            if matches!(matched_expr.get(&rustaml_context.ast_pool), ASTNode::VarUse { name: var_use_name } if *var_use_name == var_name){
                 for pattern in patterns {
-                    let pattern_type_inferred = infer_var_type_pattern(parser, &pattern.0, pattern.1, range);
+                    let pattern_type_inferred = infer_var_type_pattern(rustaml_context, vars, &pattern.0, pattern.1, range);
                     if pattern_type_inferred.is_some() {
                         return pattern_type_inferred;
                     }
@@ -103,7 +105,7 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
             }
 
             for pattern in patterns {
-                let pattern_body_type_inferred = _infer_var_type(parser, var_name, pattern.1, range);
+                let pattern_body_type_inferred = _infer_var_type(rustaml_context, vars, var_name, pattern.1, range);
                 if pattern_body_type_inferred.is_some() {
                     return pattern_body_type_inferred;
                 }
@@ -117,12 +119,12 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
         ASTNode::Boolean { b: _ } => None,
         ASTNode::List { list: _ } => None,
         ASTNode::BinaryOp { op, lhs, rhs } => {
-            let is_left_var = match lhs .get(&parser.rustaml_context.ast_pool) {
+            let is_left_var = match lhs .get(&rustaml_context.ast_pool) {
                 ASTNode::VarUse { name } => *name == var_name, 
                 _ => false,
             };
 
-            let is_right_var = match rhs.get(&parser.rustaml_context.ast_pool) {
+            let is_right_var = match rhs.get(&rustaml_context.ast_pool) {
                 ASTNode::VarUse { name } => *name == var_name, 
                 _ => false,
             };
@@ -139,9 +141,9 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
 
             if is_left_var || is_right_var {
                 let other_operand_type = if is_left_var {
-                    rhs.get(&parser.rustaml_context.ast_pool).get_type(parser)
+                    rhs.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)
                 } else {
-                    lhs.get(&parser.rustaml_context.ast_pool).get_type(parser)
+                    lhs.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)
                 };
                 println!("other_operand_type : {:#?}", &other_operand_type);
                 //dbg!(&other_operand_type);
@@ -151,15 +153,15 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
                 println!("other_operand_type : {:#?}", &other_operand_type);
                 //dbg!(&other_operand_type);
                 // TODO : create prinln_context for these ?
-                println!("var_name = {:#?}", DebugWrapContext::new(&var_name, parser.rustaml_context));
-                println!("node = {:#?}", DebugWrapContext::new(&node, parser.rustaml_context));
+                println!("var_name = {:#?}", DebugWrapContext::new(&var_name, rustaml_context));
+                println!("node = {:#?}", DebugWrapContext::new(&node, rustaml_context));
                 Some(operand_type)
             } else {
-                let lhs_inferred = _infer_var_type(parser, var_name, *lhs, range);
+                let lhs_inferred = _infer_var_type(rustaml_context, vars, var_name, *lhs, range);
                 if lhs_inferred.is_some() {
                     return lhs_inferred;
                 }
-                let rhs_inferred = _infer_var_type(parser, var_name, *rhs, range);
+                let rhs_inferred = _infer_var_type(rustaml_context, vars, var_name, *rhs, range);
                 if rhs_inferred.is_some() {
                     return rhs_inferred;
                 }
@@ -167,15 +169,15 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
             }
         },
         ASTNode::FunctionCall { name: function_name, args } => {
-            match parser.vars.get(function_name) {
+            match vars.get(function_name) {
                 Some(Type::Function(a, _)) => {
                     for (arg, arg_type) in args.iter().zip(a) {
-                        match arg.get(&parser.rustaml_context.ast_pool) {
+                        match arg.get(&rustaml_context.ast_pool) {
                             ASTNode::VarUse { name } if *name == var_name => {
                                 return Some(arg_type.clone())
                             },
                             _ => {
-                                let inferred_arg_type = _infer_var_type(parser, var_name, *arg, range);
+                                let inferred_arg_type = _infer_var_type(rustaml_context, vars, var_name, *arg, range);
                                 if inferred_arg_type.is_some() {
                                     return inferred_arg_type;
                                 }
@@ -192,9 +194,9 @@ pub fn _infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, rang
 }
 
 // TODO : make this infallible (inference only gives infos, no need to crash if not found, only if they really need to be used we crash)
-pub fn infer_var_type(parser : &Parser, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Result<Type, TypeInferenceErr> {
-    match _infer_var_type(parser, var_name, node, range) {
+pub fn infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<StringRef, Type>, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Result<Type, TypeInferenceErr> {
+    match _infer_var_type(rustaml_context, vars, var_name, node, range) {
         Some(t) => Ok(t),
-        None => Err(TypeInferenceErr::new(var_name.get_str(&parser.rustaml_context.str_interner).to_owned(), range.clone()))
+        None => Err(TypeInferenceErr::new(var_name.get_str(&rustaml_context.str_interner).to_owned(), range.clone()))
     }
 }

@@ -1,7 +1,7 @@
 
 use std::{hash::{Hash, Hasher}, path::Path, process::{Command, ExitCode}, time::{SystemTime, UNIX_EPOCH}};
 use crate::{ast::{ASTNode, ASTRef, Type}, debug::DebugWrapContext, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
-use inkwell::{builder::Builder, context::Context, module::Module, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, OptimizationLevel};
+use inkwell::{builder::Builder, context::Context, module::Module, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHasher};
 
@@ -63,6 +63,29 @@ fn run_passes_on(module: &Module, optimization_level : OptimizationLevel, target
 }
 
 
+fn get_type_tag(t : &Type) -> u8 {
+    match t {
+        Type::Integer => 0,
+        Type::Float => 1,
+        Type::Bool => 2,
+        Type::Function(_, _) => 3,
+        Type::Str => 4,
+        Type::List(_) => 5,
+        Type::Any | Type::Unit => panic!("no type tag for this type {:?} !!", t),
+    }
+}
+
+fn get_type_tag_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context, t : &Type) -> IntValue<'llvm_ctx> {
+    llvm_context.i8_type().const_int(get_type_tag(t) as u64, false)
+}
+
+fn get_list_type<'llvm_ctx>(llvm_context: &'llvm_ctx Context) -> StructType<'llvm_ctx>{
+    // put it in an Optional in the context
+
+    let field_types: &[BasicTypeEnum] = &[llvm_context.i8_type().into(), llvm_context.i64_type().into(), llvm_context.ptr_type(AddressSpace::default()).into()];
+    llvm_context.struct_type(field_types, false)
+}
+
 fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type : &Type) -> AnyTypeEnum<'llvm_ctx> {
     match rustaml_type {
         Type::Integer => llvm_context.i64_type().into(),
@@ -74,10 +97,14 @@ fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type : &T
             let param_types = args.iter().map(|t| get_llvm_type(llvm_context, t).try_into().expect("arg is not a basic metadata type")).collect::<Vec<BasicMetadataTypeEnum>>();
             get_fn_type(llvm_context, ret_llvm, &param_types, false).into()
         },
-        Type::List(t) => {
-            todo!()
-        },
 
+        // TODO : layout of list
+        // struct ListNode {
+        //      uint8_t type_tag;
+        //      void* val; // can be also a i64 or f64 depending on type_tag
+        //      struct ListNode* next; // if empty null 
+        // }
+        Type::List(_t) => llvm_context.ptr_type(AddressSpace::default()).into(), // TODO ?
         Type::Str => llvm_context.ptr_type(AddressSpace::default()).into(),
         Type::Unit => llvm_context.void_type().into(),
         Type::Any => panic!("Encountered any when compiling"),
@@ -94,7 +121,7 @@ fn get_fn_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, llvm_type : AnyType
         AnyTypeEnum::PointerType(p) => p.fn_type(param_types, is_var_args),
         AnyTypeEnum::VectorType(_) => unreachable!(),
         AnyTypeEnum::ScalableVectorType(_) => unreachable!(), // TODO ?
-        AnyTypeEnum::StructType(_) => unreachable!(), // TODO ?
+        AnyTypeEnum::StructType(s) => unreachable!(),
         AnyTypeEnum::VoidType(v) => v.fn_type(param_types, is_var_args),
     }
 }
@@ -239,8 +266,20 @@ fn compile_binop_str<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     todo!()
 }
 
-fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, name : &str) -> AnyValueEnum<'llvm_ctx>{
-    todo!()
+fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, elem_type : &Type, name : &str) -> AnyValueEnum<'llvm_ctx>{
+    
+
+    // TODO : check that lhs_val is a val of the same tag as the rhs_val elements and that rhs_val is a list
+    match op {
+        Operator::ListAppend => {
+            // TODO : to make this work, need to have better type inference for case like i :: l to not stop when finding that l is a List::Any, but also add the info that l is appended an int, so l is a List(Int)
+            dbg!(lhs_val, rhs_val);
+            dbg!(elem_type);
+            let type_tag_val = get_type_tag_val(compile_context.context, elem_type);
+            create_list_append_call(compile_context, rhs_val.into_pointer_value(), type_tag_val, lhs_val).into()
+        },
+        _ => unreachable!(),
+    }
 }
 
 fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs : ASTRef, rhs : ASTRef) -> AnyValueEnum<'llvm_ctx> {
@@ -251,7 +290,7 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
         Type::Integer => compile_binop_nb(compile_context, op, lhs_val, rhs_val, &name),
         Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, &name),
         Type::Str => compile_binop_str(compile_context, op, lhs_val, rhs_val, &name),
-        Type::List(_) => compile_binop_list(compile_context, op, lhs_val, rhs_val, &name),
+        Type::List(e) => compile_binop_list(compile_context, op, lhs_val, rhs_val, e.as_ref(), &name),
         _ => unreachable!(),
     }
 }
@@ -268,6 +307,47 @@ fn compile_var_use<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm
     compile_context.builder.build_load(load_basic_type, *ptr, name.get_str(&compile_context.rustaml_context.str_interner)).unwrap().into()
 }
 
+fn add_list_functions<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>){
+    let list_node_params = &[compile_context.context.ptr_type(AddressSpace::default()).into(), compile_context.context.i8_type().into(), compile_context.context.i64_type().into()];
+    let list_node_append_type = get_fn_type(compile_context.context, compile_context.context.ptr_type(AddressSpace::default()).into(), list_node_params, false);
+    compile_context.module.add_function("__list_node_append", list_node_append_type, None);
+}
+
+fn create_list_append_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : PointerValue<'llvm_ctx>, type_tag_val : IntValue<'llvm_ctx>, val : AnyValueEnum<'llvm_ctx> ) -> PointerValue<'llvm_ctx> {
+    let function = compile_context.module.get_function("__list_node_append").unwrap();
+    let args = &[list.into(), type_tag_val.into(), val.try_into().unwrap()];
+    compile_context.builder.build_call(function, args, "list_append").unwrap().as_any_value_enum().into_pointer_value()
+}
+
+fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : &[ASTRef]) -> AnyValueEnum<'llvm_ctx> {
+    let mut current_node = compile_context.context.ptr_type(AddressSpace::default()).const_null().into();
+    
+    // TODO : optimize this by keeping the last node and just appending to it to not have to go through the list each time by doing append ?
+
+    let list_element_type = match list.first() {
+        Some(f) => f.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types),
+        None => Type::Integer// empty list, so type will not be used, dummy time
+    };
+
+    /*for e in list {
+        println!("e = {:?}", DebugWrapContext::new(e, compile_context.rustaml_context));
+    }
+
+
+    dbg!(&list_element_type);*/
+
+    let type_tag_val = get_type_tag_val(compile_context.context, &list_element_type);
+
+    for e in list {
+        let val = compile_expr(compile_context, *e);
+        let node_val = create_list_append_call(compile_context, current_node, type_tag_val, val);
+
+        current_node = node_val;
+    }
+
+    current_node.into()
+}
+
 fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef) -> AnyValueEnum<'llvm_ctx> {
     match ast_node.get(&compile_context.rustaml_context.ast_pool){
         ASTNode::Integer { nb } =>  compile_context.context.i64_type().const_int(*nb as u64, false).into(), // TODO : sign extend or not ?
@@ -278,6 +358,7 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
         ASTNode::FunctionCall { name, args } => compile_function_call(compile_context, *name, &args),
         ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, *op, *lhs, *rhs),
         ASTNode::VarUse { name } => compile_var_use(compile_context, *name),
+        ASTNode::List { list } => compile_static_list(compile_context, list),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)), 
         //_ => todo!()
     }
@@ -319,6 +400,8 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
                 compile_context.var_vals.remove(&arg.name);
                 compile_context.var_types.remove(&arg.name);
             }
+
+            // TODO : add function.verify(true) and return an error if it doesn't work 
         },
 
         ASTNode::VarDecl { name, val, body } => {
@@ -372,6 +455,8 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
         var_types,
         var_vals: FxHashMap::default(),
     };
+
+    add_list_functions(&mut compile_context);
 
     let top_level_nodes = match ast.get(&rustaml_context.ast_pool) {
         ASTNode::TopLevel { nodes } => nodes,

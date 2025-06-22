@@ -179,7 +179,7 @@ pub enum Type {
 }
 
 impl ASTNode {
-    pub fn get_type(&self, parser: &Parser) -> Type {
+    pub fn get_type(&self, rustaml_context : &RustamlContext, vars: &FxHashMap<StringRef, Type>) -> Type {
         match self {
             ASTNode::Boolean { b: _ } => Type::Bool,
             ASTNode::Integer { nb: _ } => Type::Integer,
@@ -187,7 +187,7 @@ impl ASTNode {
             ASTNode::String { str: _ } => Type::Str,
             ASTNode::List { list } => { 
                 let elem_type = match list.first() {
-                    Some(f) => f.get(&parser.rustaml_context.ast_pool).get_type(parser),
+                    Some(f) => f.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars),
                     None => Type::Any,
                 };
                 Type::List(Box::new(elem_type)) 
@@ -195,18 +195,18 @@ impl ASTNode {
             ASTNode::BinaryOp { op, lhs: _, rhs: _ } => op.get_type(),
             ASTNode::VarDecl { name: _, val: _, body: _ } => Type::Unit, // TODO
             ASTNode::FunctionCall { name, args: _ } => { 
-                let func_type = parser.vars.get(name).unwrap();
+                let func_type = vars.get(name).unwrap();
                 match func_type {
                     Type::Function(_args, ret) => ret.as_ref().clone(),
                     _ => panic!("Trying to call a function"),
                 } 
             },
-            ASTNode::VarUse { name} => match parser.vars.get(name){
+            ASTNode::VarUse { name} => match vars.get(name){
                 Some(t) => t.clone(),
-                None => unreachable!("Unknown var {}", name.get_str(&parser.rustaml_context.str_interner))
+                None => unreachable!("Unknown var {}", name.get_str(&rustaml_context.str_interner))
              },
-            ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get(&parser.rustaml_context.ast_pool).get_type(parser), // no need for typechecking the two branches because it is done when constructing the IfExpr
-            ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get(&parser.rustaml_context.ast_pool).get_type(parser),
+            ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars), // no need for typechecking the two branches because it is done when constructing the IfExpr
+            ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars),
             ASTNode::TopLevel { nodes: _ } => Type::Unit,
             ASTNode::FunctionDefinition { name: _, args: _, body: _, return_type: _ } => Type::Unit,
         }
@@ -455,14 +455,14 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         let body = parse_node(parser)?;
 
         if matches!(return_type.as_ref(), Type::Any){
-            let body_type = body.get(&parser.rustaml_context.ast_pool).get_type(parser);
+            let body_type = body.get(&parser.rustaml_context.ast_pool).get_type(&parser.rustaml_context, &parser.vars);
             return_type = Box::new(body_type);
         }
         
 
         for (arg, arg_range) in args.iter_mut().zip(arg_ranges) {
             if matches!(arg.arg_type, Type::Any){
-                arg.arg_type = infer_var_type(parser, arg.name, body, &arg_range)?;
+                arg.arg_type = infer_var_type(&parser.rustaml_context,  &parser.vars, arg.name, body, &arg_range)?;
                 parser.vars.insert(arg.name.clone(), arg.arg_type.clone());
             }
         }
@@ -495,7 +495,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
         let val_node = parse_node(parser)?;
         if var_type.is_none() {
-            var_type = Some(val_node.get(&parser.rustaml_context.ast_pool).get_type(parser))
+            var_type = Some(val_node.get(&parser.rustaml_context.ast_pool).get_type(&parser.rustaml_context, &parser.vars))
         }
 
         parser.vars.insert(name.clone(), var_type.unwrap());
@@ -569,7 +569,7 @@ fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Res
 fn parse_if(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let cond_expr = parse_node(parser)?;
 
-    match cond_expr.get(&parser.rustaml_context.ast_pool).get_type(parser) {
+    match cond_expr.get(&parser.rustaml_context.ast_pool).get_type(&parser.rustaml_context, &parser.vars) {
         Type::Bool => {},
         t => panic!("Error in type checking : {:?} type passed in if expr", t), // TODO : return a result instead
     }
