@@ -115,7 +115,7 @@ let mut colors = ColorGenerator::new();
     .with_code(error_nb)
     .with_message(format!("Type inference error with the argument {:?}", arg_name))
     .with_label(Label::new((filename, range.clone())).with_message("This argument's type couldn't be deduced from the body of the function").with_color(a))
-    .with_note(format!("Either add a type annotation, or change the body to disambiguate"))
+    .with_note("Either add a type annotation, or change the body to disambiguate")
     .finish()
     .print((filename, Source::from(content))).unwrap();
 }

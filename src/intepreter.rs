@@ -89,7 +89,7 @@ impl List {
     }
 
     fn iter<'a>(&'a self, list_pool : &'a ListPool) -> ListIter<'a> {
-        ListIter { current: self, list_pool: list_pool }
+        ListIter { current: self, list_pool }
     }
 
     fn len(&self, list_pool : &ListPool) -> usize {
@@ -375,7 +375,7 @@ fn interpret_function_call(context: &mut InterpretContext, name : StringRef, arg
         if let Some(old_val) = context.vars.get(arg_name) {
             old_vals.push((*arg_name, old_val.clone()));
         }
-        context.vars.insert(arg_name.clone(), arg_val.clone());
+        context.vars.insert(*arg_name, arg_val.clone());
     }
 
     let res_val = interpret_node(context, func_def.body);
@@ -454,7 +454,7 @@ fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : 
             // TODO : refactor this if it is a performance problem (profile it ?)
             let mut pattern_matched_nb = 0;
             for (p, v) in l.iter().zip(matched_expr_list.get(list_pool).iter(list_pool)) {
-                if !interpret_match_pattern(list_pool, &v, p){
+                if !interpret_match_pattern(list_pool, v, p){
                     return false;
                 }
                 pattern_matched_nb += 1;
@@ -494,7 +494,7 @@ fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : 
 fn handle_match_pattern_start(context: &mut InterpretContext, pattern : &Pattern, matched_expr_val : &Val){
     match pattern {
         Pattern::VarName(s) => { 
-            context.vars.insert(s.clone(), matched_expr_val.clone());
+            context.vars.insert(*s, matched_expr_val.clone());
         },
         Pattern::ListDestructure(head_name, tail_pattern) => {
             let matched_expr_list = match matched_expr_val {
@@ -520,7 +520,7 @@ fn handle_match_pattern_end(context: &mut InterpretContext, pattern : &Pattern){
         },
         Pattern::ListDestructure(head_name, tail_pattern) => {
             context.vars.remove(head_name);
-            handle_match_pattern_end(context, &tail_pattern);
+            handle_match_pattern_end(context, tail_pattern);
         },
         _ => {},
     }
@@ -553,11 +553,11 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::FunctionDefinition { name, args, body, return_type } => {
             let func_def = FunctionDef { 
                 name: *name, 
-                args: args.iter().map(|arg| arg.name.clone()).collect(),
-                body: body.clone(),
+                args: args.iter().map(|arg| arg.name).collect(),
+                body: *body,
                 return_type: return_type.clone(),
             };
-            context.functions.insert(name.clone(), func_def);
+            context.functions.insert(*name, func_def);
             Val::Unit
         },
         ASTNode::Float { nb } => Val::Float(*nb),
@@ -565,7 +565,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::Boolean { b } => Val::Bool(*b),
         ASTNode::VarDecl { name, val, body } => {
             let val_node = interpret_node(context, *val);
-            context.vars.insert(name.clone(), val_node);
+            context.vars.insert(*name, val_node);
             match body {
                 Some(b) => {
                     let body_val = interpret_node(context, *b);

@@ -108,7 +108,7 @@ macro_rules! dbg_intern {
     };
 }*/
 
-impl<'a, T> DebugWithContext for &'a T where T: DebugWithContext {
+impl<T> DebugWithContext for &'_ T where T: DebugWithContext {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         (*self).fmt_with_context(f, rustaml_context)
     }

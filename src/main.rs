@@ -95,7 +95,7 @@ fn get_ast(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<(A
 }
 
 #[cfg(not(feature = "native"))]
-pub fn compile(_ast : ASTRef, vars: FxHashMap<StringRef, Type>, _rustaml_context: &RustamlContext, _filename : &Path, _filename_out : &Path, _should_keep_temp : bool) -> ExitCode {
+pub fn compile(_ast : ASTRef, _vars: FxHashMap<StringRef, Type>, _rustaml_context: &RustamlContext, _filename : &Path, _filename_out : &Path, _should_keep_temp : bool) -> ExitCode {
     panic!("the compiler feature was not enabled");
 }
 

@@ -447,7 +447,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         let mut args = arg_names.into_iter().zip(arg_types.clone()).map(|x| Arg { name: parser.rustaml_context.str_interner.intern(&x.0), arg_type: x.1 }).collect::<Vec<Arg>>();
 
         for Arg { name, arg_type} in &args {
-            parser.vars.insert(name.clone(), arg_type.clone());
+            parser.vars.insert(*name, arg_type.clone());
         }
 
         let equal_tok = parser.eat_tok(Some(TokenDataTag::Op));
@@ -461,15 +461,15 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         let body = parse_node(parser)?;
 
         if matches!(return_type.as_ref(), Type::Any){
-            let body_type = body.get(&parser.rustaml_context.ast_pool).get_type(&parser.rustaml_context, &parser.vars);
+            let body_type = body.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars);
             return_type = Box::new(body_type);
         }
         
 
         for (arg, arg_range) in args.iter_mut().zip(arg_ranges) {
             if matches!(arg.arg_type, Type::Any){
-                arg.arg_type = infer_var_type(&parser.rustaml_context,  &parser.vars, arg.name, body, &arg_range)?;
-                parser.vars.insert(arg.name.clone(), arg.arg_type.clone());
+                arg.arg_type = infer_var_type(parser.rustaml_context,  &parser.vars, arg.name, body, &arg_range)?;
+                parser.vars.insert(arg.name, arg.arg_type.clone());
             }
         }
 
@@ -501,10 +501,10 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
         let val_node = parse_node(parser)?;
         if var_type.is_none() {
-            var_type = Some(val_node.get(&parser.rustaml_context.ast_pool).get_type(&parser.rustaml_context, &parser.vars))
+            var_type = Some(val_node.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars))
         }
 
-        parser.vars.insert(name.clone(), var_type.unwrap());
+        parser.vars.insert(name, var_type.unwrap());
 
         let body = match parser.current_tok_data() {
             Some(TokenData::In) => {
@@ -575,7 +575,7 @@ fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Res
 fn parse_if(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let cond_expr = parse_node(parser)?;
 
-    match cond_expr.get(&parser.rustaml_context.ast_pool).get_type(&parser.rustaml_context, &parser.vars) {
+    match cond_expr.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars) {
         Type::Bool => {},
         t => panic!("Error in type checking : {:?} type passed in if expr", t), // TODO : return a result instead
     }
@@ -589,9 +589,9 @@ fn parse_if(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let else_body = parse_node(parser)?;
     
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::IfExpr { 
-        cond_expr: cond_expr, 
-        then_body: then_body, 
-        else_body: else_body 
+        cond_expr, 
+        then_body, 
+        else_body 
     }))
 }
 
@@ -780,8 +780,8 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTRef, min_precedence: i32) -> Re
 
         lhs = parser.rustaml_context.ast_pool.push(ASTNode::BinaryOp {
             op: operator,
-            lhs: lhs,
-            rhs: rhs,
+            lhs,
+            rhs,
         });
     }
 
@@ -827,7 +827,7 @@ pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext) -> Resul
         (root_node, parser.vars)
     };
 
-    println!("root_node = {:#?}", DebugWrapContext::new(&root_node, &rustaml_context));
+    println!("root_node = {:#?}", DebugWrapContext::new(&root_node, rustaml_context));
     Ok((root_node, vars))
 }
 
