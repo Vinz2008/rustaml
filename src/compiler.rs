@@ -1,7 +1,7 @@
 
 use std::{hash::{Hash, Hasher}, path::Path, process::{Command, ExitCode}, time::{SystemTime, UNIX_EPOCH}};
-use crate::{ast::{ASTNode, ASTRef, Type}, debug::DebugWrapContext, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
-use inkwell::{builder::Builder, context::Context, module::Module, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, OptimizationLevel};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug::DebugWrapContext, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
+use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, module::Module, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHasher};
 
@@ -144,6 +144,8 @@ fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_,
 }
 
 fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : ASTRef, body : Option<ASTRef>, is_global : bool) -> AnyValueEnum<'llvm_ctx> {
+    dbg!(DebugWrapContext::new(&compile_context.var_types, &compile_context.rustaml_context));
+    dbg!(name.get_str(&compile_context.rustaml_context.str_interner));
     let var_type = compile_context.var_types.get(&name).unwrap();
     let var_alloca = create_entry_block_alloca(compile_context, name.get_str(&compile_context.rustaml_context.str_interner), get_llvm_type(compile_context.context, var_type));
     
@@ -221,7 +223,15 @@ fn compile_binop_nb<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
                 _ => unreachable!(),
             }.into()
         }
-        (AnyValueEnum::FloatValue(f),  AnyValueEnum::FloatValue(f2)) => todo!(),
+        (AnyValueEnum::FloatValue(f),  AnyValueEnum::FloatValue(f2)) => {
+            match op {
+                Operator::Plus => compile_context.builder.build_float_add(f, f2, name).unwrap(),
+                Operator::Minus => compile_context.builder.build_float_sub(f, f2, name).unwrap(),
+                Operator::Mult => compile_context.builder.build_float_mul(f, f2, name).unwrap(),
+                Operator::Div => compile_context.builder.build_float_div(f, f2, name).unwrap(),
+                _ => unreachable!(),
+            }.into()
+        },
         (AnyValueEnum::PointerValue(p),  AnyValueEnum::PointerValue(p2)) => todo!(), // for now only type of pointers are strings, just compare the string
         _ => panic!("Invalid type for nb op {:?}", op),
     }
@@ -348,17 +358,83 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
     current_node.into()
 }
 
+
+fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum, bb: BasicBlock<'llvm_ctx>, else_bb : BasicBlock<'llvm_ctx>){
+    let bool_val = match pattern {
+        Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*i as u64, false), "match_int_cmp").unwrap(),
+        Pattern::Range(lower, upper, inclusivity) => {
+            let (lower_predicate, upper_predicate) = if *inclusivity {
+                (IntPredicate::SLE, IntPredicate::SGE)
+            }  else {
+                (IntPredicate::SLT, IntPredicate::SGT)
+            };
+            let lower_cmp = compile_context.builder.build_int_compare(lower_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*lower as u64, false), "match_int_cmp_range_lower").unwrap();
+            let upper_cmp = compile_context.builder.build_int_compare(upper_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*upper as u64, false), "match_int_cmp_range_upper").unwrap();
+            
+            let combined_bool_val = compile_context.builder.build_and(lower_cmp, upper_cmp, "match_range_and").unwrap();
+            combined_bool_val
+        }
+        _ => todo!()
+    };
+
+    compile_context.builder.build_conditional_branch(bool_val, bb, else_bb).unwrap();
+}
+
+fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, matched_expr : ASTRef, patterns : &[(Pattern, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
+    let matched_val = compile_expr(compile_context, matched_expr);
+    let function = get_current_function(compile_context.builder);
+
+
+    let match_type: AnyTypeEnum = todo!();
+
+    let mut match_bbs = Vec::new();
+    for _ in patterns {
+        let match_bb = compile_context.context.append_basic_block(function, "match_case");
+        let match_else_bb = compile_context.context.append_basic_block(function, "match_else");
+        match_bbs.push((match_bb, match_else_bb));
+    }
+
+    let after_match = compile_context.context.append_basic_block(function, "after_match");
+
+    let mut pattern_vals = Vec::new();
+
+    for (pattern, pattern_bbs) in patterns.iter().zip(match_bbs) {
+        let (pattern, pattern_body) = pattern;
+        let (pattern_bb, pattern_else_bb) = pattern_bbs;
+        compile_pattern_match(compile_context, pattern, matched_val, pattern_bb, pattern_else_bb);
+        compile_context.builder.position_at_end(pattern_bb);
+        let pattern_body_val = compile_expr(compile_context, *pattern_body);
+        pattern_vals.push(pattern_body_val);
+        compile_context.builder.position_at_end(pattern_else_bb);
+    }
+
+    // TODO : exit with error if no case was matched 
+
+    compile_context.builder.position_at_end(after_match);
+    let phi_node = compile_context.builder.build_phi(TryInto::<BasicTypeEnum>::try_into(match_type).unwrap(), "'match_phi").unwrap();
+    let mut incoming_phi: Vec<(&dyn BasicValue<'_>, BasicBlock<'_>)> = Vec::new();
+    for (val, (bb, _else_bb)) in pattern_vals.iter().zip(match_bbs) {
+        incoming_phi.push((&TryInto::<BasicValueEnum>::try_into(*val).unwrap(), bb));
+    }
+
+    phi_node.add_incoming(&incoming_phi);
+    
+    phi_node.as_any_value_enum()
+}
+
 fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef) -> AnyValueEnum<'llvm_ctx> {
     match ast_node.get(&compile_context.rustaml_context.ast_pool){
         ASTNode::Integer { nb } =>  compile_context.context.i64_type().const_int(*nb as u64, false).into(), // TODO : sign extend or not ?
         ASTNode::Float { nb } => compile_context.context.f64_type().const_float(*nb).into(),
         ASTNode::Boolean { b } => compile_context.context.i8_type().const_int(*b as u64, false).into(),
+        ASTNode::String { str } => compile_context.context.const_string(str.get_str(&compile_context.rustaml_context.str_interner).as_bytes(), true).into(),
         ASTNode::VarDecl { name, val, body } => compile_var_decl(compile_context, *name, *val, *body, false),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => compile_if(compile_context, *cond_expr, *then_body, *else_body),
         ASTNode::FunctionCall { name, args } => compile_function_call(compile_context, *name, &args),
         ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, *op, *lhs, *rhs),
         ASTNode::VarUse { name } => compile_var_use(compile_context, *name),
         ASTNode::List { list } => compile_static_list(compile_context, list),
+        ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, *matched_expr, &patterns),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)), 
         //_ => todo!()
     }

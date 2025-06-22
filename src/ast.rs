@@ -178,6 +178,12 @@ pub enum Type {
     Unit,
 }
 
+impl DebugWithContext for Type {
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, _rustaml_context: &RustamlContext) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl ASTNode {
     pub fn get_type(&self, rustaml_context : &RustamlContext, vars: &FxHashMap<StringRef, Type>) -> Type {
         match self {
