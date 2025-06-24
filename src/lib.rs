@@ -42,3 +42,8 @@ pub fn interpret_code(code : &str, filename : &Path) -> Result<(), ExitCode> {
 }
 
 // TODO : add compiler
+
+#[cfg(feature = "native")]
+pub fn compile(code : &str, filename : &Path) -> Result<String, ExitCode>{
+    todo!()
+}
