@@ -17,7 +17,7 @@ pub mod debug;
 pub mod compiler;
 
 pub fn interpret_code(code : &str, filename : &Path) -> Result<(), ExitCode> {
-    let mut rustaml_context = RustamlContext::new();
+    let mut rustaml_context = RustamlContext::new(false);
     let content = code.chars().collect::<Vec<_>>();
     let tokens = lexer::lex(content);
     let tokens = match tokens {

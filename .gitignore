@@ -2,3 +2,4 @@
 *.bc
 *.ll
 out
+*.dump

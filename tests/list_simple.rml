@@ -1,0 +1,17 @@
+let big_list n = 
+  if n == 0 then []
+  else n :: big_list (n - 1) ;;
+
+let l = big_list 6000 ;;
+
+let len l = match l with
+  | [] -> 0
+  | e :: li -> 1 + len li ;;
+
+let len_list = len l ;;
+
+let sum l = match l with 
+  | [] -> 0
+  | e :: li -> e + sum li ;;
+
+let s = sum l ;;

@@ -1,4 +1,3 @@
-
 use std::{hash::{Hash, Hasher}, path::Path, process::{Command, ExitCode}, time::{SystemTime, UNIX_EPOCH}};
 use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug::DebugWrapContext, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
 use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, module::Module, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, IntPredicate, OptimizationLevel};
@@ -143,20 +142,25 @@ fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_,
     builder.build_alloca(TryInto::<BasicTypeEnum>::try_into(alloca_type).unwrap(), name).unwrap()
 }
 
+fn create_var<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : AnyValueEnum<'llvm_ctx>, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
+    let var_alloca = create_entry_block_alloca(compile_context, name.get_str(&compile_context.rustaml_context.str_interner), alloca_type);
+    compile_context.builder.build_store(var_alloca, TryInto::<BasicValueEnum>::try_into(val).unwrap()).unwrap();
+    compile_context.var_vals.insert(name, var_alloca);
+    var_alloca
+}
+
 fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : ASTRef, body : Option<ASTRef>, is_global : bool) -> AnyValueEnum<'llvm_ctx> {
     dbg!(DebugWrapContext::new(&compile_context.var_types, &compile_context.rustaml_context));
     dbg!(name.get_str(&compile_context.rustaml_context.str_interner));
-    let var_type = compile_context.var_types.get(&name).unwrap();
-    let var_alloca = create_entry_block_alloca(compile_context, name.get_str(&compile_context.rustaml_context.str_interner), get_llvm_type(compile_context.context, var_type));
+    let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("No type found for var {}", name.get_str(&compile_context.rustaml_context.str_interner)));
+    let alloca_type = get_llvm_type(compile_context.context, var_type);
     
-    compile_context.var_vals.insert(name, var_alloca);
-
-
     // TODO : if is global and the val is const, just generate a global var
     let val = compile_expr(compile_context, val);
+    
+    create_var(compile_context, name, val, alloca_type);
 
-    compile_context.builder.build_store(var_alloca, TryInto::<BasicValueEnum>::try_into(val).unwrap()).unwrap();
-
+    
     let ret = match body {
         Some(b) => compile_expr(compile_context, b),
         None => val,
@@ -311,7 +315,8 @@ fn compile_var_use<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm
         println!("{} = {:?}", v.get_str(&compile_context.rustaml_context.str_interner), v_t);
     }
 
-    let load_type = get_llvm_type(compile_context.context, compile_context.var_types.get(&name).unwrap());
+    let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("Unknown variable {:?}", name.get_str(&compile_context.rustaml_context.str_interner)));
+    let load_type = get_llvm_type(compile_context.context, var_type);
     let load_basic_type = TryInto::<BasicTypeEnum>::try_into(load_type).unwrap();
     let ptr = compile_context.var_vals.get(&name).unwrap();
     compile_context.builder.build_load(load_basic_type, *ptr, name.get_str(&compile_context.rustaml_context.str_interner)).unwrap().into()
@@ -359,7 +364,7 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
 }
 
 
-fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum, bb: BasicBlock<'llvm_ctx>, else_bb : BasicBlock<'llvm_ctx>){
+fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>, bb: BasicBlock<'llvm_ctx>, else_bb : BasicBlock<'llvm_ctx>){
     let bool_val = match pattern {
         Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*i as u64, false), "match_int_cmp").unwrap(),
         Pattern::Range(lower, upper, inclusivity) => {
@@ -368,24 +373,34 @@ fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
             }  else {
                 (IntPredicate::SLT, IntPredicate::SGT)
             };
+            // TODO : replace with compile function like below ?
             let lower_cmp = compile_context.builder.build_int_compare(lower_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*lower as u64, false), "match_int_cmp_range_lower").unwrap();
             let upper_cmp = compile_context.builder.build_int_compare(upper_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*upper as u64, false), "match_int_cmp_range_upper").unwrap();
             
             let combined_bool_val = compile_context.builder.build_and(lower_cmp, upper_cmp, "match_range_and").unwrap();
             combined_bool_val
         }
+        Pattern::VarName(n) => {
+            let matched_val_type = matched_val.get_type();
+            create_var(compile_context, *n, matched_val, matched_val_type);
+            compile_context.context.bool_type().const_int(true as u64, false)
+        }
+        p => panic!("unknown pattern {:?}", DebugWrapContext::new(pattern, compile_context.rustaml_context)),
         _ => todo!()
     };
 
     compile_context.builder.build_conditional_branch(bool_val, bb, else_bb).unwrap();
 }
 
-fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, matched_expr : ASTRef, patterns : &[(Pattern, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
+fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, match_node : ASTRef, matched_expr : ASTRef, patterns : &[(Pattern, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
+    
     let matched_val = compile_expr(compile_context, matched_expr);
     let function = get_current_function(compile_context.builder);
 
 
-    let match_type: AnyTypeEnum = todo!();
+    // TODO : instead of calling get_type here, get all the types and store them in the nodes during parsing ?
+    let match_type = match_node.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types);
+    let match_type_llvm: AnyTypeEnum = get_llvm_type(compile_context.context, &match_type);
 
     let mut match_bbs = Vec::new();
     for _ in patterns {
@@ -398,24 +413,27 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 
     let mut pattern_vals = Vec::new();
 
-    for (pattern, pattern_bbs) in patterns.iter().zip(match_bbs) {
+    for (pattern, pattern_bbs) in patterns.iter().zip(&match_bbs) {
         let (pattern, pattern_body) = pattern;
         let (pattern_bb, pattern_else_bb) = pattern_bbs;
-        compile_pattern_match(compile_context, pattern, matched_val, pattern_bb, pattern_else_bb);
-        compile_context.builder.position_at_end(pattern_bb);
+        compile_pattern_match(compile_context, pattern, matched_val, *pattern_bb, *pattern_else_bb);
+        compile_context.builder.position_at_end(*pattern_bb);
         let pattern_body_val = compile_expr(compile_context, *pattern_body);
         pattern_vals.push(pattern_body_val);
-        compile_context.builder.position_at_end(pattern_else_bb);
+        compile_context.builder.position_at_end(*pattern_else_bb);
     }
 
     // TODO : exit with error if no case was matched 
 
     compile_context.builder.position_at_end(after_match);
-    let phi_node = compile_context.builder.build_phi(TryInto::<BasicTypeEnum>::try_into(match_type).unwrap(), "'match_phi").unwrap();
-    let mut incoming_phi: Vec<(&dyn BasicValue<'_>, BasicBlock<'_>)> = Vec::new();
-    for (val, (bb, _else_bb)) in pattern_vals.iter().zip(match_bbs) {
-        incoming_phi.push((&TryInto::<BasicValueEnum>::try_into(*val).unwrap(), bb));
+    let phi_node = compile_context.builder.build_phi(TryInto::<BasicTypeEnum>::try_into(match_type_llvm).unwrap(), "'match_phi").unwrap();
+    let mut incoming_phi = Vec::new();
+    for (val, (bb, _else_bb)) in pattern_vals.iter().zip(&match_bbs) {
+        let basic_val = TryInto::<BasicValueEnum>::try_into(*val).unwrap();
+        incoming_phi.push((basic_val, *bb));
     }
+
+    let incoming_phi = incoming_phi.iter().map(|(val, bb)| (val as &dyn BasicValue, *bb)).collect::<Vec<_>>();
 
     phi_node.add_incoming(&incoming_phi);
     
@@ -434,7 +452,7 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
         ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, *op, *lhs, *rhs),
         ASTNode::VarUse { name } => compile_var_use(compile_context, *name),
         ASTNode::List { list } => compile_static_list(compile_context, list),
-        ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, *matched_expr, &patterns),
+        ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, *matched_expr, &patterns),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)), 
         //_ => todo!()
     }

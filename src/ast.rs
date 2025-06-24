@@ -5,7 +5,7 @@ use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
-use crate::{debug::{DebugWithContext, DebugWrapContext}, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef, type_inference::{infer_var_type, TypeInferenceErr}};
+use crate::{debug::{DebugWithContext, DebugWrapContext}, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef, type_inference::{infer_var_type, DumpInfer, TypeInferenceErr}};
 
 #[derive(Clone, PartialEq)]
 pub struct Arg {
@@ -27,7 +27,9 @@ impl DebugWithContext for Arg {
 
 // TODO : create a pattern pool ?
 
-#[derive(Clone, PartialEq)]
+// TODO : add a guard clauses (create struct with an enum and guard clauses)
+
+#[derive(Clone, PartialEq,)]
 pub enum Pattern {
     VarName(StringRef), // | x pattern
     Integer(i64), // | 2
@@ -114,7 +116,7 @@ pub enum ASTNode {
     },
     MatchExpr {
         matched_expr : ASTRef,
-        patterns : Vec<(Pattern, ASTRef)>
+        patterns : Vec<(Pattern, ASTRef)>,
     },
     Integer {
         nb: i64,
@@ -464,7 +466,6 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
             let body_type = body.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars);
             return_type = Box::new(body_type);
         }
-        
 
         for (arg, arg_range) in args.iter_mut().zip(arg_ranges) {
             if matches!(arg.arg_type, Type::Any){
@@ -821,7 +822,7 @@ pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext) -> Resul
             pos: 0,
             vars: FxHashMap::default(),
             precedences: init_precedences(),
-            rustaml_context
+            rustaml_context,
         };
         let root_node = parse_top_level_node(&mut parser)?;
         (root_node, parser.vars)

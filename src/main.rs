@@ -54,6 +54,9 @@ enum Commands {
     Check {
         #[arg(value_name = "FILE")]
         filename: PathBuf,
+
+        #[arg(long, default_value_t = false)]
+        dump_inference : bool,
     }
 }
 
@@ -105,7 +108,12 @@ fn main() -> ExitCode {
     /*let mut str_interner = StrInterner::new();
     let mut ast_pool = ASTPool::new();*/
 
-    let mut rustaml_context = RustamlContext::new();
+    let dump_inference = match args.command {
+        Some(Commands::Check { filename: _, dump_inference }) => dump_inference,
+        _ => false,
+    };
+
+    let mut rustaml_context = RustamlContext::new(dump_inference);
 
     match args.command.expect("No subcommand specified!") {
         Commands::Interpret { filename } => {
@@ -126,12 +134,16 @@ fn main() -> ExitCode {
             compile(ast, vars, &rustaml_context, &filename, &filename_out, should_keep_temp)
         },
 
-        Commands::Check { filename } => {
+        Commands::Check { filename, dump_inference: _ } => {
             let ast_and_vars = get_ast(&filename, &mut rustaml_context);
             let _ast_v = match ast_and_vars {
                 Ok(a_v) => a_v,
                 Err(e) => return e,
             };
+
+            if dump_inference {
+                rustaml_context.dump_inference.dump(Path::new("infer.dump"), &rustaml_context).unwrap();
+            }
 
             ExitCode::SUCCESS
         },

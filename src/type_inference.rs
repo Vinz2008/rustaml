@@ -1,9 +1,43 @@
-use std::ops::Range;
+use std::{fs::File, io::Write, ops::Range, path::Path};
 
 use rustc_hash::FxHashMap;
 
 use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug::DebugWrapContext, rustaml::RustamlContext, string_intern::StringRef};
 
+
+pub struct DumpInfer{ 
+    vars_inferred : Option<Vec<(StringRef, Type)>>, // TODO : add context (like the ast ref where the infer was done ?)
+}
+
+impl DumpInfer {
+
+    pub fn new(dump_inference : bool) -> DumpInfer {
+        DumpInfer {
+            vars_inferred: if dump_inference {
+                Some(Vec::new())
+            } else {
+                None
+            }
+        }
+    }
+
+    fn add_var_inferred(&mut self, var_name : StringRef, type_inferred : Type){
+        match &mut self.vars_inferred {
+            Some(v) => v.push((var_name, type_inferred)),
+            None => {},
+        }
+    }
+    pub fn dump(&self, path : &Path, rustaml_context : &RustamlContext) -> std::io::Result<()>{
+        if let Some(vars_inferred) = &self.vars_inferred {
+            let mut file = File::create(path)?;
+            for (v_name, v_type) in vars_inferred {
+                writeln!(&mut file, "{} : {:?}", v_name.get_str(&rustaml_context.str_interner), v_type);
+            }
+        }
+    
+        Ok(())
+    }   
+}
 
 // TODO : problem with type inference and Any types
 // there could be cases where we find a type with an Any, then we return the type even though a more precise type could be deduced in the body
@@ -194,9 +228,12 @@ pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<Strin
 }
 
 // TODO : make this infallible (inference only gives infos, no need to crash if not found, only if they really need to be used we crash)
-pub fn infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<StringRef, Type>, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Result<Type, TypeInferenceErr> {
+pub fn infer_var_type(rustaml_context : &mut RustamlContext, vars: &FxHashMap<StringRef, Type>, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Result<Type, TypeInferenceErr> {
     match _infer_var_type(rustaml_context, vars, var_name, node, range) {
-        Some(t) => Ok(t),
+        Some(t) => {
+            rustaml_context.dump_inference.add_var_inferred(var_name, t.clone());
+            Ok(t)
+        },
         None => Err(TypeInferenceErr::new(var_name.get_str(&rustaml_context.str_interner).to_owned(), range.clone()))
     }
 }
