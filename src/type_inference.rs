@@ -85,6 +85,44 @@ impl TypeInferenceErr {
     }
 }
 
+
+fn merge_types(first_type : Option<Type>, other_type : Option<Type>) -> Option<Type> {
+    let (first_type, other_type) = match (first_type, other_type) {
+        (Some(f), Some(o)) => (f, o),
+        (Some(s), None) | (None, Some(s)) => return Some(s),
+        (None, None) => return None,
+    };
+
+    if first_type == other_type {
+        return Some(first_type);
+    }
+
+    match (&first_type, &other_type) {
+        (Type::Any, t) | (t, Type::Any) => return Some(t.clone()),
+        (Type::List(t), Type::List(other_t)) => {
+            match (t.as_ref(), other_t.as_ref()) {
+                (Type::Any, t) | (t, Type::Any) =>  {
+                    return Some(Type::List(Box::new(t.clone())));
+                },
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+
+    // not special case and not the same as other deduced type -> mismatched types
+    panic!("Mismatched types {:?} and {:?}", &first_type, &other_type);
+}
+
+macro_rules! merge_types {
+    ($first:expr, $second:expr $(, $rest:expr)+) => {
+        merge_types($first, merge_types!($second $(, $rest)+))
+    };
+    ($a:expr, $b:expr) => {
+        merge_types($a, $b)
+    };
+}
+
 // TODO : return a result with a real error ?
 // TODO : split this function into subfunctions
 pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<StringRef, Type>, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Option<Type> {
@@ -103,49 +141,59 @@ pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<Strin
         }
         ASTNode::VarDecl { name, val, body } => {
             let val_type_inferred = _infer_var_type(rustaml_context, vars, *name, *val, range);
-            if val_type_inferred.is_some() {
+            /*if val_type_inferred.is_some() {
                 return val_type_inferred
-            }
+            }*/
 
-            if let Some(b) = body {
-                return _infer_var_type(rustaml_context, vars, *name, *b, range);
-            } 
-            None
+            let body_type = if let Some(b) = body {
+                _infer_var_type(rustaml_context, vars, *name, *b, range)
+            } else 
+            { 
+                None 
+            };
+
+            merge_types(val_type_inferred, body_type)
         },
         ASTNode::VarUse { name: _ } => None, // no infos on type in var use
         ASTNode::IfExpr { cond_expr, then_body, else_body } => {
             let cond_type_inferred = _infer_var_type(rustaml_context, vars, var_name, *cond_expr, range);
-            if cond_type_inferred.is_some(){
+            /*if cond_type_inferred.is_some(){
                 return cond_type_inferred;
-            }
+            }*/
             let then_type_inferred = _infer_var_type(rustaml_context, vars, var_name, *then_body, range);
-            if then_type_inferred.is_some() {
+            /*if then_type_inferred.is_some() {
                 return then_type_inferred;
-            }
-            return _infer_var_type(rustaml_context, vars, var_name, *else_body, range);
+            }*/
+            let else_type_inferred = _infer_var_type(rustaml_context, vars, var_name, *else_body, range);
+            merge_types!(cond_type_inferred, then_type_inferred, else_type_inferred)
         },
         ASTNode::MatchExpr { matched_expr, patterns } => {
             let matched_expr_type_inferred = _infer_var_type(rustaml_context, vars, var_name, *matched_expr, range);
-            if matched_expr_type_inferred.is_some(){
+            /*if matched_expr_type_inferred.is_some(){
                 return matched_expr_type_inferred;
-            }
+            }*/
+            let mut pattern_type_inferred = None;
             if matches!(matched_expr.get(&rustaml_context.ast_pool), ASTNode::VarUse { name: var_use_name } if *var_use_name == var_name){
                 for pattern in patterns {
-                    let pattern_type_inferred = infer_var_type_pattern(rustaml_context, vars, &pattern.0, pattern.1, range);
-                    if pattern_type_inferred.is_some() {
+                    let pattern_type = infer_var_type_pattern(rustaml_context, vars, &pattern.0, pattern.1, range);
+                    pattern_type_inferred = merge_types(pattern_type_inferred, pattern_type);
+                    /*if pattern_type_inferred.is_some() {
                         return pattern_type_inferred;
-                    }
+                    }*/
                 }
             }
+
+            let mut pattern_body_type_inferred = None;
 
             for pattern in patterns {
-                let pattern_body_type_inferred = _infer_var_type(rustaml_context, vars, var_name, pattern.1, range);
-                if pattern_body_type_inferred.is_some() {
-                    return pattern_body_type_inferred;
-                }
+                let pattern_body_type = _infer_var_type(rustaml_context, vars, var_name, pattern.1, range);
+                pattern_body_type_inferred = merge_types(pattern_body_type_inferred, pattern_body_type);
+                /*if pattern_body_type.is_some() {
+                    return pattern_body_type;
+                }*/
             }
 
-            None
+            merge_types!(matched_expr_type_inferred, pattern_type_inferred, pattern_body_type_inferred)
         }
         ASTNode::Integer { nb: _ } => None,
         ASTNode::Float { nb: _ } => None,
@@ -192,14 +240,16 @@ pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<Strin
                 Some(operand_type)
             } else {
                 let lhs_inferred = _infer_var_type(rustaml_context, vars, var_name, *lhs, range);
-                if lhs_inferred.is_some() {
+                /*if lhs_inferred.is_some() {
                     return lhs_inferred;
-                }
+                }*/
                 let rhs_inferred = _infer_var_type(rustaml_context, vars, var_name, *rhs, range);
-                if rhs_inferred.is_some() {
+                /*if rhs_inferred.is_some() {
                     return rhs_inferred;
                 }
-                None
+                None*/
+
+                merge_types(lhs_inferred, rhs_inferred)
             }
         },
         ASTNode::FunctionCall { name: function_name, args } => {
