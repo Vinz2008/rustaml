@@ -259,6 +259,7 @@ fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
             compile_context.builder.build_int_compare(predicate, i, i2, &name).unwrap().into()
         },
         (AnyValueEnum::FloatValue(_f),  AnyValueEnum::FloatValue(_f2)) => todo!(),
+        // TODO : add comparison of list and strings (need to add a lhs_type arg to match it here to differentiate pointers to lists and pointers to strings)
         (AnyValueEnum::PointerValue(_p),  AnyValueEnum::PointerValue(_p2)) => todo!(),
         _ => panic!("Invalid type for bool op {:?}", op),
     }
