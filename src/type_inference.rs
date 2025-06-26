@@ -49,9 +49,8 @@ impl DumpInfer {
     }
 
     fn add_var_inferred(&mut self, var_name : StringRef, type_inferred : Type){
-        match &mut self.inner {
-            Some(i) => i.vars_inferred.push((var_name, type_inferred)),
-            None => {},
+        if let Some(i) = &mut self.inner {
+            i.vars_inferred.push((var_name, type_inferred));
         }
     }
 
@@ -61,9 +60,8 @@ impl DumpInfer {
             None => return,
         };
         
-        match &mut self.inner {
-            Some(i) => i.types_found.push(TypeFound::new(ast_node, t.clone(), var_name)),
-            None => {}
+        if let Some(i) = &mut self.inner {
+            i.types_found.push(TypeFound::new(ast_node, t.clone(), var_name))
         }
     }
 
@@ -75,7 +73,7 @@ impl DumpInfer {
                 writeln!(&mut file, "found type in {:?} for {} : {:?}", DebugWrapContext::new(body, rustaml_context), var_name.get_str(&rustaml_context.str_interner), type_found)?;
             }
 
-            writeln!(&mut file);
+            writeln!(&mut file)?;
             for (v_name, v_type) in &inner.vars_inferred {
                 writeln!(&mut file, "{} : {:?}", v_name.get_str(&rustaml_context.str_interner), v_type)?;
             }
@@ -198,8 +196,7 @@ pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<Strin
 
             let body_type = if let Some(b) = body {
                 _infer_var_type(rustaml_context, vars, *name, *b, range)
-            } else 
-            { 
+            } else { 
                 None 
             };
 

@@ -1,4 +1,4 @@
-use std::{hash::{Hash, Hasher}, path::Path, process::{Command, ExitCode}, time::{SystemTime, UNIX_EPOCH}};
+use std::{hash::{Hash, Hasher}, io::{Stdin, Write}, path::Path, process::{Command, ExitCode, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug::DebugWrapContext, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
 use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, module::Module, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
@@ -93,7 +93,7 @@ fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type : &T
         Type::Bool => llvm_context.i8_type().into(),
         Type::Float => llvm_context.f64_type().into(),
         Type::Function(args, ret) => {
-            let ret_llvm = get_llvm_type(llvm_context, &ret);
+            let ret_llvm = get_llvm_type(llvm_context, ret);
             // TODO for expect : create a function that would be get_basic_metatadata_type which will transform the function pointers into pointers ?
             let param_types = args.iter().map(|t| get_llvm_type(llvm_context, t).try_into().expect("arg is not a basic metadata type")).collect::<Vec<BasicMetadataTypeEnum>>();
             get_fn_type(llvm_context, ret_llvm, &param_types, false).into()
@@ -134,7 +134,7 @@ fn get_current_function<'llvm_ctx>(builder: &Builder<'llvm_ctx>) -> FunctionValu
 fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : &str, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> 
 {
     let builder = compile_context.context.create_builder();
-    let entry = get_current_function(&compile_context.builder).get_first_basic_block().unwrap();
+    let entry = get_current_function(compile_context.builder).get_first_basic_block().unwrap();
     match entry.get_first_instruction() {
         Some(first_instr) => builder.position_before(&first_instr),
         None => builder.position_at_end(entry),
@@ -152,7 +152,7 @@ fn create_var<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>
 }
 
 fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : ASTRef, body : Option<ASTRef>, is_global : bool) -> AnyValueEnum<'llvm_ctx> {
-    dbg!(DebugWrapContext::new(&compile_context.var_types, &compile_context.rustaml_context));
+    dbg!(DebugWrapContext::new(&compile_context.var_types, compile_context.rustaml_context));
     dbg!(name.get_str(&compile_context.rustaml_context.str_interner));
     let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("No type found for var {}", name.get_str(&compile_context.rustaml_context.str_interner)));
     let alloca_type = get_llvm_type(compile_context.context, var_type);
@@ -256,7 +256,7 @@ fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
                 Operator::SuperiorOrEqual => inkwell::IntPredicate::SGE,
                 _ => unreachable!(),
             };
-            compile_context.builder.build_int_compare(predicate, i, i2, &name).unwrap().into()
+            compile_context.builder.build_int_compare(predicate, i, i2, name).unwrap().into()
         },
         (AnyValueEnum::FloatValue(_f),  AnyValueEnum::FloatValue(_f2)) => todo!(),
         // TODO : add comparison of list and strings (need to add a lhs_type arg to match it here to differentiate pointers to lists and pointers to strings)
@@ -327,6 +327,7 @@ fn compile_var_use<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm
 }
 
 fn add_list_functions<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>){
+    // TODO : only declare on demand ?
     let list_node_params = &[compile_context.context.ptr_type(AddressSpace::default()).into(), compile_context.context.i8_type().into(), compile_context.context.i64_type().into()];
     let list_node_append_type = get_fn_type(compile_context.context, compile_context.context.ptr_type(AddressSpace::default()).into(), list_node_params, false);
     compile_context.module.add_function("__list_node_append", list_node_append_type, None);
@@ -339,7 +340,7 @@ fn create_list_append_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '
 }
 
 fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : &[ASTRef]) -> AnyValueEnum<'llvm_ctx> {
-    let mut current_node = compile_context.context.ptr_type(AddressSpace::default()).const_null().into();
+    let mut current_node = compile_context.context.ptr_type(AddressSpace::default()).const_null();
     
     // TODO : optimize this by keeping the last node and just appending to it to not have to go through the list each time by doing append ?
 
@@ -504,11 +505,11 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
         ASTNode::String { str } => compile_context.context.const_string(str.get_str(&compile_context.rustaml_context.str_interner).as_bytes(), true).into(),
         ASTNode::VarDecl { name, val, body } => compile_var_decl(compile_context, *name, *val, *body, false),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => compile_if(compile_context, *cond_expr, *then_body, *else_body),
-        ASTNode::FunctionCall { name, args } => compile_function_call(compile_context, *name, &args),
+        ASTNode::FunctionCall { name, args } => compile_function_call(compile_context, *name, args),
         ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, *op, *lhs, *rhs),
         ASTNode::VarUse { name } => compile_var_use(compile_context, *name),
         ASTNode::List { list } => compile_static_list(compile_context, list),
-        ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, *matched_expr, &patterns),
+        ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, *matched_expr, patterns),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)), 
         //_ => todo!()
     }
@@ -567,7 +568,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
 }
 
 
-fn get_main_function<'llvm_ctx, 'refs>(llvm_context : &'llvm_ctx Context, module : &'refs Module<'llvm_ctx>) -> FunctionValue<'llvm_ctx> {
+fn get_main_function<'llvm_ctx>(llvm_context : &'llvm_ctx Context, module : &Module<'llvm_ctx>) -> FunctionValue<'llvm_ctx> {
     let param_types = &[BasicMetadataTypeEnum::IntType(llvm_context.i32_type()), BasicMetadataTypeEnum::PointerType(llvm_context.ptr_type(AddressSpace::default()))];
     let main = module.add_function("main", llvm_context.i32_type().fn_type(param_types, false), Some(inkwell::module::Linkage::External));
     llvm_context.append_basic_block(main, "entry");
@@ -575,11 +576,24 @@ fn get_main_function<'llvm_ctx, 'refs>(llvm_context : &'llvm_ctx Context, module
 }
 
 
+// TODO : instead install file in filesystem ?
+const STD_C_CONTENT: &'static str = include_str!("../std.c");
+
 fn link_exe(filename_out : &Path, bitcode_file : &Path){
     // use cc ?
     // TODO : use lld (https://github.com/mun-lang/lld-rs) for linking instead ?
     // TODO
-    Command::new("clang").arg("-o").arg(filename_out).arg(bitcode_file).spawn().expect("linker failed");
+
+    let out_std_path = pathbuf![&std::env::temp_dir(), "std.bc"];
+    let out_std_path_str = out_std_path.as_os_str();
+
+    let mut clang_std = Command::new("clang").arg("-x").arg("c").arg("-emit-llvm").arg("-O3").arg("-c").arg("-").arg("-o").arg(out_std_path_str).stdin(Stdio::piped()).spawn().expect("compiling std failed");
+    clang_std.stdin.as_mut().unwrap().write(STD_C_CONTENT.as_bytes()).unwrap();
+    clang_std.wait().unwrap();
+    if !Command::new("clang").arg("-o").arg(filename_out).arg(out_std_path_str).arg(bitcode_file).spawn().expect("linker failed").wait().unwrap().success() {
+        return;
+    }
+    //std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
 }
 
 pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &RustamlContext, filename : &Path, filename_out : &Path, should_keep_temp : bool) -> ExitCode{
@@ -625,7 +639,7 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
     
     
     // TODO : readd this for optimizations
-    run_passes_on(&compile_context.module, OptimizationLevel::Default, target_triple);
+    run_passes_on(compile_context.module, OptimizationLevel::Default, target_triple);
 
 
     let temp_path = if should_keep_temp {
@@ -658,10 +672,11 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
 
     
     let temp_path_bitcode = pathbuf![&temp_path, &format!("{}.bc", &filename_with_hash)];
-    let temp_path_ir = pathbuf![&temp_path, &format!("{}.ll", &filename_with_hash)];
+    
 
     
     if should_keep_temp {
+        let temp_path_ir = pathbuf![&temp_path, &format!("{}.ll", &filename_with_hash)];
         compile_context.module.print_to_file(&temp_path_ir).expect("Couldn't write llvm ir file");
     }
     
@@ -671,6 +686,10 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
     
 
     link_exe(filename_out,  &temp_path_bitcode);
+
+    if !should_keep_temp {
+        std::fs::remove_file(temp_path_bitcode).expect("Couldn't delete bitcode file");
+    }
 
     ExitCode::SUCCESS
 }

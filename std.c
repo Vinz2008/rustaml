@@ -29,7 +29,11 @@ struct ListNode* __list_node_init(uint8_t type_tag, uint64_t val){
     return l;
 }
 
-void __list_node_append(struct ListNode* list, uint8_t type_tag, uint64_t val){
+struct ListNode* __list_node_append(struct ListNode* list, uint8_t type_tag, uint64_t val){
+    if (list == NULL){
+        return __list_node_init(type_tag, val);
+    }
+    
     // TODO : add asserts
     struct ListNode* current = list;
     while (current != NULL && current->next != NULL){
@@ -37,6 +41,8 @@ void __list_node_append(struct ListNode* list, uint8_t type_tag, uint64_t val){
     }
 
     current->next = __list_node_init(type_tag, val);
+    return list;
+    
 }
 
 // TODO : generate this code directly in llvm instead of generating a call ?
