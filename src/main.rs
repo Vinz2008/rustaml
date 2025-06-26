@@ -142,7 +142,7 @@ fn main() -> ExitCode {
             };
 
             if dump_inference {
-                rustaml_context.dump_inference.dump(Path::new("infer.dump"), &rustaml_context).unwrap();
+                rustaml_context.dump_inference.borrow().dump(Path::new("infer.dump"), &rustaml_context).unwrap();
             }
 
             ExitCode::SUCCESS

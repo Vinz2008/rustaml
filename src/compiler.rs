@@ -85,6 +85,8 @@ fn get_list_type<'llvm_ctx>(llvm_context: &'llvm_ctx Context) -> StructType<'llv
     llvm_context.struct_type(field_types, false)
 }
 
+
+// TODO : make strings a pointer to a struct with a string and a len
 fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type : &Type) -> AnyTypeEnum<'llvm_ctx> {
     match rustaml_type {
         Type::Integer => llvm_context.i64_type().into(),
@@ -120,7 +122,7 @@ fn get_fn_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, llvm_type : AnyType
         AnyTypeEnum::PointerType(p) => p.fn_type(param_types, is_var_args),
         AnyTypeEnum::VectorType(_) => unreachable!(),
         AnyTypeEnum::ScalableVectorType(_) => unreachable!(), // TODO ?
-        AnyTypeEnum::StructType(s) => unreachable!(),
+        AnyTypeEnum::StructType(_) => unreachable!(),
         AnyTypeEnum::VoidType(v) => v.fn_type(param_types, is_var_args),
     }
 }
@@ -236,7 +238,7 @@ fn compile_binop_nb<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
                 _ => unreachable!(),
             }.into()
         },
-        (AnyValueEnum::PointerValue(p),  AnyValueEnum::PointerValue(p2)) => todo!(), // for now only type of pointers are strings, just compare the string
+        (AnyValueEnum::PointerValue(_p),  AnyValueEnum::PointerValue(_p2)) => todo!(), // for now only type of pointers are strings, just compare the string
         _ => panic!("Invalid type for nb op {:?}", op),
     }
     
@@ -256,8 +258,8 @@ fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
             };
             compile_context.builder.build_int_compare(predicate, i, i2, &name).unwrap().into()
         },
-        (AnyValueEnum::FloatValue(f),  AnyValueEnum::FloatValue(f2)) => todo!(),
-        (AnyValueEnum::PointerValue(p),  AnyValueEnum::PointerValue(p2)) => todo!(),
+        (AnyValueEnum::FloatValue(_f),  AnyValueEnum::FloatValue(_f2)) => todo!(),
+        (AnyValueEnum::PointerValue(_p),  AnyValueEnum::PointerValue(_p2)) => todo!(),
         _ => panic!("Invalid type for bool op {:?}", op),
     }
     
@@ -304,7 +306,8 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
         Type::Integer => compile_binop_nb(compile_context, op, lhs_val, rhs_val, &name),
         Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, &name),
         Type::Str => compile_binop_str(compile_context, op, lhs_val, rhs_val, &name),
-        Type::List(e) => compile_binop_list(compile_context, op, lhs_val, rhs_val, e.as_ref(), &name),
+        // here do not trust the -e (it is Type::Any), use get_type on the head
+        Type::List(_e) => compile_binop_list(compile_context, op, lhs_val, rhs_val, /*e.as_ref()*/ &lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types), &name),
         _ => unreachable!(),
     }
 }
@@ -364,8 +367,27 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
 }
 
 
-fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>, bb: BasicBlock<'llvm_ctx>, else_bb : BasicBlock<'llvm_ctx>){
-    let bool_val = match pattern {
+fn load_type_tag<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : PointerValue<'llvm_ctx>) -> IntValue<'llvm_ctx> {
+    let list_type = get_list_type(compile_context.context);
+    let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 0, "load_type_tag_gep").unwrap();
+    compile_context.builder.build_load(compile_context.context.i8_type(), gep_ptr, "load_tag_gep").unwrap().into_int_value()
+}
+
+fn load_list_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, elem_type : &Type, list : PointerValue<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
+    let list_type = get_list_type(compile_context.context);
+    let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 1, "load_list_val_gep").unwrap();
+    let elem_type_llvm = get_llvm_type(compile_context.context, elem_type);
+    compile_context.builder.build_load( TryInto::<BasicTypeEnum>::try_into(elem_type_llvm).unwrap(), gep_ptr, "load_val_gep").unwrap()
+}
+
+fn load_list_tail<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : PointerValue<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
+    let list_type = get_list_type(compile_context.context);
+    let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 2, "load_list_tail_gep").unwrap();
+    compile_context.builder.build_load(compile_context.context.ptr_type(AddressSpace::default()), gep_ptr, "load_tail_gep").unwrap().into_pointer_value()
+}
+
+fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type) -> IntValue<'llvm_ctx>{
+    match pattern {
         Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*i as u64, false), "match_int_cmp").unwrap(),
         Pattern::Range(lower, upper, inclusivity) => {
             let (lower_predicate, upper_predicate) = if *inclusivity {
@@ -384,10 +406,42 @@ fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
             let matched_val_type = matched_val.get_type();
             create_var(compile_context, *n, matched_val, matched_val_type);
             compile_context.context.bool_type().const_int(true as u64, false)
+        },
+        Pattern::List(pattern_list) => {
+            
+            // empty list (just for now before the todo is done ?)
+            if pattern_list.is_empty(){
+                return compile_context.builder.build_int_compare(IntPredicate::EQ, matched_val.into_pointer_value(), compile_context.context.ptr_type(AddressSpace::default()).const_null(), "match_list_empty").unwrap();
+            }
+            
+            
+            // TODO
+            // generate all the code, create a loop instead ? (no need for this function instead ?)
+            todo!()
+            /*for p in pattern_list {
+                let val_list = 
+                let pattern_bool = compile_pattern_match_bool_val(compile_context, p, );
+            }*/
+        },
+        Pattern::ListDestructure(head, tail) => {
+            let element_type = match matched_val_type {
+                Type::List(e) => e.as_ref(),
+                _ => unreachable!(),
+            };
+            let head_val = load_list_val(compile_context, element_type, matched_val.into_pointer_value());
+            
+            // TODO : creates vars in other function like in AST code ? (to have the match code, then the create vars code)
+            todo!();
+            compile_context.context.bool_type().const_int(true as u64, false)
+        
         }
         p => panic!("unknown pattern {:?}", DebugWrapContext::new(pattern, compile_context.rustaml_context)),
-        _ => todo!()
-    };
+        //_ => todo!()
+    }
+}
+
+fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type, bb: BasicBlock<'llvm_ctx>, else_bb : BasicBlock<'llvm_ctx>){
+    let bool_val = compile_pattern_match_bool_val(compile_context, pattern, matched_val, matched_val_type);
 
     compile_context.builder.build_conditional_branch(bool_val, bb, else_bb).unwrap();
 }
@@ -395,6 +449,7 @@ fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
 fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, match_node : ASTRef, matched_expr : ASTRef, patterns : &[(Pattern, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
     
     let matched_val = compile_expr(compile_context, matched_expr);
+    let matched_val_type = matched_expr.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types);
     let function = get_current_function(compile_context.builder);
 
 
@@ -416,7 +471,7 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     for (pattern, pattern_bbs) in patterns.iter().zip(&match_bbs) {
         let (pattern, pattern_body) = pattern;
         let (pattern_bb, pattern_else_bb) = pattern_bbs;
-        compile_pattern_match(compile_context, pattern, matched_val, *pattern_bb, *pattern_else_bb);
+        compile_pattern_match(compile_context, pattern, matched_val, &matched_val_type, *pattern_bb, *pattern_else_bb);
         compile_context.builder.position_at_end(*pattern_bb);
         let pattern_body_val = compile_expr(compile_context, *pattern_body);
         pattern_vals.push(pattern_body_val);

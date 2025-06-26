@@ -1,11 +1,12 @@
 use crate::{ast::ASTPool, intepreter::ListPool, string_intern::StrInterner, type_inference::DumpInfer};
+use std::cell::RefCell;
 
 pub struct RustamlContext {
     pub str_interner : StrInterner,
     pub ast_pool : ASTPool,
     pub list_node_pool : ListPool,
 
-    pub dump_inference : DumpInfer,
+    pub dump_inference : RefCell<DumpInfer>,
 }
 
 impl RustamlContext {
@@ -14,7 +15,7 @@ impl RustamlContext {
             str_interner: StrInterner::new(), 
             ast_pool: ASTPool::new(), 
             list_node_pool: ListPool::new(), 
-            dump_inference: DumpInfer::new(dump_inference),
+            dump_inference: RefCell::new(DumpInfer::new(dump_inference)),
         }
     }
 }

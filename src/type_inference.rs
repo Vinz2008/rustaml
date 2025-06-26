@@ -5,33 +5,79 @@ use rustc_hash::FxHashMap;
 use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug::DebugWrapContext, rustaml::RustamlContext, string_intern::StringRef};
 
 
+// TODO : put this in a type_inference_debug.rs ?
+struct TypeFound {
+    node : ASTRef,
+    type_found : Type,
+    var_name : StringRef,
+}
+
+impl TypeFound {
+    fn new(node : ASTRef, type_found : Type, var_name : StringRef) -> TypeFound {
+        TypeFound { node, type_found, var_name }
+    }
+}
+
+struct DumpInferInner {
+    vars_inferred : Vec<(StringRef, Type)>,
+    types_found : Vec<TypeFound>, 
+}
+
 pub struct DumpInfer{ 
-    vars_inferred : Option<Vec<(StringRef, Type)>>, // TODO : add context (like the ast ref where the infer was done ?)
+    inner : Option<DumpInferInner>, // TODO : add context (like the ast ref where the infer was done ?)
+}
+
+
+impl DumpInferInner {
+    fn new() -> DumpInferInner {
+        DumpInferInner {
+            vars_inferred: Vec::new(),
+            types_found:  Vec::new(),
+        }
+    }
 }
 
 impl DumpInfer {
 
     pub fn new(dump_inference : bool) -> DumpInfer {
-        DumpInfer {
-            vars_inferred: if dump_inference {
-                Some(Vec::new())
-            } else {
-                None
-            }
-        }
+        let inner = if dump_inference {
+            Some(DumpInferInner::new())
+        } else {
+            None
+        };
+        DumpInfer { inner }
     }
 
     fn add_var_inferred(&mut self, var_name : StringRef, type_inferred : Type){
-        match &mut self.vars_inferred {
-            Some(v) => v.push((var_name, type_inferred)),
+        match &mut self.inner {
+            Some(i) => i.vars_inferred.push((var_name, type_inferred)),
             None => {},
         }
     }
+
+    fn add_type_found(&mut self, var_name : StringRef, ast_node : ASTRef, t : &Option<Type>) {
+        let t = match t {
+            Some(t) => t,
+            None => return,
+        };
+        
+        match &mut self.inner {
+            Some(i) => i.types_found.push(TypeFound::new(ast_node, t.clone(), var_name)),
+            None => {}
+        }
+    }
+
     pub fn dump(&self, path : &Path, rustaml_context : &RustamlContext) -> std::io::Result<()>{
-        if let Some(vars_inferred) = &self.vars_inferred {
+        if let Some(inner) = &self.inner {
             let mut file = File::create(path)?;
-            for (v_name, v_type) in vars_inferred {
-                writeln!(&mut file, "{} : {:?}", v_name.get_str(&rustaml_context.str_interner), v_type);
+
+            for TypeFound { node: body, type_found, var_name } in &inner.types_found {
+                writeln!(&mut file, "found type in {:?} for {} : {:?}", DebugWrapContext::new(body, rustaml_context), var_name.get_str(&rustaml_context.str_interner), type_found)?;
+            }
+
+            writeln!(&mut file);
+            for (v_name, v_type) in &inner.vars_inferred {
+                writeln!(&mut file, "{} : {:?}", v_name.get_str(&rustaml_context.str_interner), v_type)?;
             }
         }
     
@@ -44,7 +90,6 @@ impl DumpInfer {
 // solution : get all the types found instead of hot plugging, and put them in a vec, and do a .max() on it (need to implement ord on types)
 
 fn infer_var_type_pattern(rustaml_context : &RustamlContext, vars : &FxHashMap<StringRef, Type>, pattern: &Pattern, body : ASTRef, range : &Range<usize>) -> Option<Type> {
-    // TODO
     match pattern {
         Pattern::Float(_) => Some(Type::Float),
         Pattern::Integer(_) | Pattern::Range(_, _, _) => Some(Type::Integer),
@@ -62,7 +107,13 @@ fn infer_var_type_pattern(rustaml_context : &RustamlContext, vars : &FxHashMap<S
             Some(Type::List(Box::new(elem_type)))
             
         },
-        Pattern::ListDestructure(_head_name, _tail_name) => Some(Type::List(Box::new(Type::Any))),
+        Pattern::ListDestructure(head_name, _tail_name) => { 
+            let element_type = match _infer_var_type(rustaml_context, vars, *head_name, body, range) {
+                Some(t) => t,
+                None => Type::Any,
+            };
+            Some(Type::List(Box::new(element_type))) 
+        },
         Pattern::Underscore => None,
         Pattern::VarName(var_name) => {
             // get the type of the var name in the body
@@ -126,7 +177,7 @@ macro_rules! merge_types {
 // TODO : return a result with a real error ?
 // TODO : split this function into subfunctions
 pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<StringRef, Type>, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Option<Type> {
-    match node.get(&rustaml_context.ast_pool) {
+    let t = match node.get(&rustaml_context.ast_pool) {
         ASTNode::TopLevel { nodes } => {
             for n in nodes {
                 let type_inferred = _infer_var_type(rustaml_context, vars, var_name, *n, range);
@@ -274,14 +325,18 @@ pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<Strin
             }
         },
 
-    }
+    };
+
+    rustaml_context.dump_inference.borrow_mut().add_type_found(var_name, node, &t);
+
+    t
 }
 
 // TODO : make this infallible (inference only gives infos, no need to crash if not found, only if they really need to be used we crash)
-pub fn infer_var_type(rustaml_context : &mut RustamlContext, vars: &FxHashMap<StringRef, Type>, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Result<Type, TypeInferenceErr> {
+pub fn infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<StringRef, Type>, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Result<Type, TypeInferenceErr> {
     match _infer_var_type(rustaml_context, vars, var_name, node, range) {
         Some(t) => {
-            rustaml_context.dump_inference.add_var_inferred(var_name, t.clone());
+            rustaml_context.dump_inference.borrow_mut().add_var_inferred(var_name, t.clone());
             Ok(t)
         },
         None => Err(TypeInferenceErr::new(var_name.get_str(&rustaml_context.str_interner).to_owned(), range.clone()))

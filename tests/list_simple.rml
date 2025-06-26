@@ -1,14 +1,9 @@
-let big_list n = 
+let big_list n : int -> list[int] = 
   if n == 0 then []
   else n :: big_list (n - 1) ;;
 
-let list = big_list 6000 ;;
+let list = big_list 10 ;;
 
-let len l = match l with
-  | [] -> 0
-  | e :: li -> 1 + len li ;;
-
-let len_list = len list ;;
 
 let sum l = match l with 
   | [] -> 0
