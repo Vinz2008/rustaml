@@ -1,6 +1,6 @@
-use std::{hash::{Hash, Hasher}, io::{Stdin, Write}, path::Path, process::{Command, ExitCode, Stdio}, time::{SystemTime, UNIX_EPOCH}};
+use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, ExitCode, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug::DebugWrapContext, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
-use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, module::Module, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, IntPredicate, OptimizationLevel};
+use inkwell::{attributes::Attribute, basic_block::BasicBlock, builder::Builder, context::Context, module::Module, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHasher};
 
@@ -16,50 +16,6 @@ struct CompileContext<'context, 'refs, 'llvm_ctx> {
 }
 
 // TODO : add a print function that returns unit for the compiler
-
-fn run_passes_on(module: &Module, optimization_level : OptimizationLevel, target_triple : TargetTriple) {
-    Target::initialize_all(&InitializationConfig::default());
-    let target = Target::from_triple(&target_triple).unwrap();
-    let target_machine = target
-        .create_target_machine(
-            &target_triple,
-            "generic",
-            "",
-            optimization_level,
-            RelocMode::PIC,
-            CodeModel::Default,
-        )
-        .unwrap();
-
-
-    // TODO : this probably runs these in any case, ignoring optimization level
-    // either :
-    // - remove optimizations levels, because optimizations can be very important for basic usage, ex : tail call elimination
-    // - add ifs for passes or use default<Onb> (see run_passes doc)
-
-    let passes: &[&str] = &[
-        // inkwell default
-        "instcombine",
-        "reassociate",
-        "gvn",
-        "simplifycfg",
-        // "basic-aa",
-        "mem2reg",
-
-        // TODO : is it necessary ?
-        "loop-vectorize", 
-        "slp-vectorizer",
-        
-        // added by me, very important (?)
-        "tailcallelim",
-        // add inlining ?
-    ];
-
-    
-    module
-        .run_passes(passes.join(",").as_str(), &target_machine, PassBuilderOptions::create())
-        .unwrap();
-}
 
 
 fn get_type_tag(t : &Type) -> u8 {
@@ -149,6 +105,35 @@ fn create_var<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>
     compile_context.builder.build_store(var_alloca, TryInto::<BasicValueEnum>::try_into(val).unwrap()).unwrap();
     compile_context.var_vals.insert(name, var_alloca);
     var_alloca
+}
+
+fn runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, message : &str){
+    // TODO : only if in a hashset of already added symbols (is it needed ?)
+    let ptr_type = compile_context.context.ptr_type(AddressSpace::default());
+    
+    let fprintf_param_types: Vec<BasicMetadataTypeEnum> = vec![ptr_type.into(), ptr_type.into()];
+    let fprintf_type = get_fn_type(compile_context.context, compile_context.context.i32_type().into(), &fprintf_param_types, true);
+    let fprintf_fun = compile_context.module.add_function("fprintf", fprintf_type, Some(inkwell::module::Linkage::External));
+
+
+
+    let exit_param_types: Vec<BasicMetadataTypeEnum> = vec![compile_context.context.i32_type().into()];
+    let exit_type = get_fn_type(compile_context.context, compile_context.context.void_type().into(), &exit_param_types, false);
+    let exit_fun = compile_context.module.add_function("exit", exit_type, Some(inkwell::module::Linkage::External));
+    let noreturn_id = Attribute::get_named_enum_kind_id("noreturn");
+    let noreturn_attr = compile_context.context.create_enum_attribute(noreturn_id, 0);
+    exit_fun.add_attribute(inkwell::attributes::AttributeLoc::Function, noreturn_attr);
+
+    let stderr_global = compile_context.module.add_global(ptr_type, None, "stderr");
+    stderr_global.set_linkage(inkwell::module::Linkage::External);
+    let message_str  = compile_context.builder.build_global_string_ptr(message, "error_message").unwrap();
+    let stderr_load = compile_context.builder.build_load(ptr_type, stderr_global.as_pointer_value(), "stderr_load").unwrap();
+    let fprintf_args: Vec<BasicMetadataValueEnum> = vec![stderr_load.into(), message_str.as_pointer_value().into()];
+    compile_context.builder.build_call(fprintf_fun, &fprintf_args, "error_fprintf").unwrap();
+
+    let exit_args = vec![compile_context.context.i32_type().const_int(1, false).into()];
+    compile_context.builder.build_call(exit_fun, &exit_args, "error_exit").unwrap();
+    compile_context.builder.build_unreachable().unwrap();
 }
 
 fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : ASTRef, body : Option<ASTRef>, is_global : bool) -> AnyValueEnum<'llvm_ctx> {
@@ -401,14 +386,11 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
             let lower_cmp = compile_context.builder.build_int_compare(lower_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*lower as u64, false), "match_int_cmp_range_lower").unwrap();
             let upper_cmp = compile_context.builder.build_int_compare(upper_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*upper as u64, false), "match_int_cmp_range_upper").unwrap();
             
+            // TODO : instead of creating a and, hotplug this with multiple branches ? (return a vec with the branches that need to be made ?)
             let combined_bool_val = compile_context.builder.build_and(lower_cmp, upper_cmp, "match_range_and").unwrap();
             combined_bool_val
         }
-        Pattern::VarName(n) => {
-            let matched_val_type = matched_val.get_type();
-            create_var(compile_context, *n, matched_val, matched_val_type);
-            compile_context.context.bool_type().const_int(true as u64, false)
-        },
+        Pattern::VarName(_) => compile_context.context.bool_type().const_int(true as u64, false),
         Pattern::List(pattern_list) => {
             
             // empty list (just for now before the todo is done ?)
@@ -419,26 +401,64 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
             
             // TODO
             // generate all the code, create a loop instead ? (no need for this function instead ?)
+            // create an impl of into for Pattern to AnyValue ?
             todo!()
             /*for p in pattern_list {
                 let val_list = 
                 let pattern_bool = compile_pattern_match_bool_val(compile_context, p, );
             }*/
         },
+        // the type should be checked before (TODO ?)
+        Pattern::ListDestructure(_, _) => compile_context.context.bool_type().const_int(true as u64, false),
+        p => panic!("unknown pattern {:?}", DebugWrapContext::new(pattern, compile_context.rustaml_context)),
+        //_ => todo!()
+    }
+}
+
+
+// init vars, etc
+fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type){
+    match pattern {
+        Pattern::VarName(n) => {
+            //let matched_val_type = matched_val.get_type();
+            let matched_val_type_llvm = get_llvm_type(compile_context.context, matched_val_type);
+            create_var(compile_context, *n, matched_val, matched_val_type_llvm);
+            compile_context.var_types.insert(*n, matched_val_type.clone());
+        }
         Pattern::ListDestructure(head, tail) => {
             let element_type = match matched_val_type {
                 Type::List(e) => e.as_ref(),
                 _ => unreachable!(),
             };
-            let head_val = load_list_val(compile_context, element_type, matched_val.into_pointer_value());
             
-            // TODO : creates vars in other function like in AST code ? (to have the match code, then the create vars code)
-            todo!();
-            compile_context.context.bool_type().const_int(true as u64, false)
-        
+            // TODO : add this before (during AST -> so need to have a list of stacks instead of a hashmap ? or a hashmap of vecs ?)
+            // TODO : would need a stack to use the old_val (use a HashMap of Vec is another solution to use during compilation, so there's more work because need to find the type of match multiple types during compilation, but could have just good caching instead ?)
+            let _old_val = compile_context.var_types.insert(*head, element_type.clone());
+
+            let element_type_llvm = get_llvm_type(compile_context.context, element_type);
+            let matched_val_list = matched_val.into_pointer_value();
+            let head_val = load_list_val(compile_context, element_type, matched_val_list);
+            create_var(compile_context, *head, head_val.into(), element_type_llvm);
+            let tail_val = load_list_tail(compile_context, matched_val_list);
+            compile_pattern_match_prologue(compile_context, tail.as_ref(), tail_val.into(), matched_val_type);
+
+            /*if let Some(old_v) = old_val {
+                // ...
+            }*/
         }
-        p => panic!("unknown pattern {:?}", DebugWrapContext::new(pattern, compile_context.rustaml_context)),
-        //_ => todo!()
+       _ => {}
+    }
+}
+
+fn compile_pattern_match_epilogue<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern){
+    match pattern {
+        Pattern::VarName(name) => {
+            compile_context.var_types.remove(name);
+        }
+        Pattern::ListDestructure(head, _tail) => {
+            compile_context.var_types.remove(head);
+        }
+        _ => {}
     }
 }
 
@@ -475,15 +495,20 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
         let (pattern_bb, pattern_else_bb) = pattern_bbs;
         compile_pattern_match(compile_context, pattern, matched_val, &matched_val_type, *pattern_bb, *pattern_else_bb);
         compile_context.builder.position_at_end(*pattern_bb);
+        compile_pattern_match_prologue(compile_context, pattern, matched_val, &matched_val_type);
         let pattern_body_val = compile_expr(compile_context, *pattern_body);
+        compile_pattern_match_epilogue(compile_context, pattern);
+        compile_context.builder.build_unconditional_branch(after_match).unwrap();
         pattern_vals.push(pattern_body_val);
         compile_context.builder.position_at_end(*pattern_else_bb);
     }
 
-    // TODO : exit with error if no case was matched 
+    // TODO : exit with error if no case was matched
+    // TODO : add line number ? 
+    runtime_error(compile_context, "no match branch was found");
 
     compile_context.builder.position_at_end(after_match);
-    let phi_node = compile_context.builder.build_phi(TryInto::<BasicTypeEnum>::try_into(match_type_llvm).unwrap(), "'match_phi").unwrap();
+    let phi_node = compile_context.builder.build_phi(TryInto::<BasicTypeEnum>::try_into(match_type_llvm).unwrap(), "match_phi").unwrap();
     let mut incoming_phi = Vec::new();
     for (val, (bb, _else_bb)) in pattern_vals.iter().zip(&match_bbs) {
         let basic_val = TryInto::<BasicValueEnum>::try_into(*val).unwrap();
@@ -576,6 +601,36 @@ fn get_main_function<'llvm_ctx>(llvm_context : &'llvm_ctx Context, module : &Mod
 }
 
 
+fn run_passes_on(module: &Module, target_machine : &TargetMachine) {
+    // TODO : this probably runs these in any case, ignoring optimization level
+    // either :
+    // - remove optimizations levels, because optimizations can be very important for basic usage, ex : tail call elimination
+    // - add ifs for passes or use default<Onb> (see run_passes doc)
+
+    let passes: &[&str] = &[
+        // inkwell default
+        "instcombine",
+        "reassociate",
+        "gvn",
+        "simplifycfg",
+        // "basic-aa",
+        "mem2reg",
+
+        // TODO : is it necessary ?
+        "loop-vectorize", 
+        "slp-vectorizer",
+        
+        // added by me, very important (?)
+        "tailcallelim",
+        // add inlining ?
+    ];
+
+    
+    module
+        .run_passes(passes.join(",").as_str(), target_machine, PassBuilderOptions::create())
+        .unwrap();
+}
+
 // TODO : instead install file in filesystem ?
 const STD_C_CONTENT: &'static str = include_str!("../std.c");
 
@@ -603,9 +658,28 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
     let filename_str = filename.as_os_str().to_str().expect("not UTF-8 filename");
     let module = context.create_module(filename_str);
 
+    Target::initialize_all(&InitializationConfig::default());
     let target_triple = TargetMachine::get_default_triple();
 
+    let target = Target::from_triple(&target_triple).unwrap();
+
+    let optimization_level = OptimizationLevel::Default;
+
+    let target_machine = target
+        .create_target_machine(
+            &target_triple,
+            "generic",
+            "",
+            optimization_level,
+            RelocMode::PIC,
+            CodeModel::Default,
+        )
+        .unwrap();
+
+    let data_layout = target_machine.get_target_data().get_data_layout();
+
     module.set_triple(&target_triple);
+    module.set_data_layout(&data_layout);
 
     let main_function = get_main_function(&context, &module);
 
@@ -635,11 +709,7 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
     compile_context.builder.position_at_end(last_main_bb);
     compile_context.builder.build_return(Some(&compile_context.context.i32_type().const_int(0, false))).unwrap();
 
-
     
-    
-    // TODO : readd this for optimizations
-    run_passes_on(compile_context.module, OptimizationLevel::Default, target_triple);
 
 
     let temp_path = if should_keep_temp {
@@ -679,6 +749,10 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
         let temp_path_ir = pathbuf![&temp_path, &format!("{}.ll", &filename_with_hash)];
         compile_context.module.print_to_file(&temp_path_ir).expect("Couldn't write llvm ir file");
     }
+
+
+    // TODO : readd this for optimizations
+    run_passes_on(compile_context.module, &target_machine);
     
     compile_context.module.write_bitcode_to_path(&temp_path_bitcode);
 
