@@ -1,0 +1,14 @@
+let big_list n : int -> list[int] = 
+  if n == 0 then []
+  else n :: big_list (n - 1) ;;
+
+let list = big_list 10 ;;
+
+
+let sum l = match l with 
+  | [] -> 0
+  | e :: li -> e + sum li ;;
+
+let s = sum list ;;
+
+let a = "hello" ^ "world" ;;

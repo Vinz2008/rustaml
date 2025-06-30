@@ -10,7 +10,7 @@ use crate::{debug::{DebugWithContext, DebugWrapContext}, lexer::{Operator, Token
 #[derive(Clone, PartialEq)]
 pub struct Arg {
     pub name : StringRef,
-    arg_type : Type,
+    pub arg_type : Type,
 }
 
 
@@ -27,7 +27,9 @@ impl DebugWithContext for Arg {
 
 // TODO : create a pattern pool ?
 
-#[derive(Clone, PartialEq)]
+// TODO : add a guard clauses (create struct with an enum and guard clauses)
+
+#[derive(Clone, PartialEq,)]
 pub enum Pattern {
     VarName(StringRef), // | x pattern
     Integer(i64), // | 2
@@ -114,7 +116,7 @@ pub enum ASTNode {
     },
     MatchExpr {
         matched_expr : ASTRef,
-        patterns : Vec<(Pattern, ASTRef)>
+        patterns : Vec<(Pattern, ASTRef)>,
     },
     Integer {
         nb: i64,
@@ -163,6 +165,8 @@ impl DebugWithContext for ASTNode {
     }
 }
 
+
+// TODO : add a type pool to remove boxes (test performance ?)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Integer,
@@ -176,8 +180,14 @@ pub enum Type {
     Unit,
 }
 
+impl DebugWithContext for Type {
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, _rustaml_context: &RustamlContext) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl ASTNode {
-    pub fn get_type(&self, parser: &Parser) -> Type {
+    pub fn get_type(&self, rustaml_context : &RustamlContext, vars: &FxHashMap<StringRef, Type>) -> Type {
         match self {
             ASTNode::Boolean { b: _ } => Type::Bool,
             ASTNode::Integer { nb: _ } => Type::Integer,
@@ -185,20 +195,26 @@ impl ASTNode {
             ASTNode::String { str: _ } => Type::Str,
             ASTNode::List { list } => { 
                 let elem_type = match list.first() {
-                    Some(f) => f.get(&parser.rustaml_context.ast_pool).get_type(parser),
+                    Some(f) => f.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars),
                     None => Type::Any,
                 };
                 Type::List(Box::new(elem_type)) 
             },
             ASTNode::BinaryOp { op, lhs: _, rhs: _ } => op.get_type(),
             ASTNode::VarDecl { name: _, val: _, body: _ } => Type::Unit, // TODO
-            ASTNode::FunctionCall { name, args: _ } => parser.vars.get(name).unwrap().clone(), // need to create a hashmap for function types, in parser context ?
-            ASTNode::VarUse { name} => match parser.vars.get(name){
+            ASTNode::FunctionCall { name, args: _ } => { 
+                let func_type = vars.get(name).unwrap();
+                match func_type {
+                    Type::Function(_args, ret) => ret.as_ref().clone(),
+                    _ => panic!("Trying to call a function"),
+                } 
+            },
+            ASTNode::VarUse { name} => match vars.get(name){
                 Some(t) => t.clone(),
-                None => unreachable!("Unknown var {}", name.get_str(&parser.rustaml_context.str_interner))
+                None => unreachable!("Unknown var {}", name.get_str(&rustaml_context.str_interner))
              },
-            ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get(&parser.rustaml_context.ast_pool).get_type(parser), // no need for typechecking the two branches because it is done when constructing the IfExpr
-            ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get(&parser.rustaml_context.ast_pool).get_type(parser),
+            ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars), // no need for typechecking the two branches because it is done when constructing the IfExpr
+            ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars),
             ASTNode::TopLevel { nodes: _ } => Type::Unit,
             ASTNode::FunctionDefinition { name: _, args: _, body: _, return_type: _ } => Type::Unit,
         }
@@ -433,7 +449,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         let mut args = arg_names.into_iter().zip(arg_types.clone()).map(|x| Arg { name: parser.rustaml_context.str_interner.intern(&x.0), arg_type: x.1 }).collect::<Vec<Arg>>();
 
         for Arg { name, arg_type} in &args {
-            parser.vars.insert(name.clone(), arg_type.clone());
+            parser.vars.insert(*name, arg_type.clone());
         }
 
         let equal_tok = parser.eat_tok(Some(TokenDataTag::Op));
@@ -447,15 +463,14 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         let body = parse_node(parser)?;
 
         if matches!(return_type.as_ref(), Type::Any){
-            let body_type = body.get(&parser.rustaml_context.ast_pool).get_type(parser);
+            let body_type = body.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars);
             return_type = Box::new(body_type);
         }
-        
 
         for (arg, arg_range) in args.iter_mut().zip(arg_ranges) {
             if matches!(arg.arg_type, Type::Any){
-                arg.arg_type = infer_var_type(parser, arg.name, body, &arg_range)?;
-                parser.vars.insert(arg.name.clone(), arg.arg_type.clone());
+                arg.arg_type = infer_var_type(parser.rustaml_context,  &parser.vars, arg.name, body, &arg_range)?;
+                parser.vars.insert(arg.name, arg.arg_type.clone());
             }
         }
 
@@ -487,10 +502,10 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
         let val_node = parse_node(parser)?;
         if var_type.is_none() {
-            var_type = Some(val_node.get(&parser.rustaml_context.ast_pool).get_type(parser))
+            var_type = Some(val_node.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars))
         }
 
-        parser.vars.insert(name.clone(), var_type.unwrap());
+        parser.vars.insert(name, var_type.unwrap());
 
         let body = match parser.current_tok_data() {
             Some(TokenData::In) => {
@@ -561,7 +576,7 @@ fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Res
 fn parse_if(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let cond_expr = parse_node(parser)?;
 
-    match cond_expr.get(&parser.rustaml_context.ast_pool).get_type(parser) {
+    match cond_expr.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars) {
         Type::Bool => {},
         t => panic!("Error in type checking : {:?} type passed in if expr", t), // TODO : return a result instead
     }
@@ -575,9 +590,9 @@ fn parse_if(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let else_body = parse_node(parser)?;
     
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::IfExpr { 
-        cond_expr: cond_expr, 
-        then_body: then_body, 
-        else_body: else_body 
+        cond_expr, 
+        then_body, 
+        else_body 
     }))
 }
 
@@ -766,8 +781,8 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTRef, min_precedence: i32) -> Re
 
         lhs = parser.rustaml_context.ast_pool.push(ASTNode::BinaryOp {
             op: operator,
-            lhs: lhs,
-            rhs: rhs,
+            lhs,
+            rhs,
         });
     }
 
@@ -800,17 +815,21 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::TopLevel { nodes }))
 }
 
-pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext) -> Result<ASTRef, ParserErr> {
-    let mut parser = Parser { 
-        tokens, 
-        pos: 0,
-        vars: FxHashMap::default(),
-        precedences: init_precedences(),
-        rustaml_context
+pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext) -> Result<(ASTRef, FxHashMap<StringRef, Type>), ParserErr> {
+    let (root_node, vars) = { 
+        let mut parser = Parser { 
+            tokens, 
+            pos: 0,
+            vars: FxHashMap::default(),
+            precedences: init_precedences(),
+            rustaml_context,
+        };
+        let root_node = parse_top_level_node(&mut parser)?;
+        (root_node, parser.vars)
     };
-    let root_node = parse_top_level_node(&mut parser)?;
+
     println!("root_node = {:#?}", DebugWrapContext::new(&root_node, rustaml_context));
-    Ok(root_node)
+    Ok((root_node, vars))
 }
 
 

@@ -13,8 +13,11 @@ pub mod string_intern;
 pub mod print_error;
 pub mod debug;
 
+#[cfg(feature = "native")]
+pub mod compiler;
+
 pub fn interpret_code(code : &str, filename : &Path) -> Result<(), ExitCode> {
-    let mut rustaml_context = RustamlContext::new();
+    let mut rustaml_context = RustamlContext::new(false);
     let content = code.chars().collect::<Vec<_>>();
     let tokens = lexer::lex(content);
     let tokens = match tokens {
@@ -24,9 +27,9 @@ pub fn interpret_code(code : &str, filename : &Path) -> Result<(), ExitCode> {
         },
     };
 
-    let ast = ast::parse(tokens, &mut rustaml_context);
-    let ast = match ast {
-        Ok(a) => a,
+    let ast_and_vars = ast::parse(tokens, &mut rustaml_context);
+    let (ast, _vars) = match ast_and_vars {
+        Ok(a_v) => a_v,
         Err(e) => {
             return Err(print_error::print_parser_error(e, filename, code))
         },
@@ -36,4 +39,11 @@ pub fn interpret_code(code : &str, filename : &Path) -> Result<(), ExitCode> {
         return Err(ex);
     }
     Ok(())
+}
+
+// TODO : add compiler
+
+#[cfg(feature = "native")]
+pub fn compile(code : &str, filename : &Path) -> Result<String, ExitCode>{
+    todo!()
 }

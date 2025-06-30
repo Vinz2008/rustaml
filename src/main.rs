@@ -1,11 +1,13 @@
 #![allow(clippy::needless_return)]
 #![feature(debug_closure_helpers)]
 
-use std::{fs, hint::black_box, path::{Path, PathBuf}, process::ExitCode};
+use std::{fs, path::{Path, PathBuf}, process::ExitCode};
 
 use clap::{Parser, Subcommand};
+use rustc_hash::FxHashMap;
 
-use crate::{ast::ASTRef, rustaml::RustamlContext};
+
+use crate::{ast::{ASTRef, Type}, rustaml::RustamlContext, string_intern::StringRef};
 
 mod ast;
 mod intepreter;
@@ -16,6 +18,12 @@ mod print_error;
 mod rustaml;
 mod debug;
 
+#[cfg(feature = "native")]
+mod compiler;
+
+
+#[cfg(feature = "native")]
+use crate::compiler::compile;
 
 // TODO : replace dbg calls for println (buffered print and use of stdout)
 
@@ -34,10 +42,21 @@ enum Commands {
     Compile {
         #[arg(value_name = "FILE")]
         filename: PathBuf,
+
+        #[arg(short = 'o', value_name = "FILE")]
+        filename_out: PathBuf,
+
+        #[arg(long, default_value_t = false)]
+        should_keep_temp : bool,
+
+
     },
     Check {
         #[arg(value_name = "FILE")]
         filename: PathBuf,
+
+        #[arg(long, default_value_t = false)]
+        dump_inference : bool,
     }
 }
 
@@ -51,7 +70,7 @@ struct Args {
 
 
 // used for every command (used for code deduplication)
-fn get_ast(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<ASTRef, ExitCode> {
+fn get_ast(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<(ASTRef, FxHashMap<StringRef, Type>), ExitCode> {
     let content_bytes = fs::read(filename).unwrap_or_else(|err| {
             panic!("Error when opening {} : {}", filename.display(), err)
     });
@@ -65,17 +84,22 @@ fn get_ast(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<AS
         },
     };
 
-    let ast = ast::parse(tokens, rustaml_context);
-    let ast = match ast {
-        Ok(a) => a,
+    let ast_and_vars = ast::parse(tokens, rustaml_context);
+    let (ast, vars) = match ast_and_vars {
+        Ok(a_v) => a_v,
         Err(e) => {
             let content = &String::from_utf8(content_bytes).unwrap();
             return Err(print_error::print_parser_error(e, filename, content))
         },
     };
 
-    Ok(ast)
+    Ok((ast, vars))
 
+}
+
+#[cfg(not(feature = "native"))]
+pub fn compile(_ast : ASTRef, _vars: FxHashMap<StringRef, Type>, _rustaml_context: &RustamlContext, _filename : &Path, _filename_out : &Path, _should_keep_temp : bool) -> ExitCode {
+    panic!("the compiler feature was not enabled");
 }
 
 fn main() -> ExitCode {
@@ -84,34 +108,42 @@ fn main() -> ExitCode {
     /*let mut str_interner = StrInterner::new();
     let mut ast_pool = ASTPool::new();*/
 
-    let mut rustaml_context = RustamlContext::new();
+    let dump_inference = match args.command {
+        Some(Commands::Check { filename: _, dump_inference }) => dump_inference,
+        _ => false,
+    };
+
+    let mut rustaml_context = RustamlContext::new(dump_inference);
 
     match args.command.expect("No subcommand specified!") {
         Commands::Interpret { filename } => {
-            let ast = get_ast(&filename, &mut rustaml_context);
-            let ast = match ast {
-                Ok(a) => a,
+            let ast_and_vars = get_ast(&filename, &mut rustaml_context);
+            let (ast, _vars) = match ast_and_vars {
+                Ok(a_v) => a_v,
                 Err(e) => return e,
             };
 
             intepreter::interpret(ast, &mut rustaml_context)
         }
-        Commands::Compile { filename } => {
-            let ast = get_ast(&filename, &mut rustaml_context);
-            let ast = match ast {
-                Ok(a) => a,
+        Commands::Compile { filename, filename_out, should_keep_temp } => {
+            let ast_and_vars = get_ast(&filename, &mut rustaml_context);
+            let (ast, vars) = match ast_and_vars {
+                Ok(a_v) => a_v,
                 Err(e) => return e,
             };
-            black_box(ast); // TODO : only for linting, remove this after adding compiler
-            todo!()
+            compile(ast, vars, &rustaml_context, &filename, &filename_out, should_keep_temp)
         },
 
-        Commands::Check { filename } => {
-            let ast = get_ast(&filename, &mut rustaml_context);
-            let _ast = match ast {
-                Ok(a) => a,
+        Commands::Check { filename, dump_inference: _ } => {
+            let ast_and_vars = get_ast(&filename, &mut rustaml_context);
+            let _ast_v = match ast_and_vars {
+                Ok(a_v) => a_v,
                 Err(e) => return e,
             };
+
+            if dump_inference {
+                rustaml_context.dump_inference.borrow().dump(Path::new("infer.dump"), &rustaml_context).unwrap();
+            }
 
             ExitCode::SUCCESS
         },

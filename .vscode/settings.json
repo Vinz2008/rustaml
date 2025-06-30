@@ -1,0 +1,14 @@
+{
+    "rust-analyzer.cargo.features": [
+        "native"
+    ],
+    "files.associations": {
+        "io": "llvm",
+        "std": "llvm",
+        "*.wasm": "wasm",
+        "*.toml": "toml",
+        "*.hpoint": "cpoint",
+        "*.rml": "ocaml",
+        "source_location": "c"
+    }
+}

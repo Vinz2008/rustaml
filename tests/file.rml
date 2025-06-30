@@ -17,8 +17,8 @@ let f = 2.6 ;;
 
 let test_f f_arg : float -> float = f_arg + 2.0 ;;
 
-let test_match a : int -> int = 
-  match a with 
+let test_match a_ : int -> int = 
+  match a_ with 
   | 0 -> 1
   | 2..4 -> 4
   | 8=..10 -> 8
@@ -56,8 +56,8 @@ let p = test_inference_match 3 ;;
 
 let q = [2, 3, 4] ;;
 
-let test_list a = 
-  match a with
+let test_list a_ = 
+  match a_ with
   | [] -> "empty"
   | [1, 2, 3] -> "1, 2, 3"
   | e :: l -> "list" ;;
@@ -75,8 +75,8 @@ let append2 e l = e :: e :: l ;;
 
 let u = append2 3 [4] ;;
 
-let test_destructure a : list[int] -> list[int] =
-  match a with
+let test_destructure a_ : list[int] -> list[int] =
+  match a_ with
   | e :: l -> e
 
 let v = test_destructure [2] ;;
