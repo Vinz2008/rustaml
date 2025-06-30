@@ -4,6 +4,19 @@
 #include <stdbool.h>
 #include <string.h>
 
+// TODO
+#ifdef _GC_
+#include <gc.h>
+#define MALLOC(size) GC_malloc(size)
+
+void __gc_init(){
+    GC_INIT();
+}
+
+#else
+#define MALLOC(size) malloc(size)
+#endif
+
 enum TypeTag {
     INT_TYPE = 0,
     FLOAT_TYPE = 1,
@@ -31,7 +44,7 @@ uint8_t __str_cmp(const char* s1, const char* s2){
 char* __str_append(const char* s1, const char* s2){
     size_t len_s1 = strlen(s1);
     size_t len_s2 = strlen(s2);
-    char* ret = malloc(len_s1 + len_s2 + 1);
+    char* ret = MALLOC(len_s1 + len_s2 + 1);
     memcpy(ret, s1, len_s1);
     memcpy(ret + len_s1, s2, len_s2);
     ret[len_s1 + len_s2] = '\0';
@@ -40,7 +53,7 @@ char* __str_append(const char* s1, const char* s2){
 
 // TODO : generate this code directly in llvm instead of generating a call ?
 struct ListNode* __list_node_init(uint8_t type_tag, uint64_t val){
-    struct ListNode* l = malloc(sizeof(struct ListNode));
+    struct ListNode* l = MALLOC(sizeof(struct ListNode));
     l->type_tag = type_tag;
     l->val = val;
     l->next = NULL;
