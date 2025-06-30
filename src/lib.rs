@@ -6,7 +6,7 @@ use crate::rustaml::RustamlContext;
 
 pub mod rustaml;
 pub mod ast;
-pub mod intepreter;
+pub mod interpreter;
 pub mod lexer;
 pub mod type_inference;
 pub mod string_intern;
@@ -34,7 +34,7 @@ pub fn interpret_code(code : &str, filename : &Path) -> Result<(), ExitCode> {
             return Err(print_error::print_parser_error(e, filename, code))
         },
     };
-    let ex = intepreter::interpret(ast, &mut rustaml_context);
+    let ex = interpreter::interpret(ast, &mut rustaml_context);
     if ex != ExitCode::SUCCESS {
         return Err(ex);
     }

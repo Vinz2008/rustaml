@@ -9,9 +9,6 @@ use crate::string_intern::{StrInterner, StringRef};
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
 
-// TODO : replace vals with val refs to make it easier to create a gc (and for better performance ?)
-
-
 pub struct ListPool(Vec<List>);
 
 impl ListPool {
@@ -54,13 +51,10 @@ impl DebugWithContext for ListRef {
 }
 
 
-
-// TODO : replace this enum with a struct with a Val and an ListRef, with the value for none the max size of the u32 ref 
-
 #[derive(Clone, PartialEq)]
 pub enum List {
     None,
-    Node(Val, ListRef), // TODO : replace this with indexes
+    Node(Val, ListRef),
 
 }
 
@@ -117,7 +111,6 @@ struct ListIter<'a> {
     list_pool : &'a ListPool,
 }
 
-// TODO : is it needed ?
 impl<'a> Iterator for ListIter<'a> {
     type Item = &'a Val;
 
@@ -238,17 +231,6 @@ impl<'context> Debug for InterpretContext<'context> {
             .finish()
     }
 }
-
-// TODO
-/*impl<'intern> DebugWithInterner for InterpretContext<'intern> {
-    #[inline]
-    fn fmt_with_interner(&self, f: &mut fmt::Formatter, str_interner: &StrInterner) -> fmt::Result {
-        f.debug_struct("InterpretContext")
-            .field_with("functions", |fmt| self.functions.fmt_with_interner(fmt, str_interner))
-            .field_with("vars", |fmt| self.vars.fmt_with_interner(fmt, str_interner))
-            .finish()
-    }
-}*/
 
 // TODO : gc allocator (https://crates.io/crates/gc)
 

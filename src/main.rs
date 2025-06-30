@@ -10,7 +10,7 @@ use rustc_hash::FxHashMap;
 use crate::{ast::{ASTRef, Type}, rustaml::RustamlContext, string_intern::StringRef};
 
 mod ast;
-mod intepreter;
+mod interpreter;
 mod lexer;
 mod type_inference;
 mod string_intern;
@@ -123,7 +123,7 @@ fn main() -> ExitCode {
                 Err(e) => return e,
             };
 
-            intepreter::interpret(ast, &mut rustaml_context)
+            interpreter::interpret(ast, &mut rustaml_context)
         }
         Commands::Compile { filename, filename_out, should_keep_temp } => {
             let ast_and_vars = get_ast(&filename, &mut rustaml_context);
