@@ -4,7 +4,6 @@ use rustc_hash::FxHashMap;
 
 use crate::{debug::DebugWithContext, rustaml::RustamlContext};
 
-// TODO : use this (will need code for debug displaying, look at the code for the flatten AST, because they have the same problem)
 // TODO : optimize this (https://matklad.github.io/2020/03/22/fast-simple-rust-interner.html)
 
 pub struct StrInterner {
@@ -12,7 +11,6 @@ pub struct StrInterner {
     strs : Vec<String>,
 }
 
-// TODO : remove Debug and add proper debug pringing (URGENT !! )
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
 pub struct StringRef(u32);
 

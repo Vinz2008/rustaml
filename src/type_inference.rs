@@ -83,10 +83,6 @@ impl DumpInfer {
     }   
 }
 
-// TODO : problem with type inference and Any types
-// there could be cases where we find a type with an Any, then we return the type even though a more precise type could be deduced in the body
-// solution : get all the types found instead of hot plugging, and put them in a vec, and do a .max() on it (need to implement ord on types)
-
 fn infer_var_type_pattern(rustaml_context : &RustamlContext, vars : &FxHashMap<StringRef, Type>, pattern: &Pattern, body : ASTRef, range : &Range<usize>) -> Option<Type> {
     match pattern {
         Pattern::Float(_) => Some(Type::Float),
@@ -258,11 +254,6 @@ pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<Strin
                 ASTNode::VarUse { name } => *name == var_name, 
                 _ => false,
             };
-
-            // create 2 ifs for when implementing where operators are not the same on each side (for example :: in ocaml)
-
-            // TODO : fix the case car there is e :: l with e an integer, it should detect l as a list of integer and not as a list of any
-
             println!("is_left_var = {}", is_left_var);
 
             //dbg!(is_left_var);

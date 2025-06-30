@@ -333,7 +333,7 @@ fn compile_binop_str<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     }
 }
 
-fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, elem_type : &Type, name : &str) -> AnyValueEnum<'llvm_ctx>{
+fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, elem_type : &Type) -> AnyValueEnum<'llvm_ctx>{
     
 
     // TODO : check that lhs_val is a val of the same tag as the rhs_val elements and that rhs_val is a list
@@ -358,7 +358,7 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
         Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types), &name).into(),
         Type::Str => compile_binop_str(compile_context, op, lhs_val, rhs_val, &name),
         // here do not trust the -e (it is Type::Any), use get_type on the head
-        Type::List(_e) => compile_binop_list(compile_context, op, lhs_val, rhs_val, /*e.as_ref()*/ &lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types), &name),
+        Type::List(_e) => compile_binop_list(compile_context, op, lhs_val, rhs_val, /*e.as_ref()*/ &lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types)),
         _ => unreachable!(),
     }
 }
@@ -432,7 +432,7 @@ fn load_list_tail<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_
     compile_context.builder.build_load(compile_context.context.ptr_type(AddressSpace::default()), gep_ptr, "load_tail_gep").unwrap().into_pointer_value()
 }
 
-fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type) -> IntValue<'llvm_ctx>{
+fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>) -> IntValue<'llvm_ctx>{
     match pattern {
         Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*i as u64, false), "match_int_cmp").unwrap(),
         Pattern::Range(lower, upper, inclusivity) => {
@@ -469,8 +469,9 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
         },
         // the type should be checked before (TODO ?)
         Pattern::ListDestructure(_, _) => compile_context.builder.build_int_compare(IntPredicate::NE, matched_val.into_pointer_value(), compile_context.context.ptr_type(AddressSpace::default()).const_null(), "cmp_destructure_empty").unwrap(),
-        p => panic!("unknown pattern {:?}", DebugWrapContext::new(pattern, compile_context.rustaml_context)),
-        //_ => todo!()
+        // TODO
+        p => panic!("unknown pattern {:?}", DebugWrapContext::new(p, compile_context.rustaml_context)),
+        //_ => unreachable!()
     }
 }
 
@@ -521,8 +522,8 @@ fn compile_pattern_match_epilogue<'llvm_ctx>(compile_context: &mut CompileContex
     }
 }
 
-fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type, bb: BasicBlock<'llvm_ctx>, else_bb : BasicBlock<'llvm_ctx>){
-    let bool_val = compile_pattern_match_bool_val(compile_context, pattern, matched_val, matched_val_type);
+fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>, bb: BasicBlock<'llvm_ctx>, else_bb : BasicBlock<'llvm_ctx>){
+    let bool_val = compile_pattern_match_bool_val(compile_context, pattern, matched_val);
 
     compile_context.builder.build_conditional_branch(bool_val, bb, else_bb).unwrap();
 }
@@ -552,7 +553,7 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     for (pattern, pattern_bbs) in patterns.iter().zip(&match_bbs) {
         let (pattern, pattern_body) = pattern;
         let (pattern_bb, pattern_else_bb) = pattern_bbs;
-        compile_pattern_match(compile_context, pattern, matched_val, &matched_val_type, *pattern_bb, *pattern_else_bb);
+        compile_pattern_match(compile_context, pattern, matched_val, *pattern_bb, *pattern_else_bb);
         compile_context.builder.position_at_end(*pattern_bb);
         compile_pattern_match_prologue(compile_context, pattern, matched_val, &matched_val_type);
         let pattern_body_val = compile_expr(compile_context, *pattern_body);
@@ -695,7 +696,7 @@ fn run_passes_on(module: &Module, target_machine : &TargetMachine) {
 }
 
 // TODO : instead install file in filesystem ?
-const STD_C_CONTENT: &'static str = include_str!("../std.c");
+const STD_C_CONTENT: &str = include_str!("../std.c");
 
 fn link_exe(filename_out : &Path, bitcode_file : &Path){
     // use cc ?
@@ -706,12 +707,12 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path){
     let out_std_path_str = out_std_path.as_os_str();
 
     let mut clang_std = Command::new("clang").arg("-x").arg("c").arg("-emit-llvm").arg("-O3").arg("-c").arg("-").arg("-o").arg(out_std_path_str).stdin(Stdio::piped()).spawn().expect("compiling std failed");
-    clang_std.stdin.as_mut().unwrap().write(STD_C_CONTENT.as_bytes()).unwrap();
+    clang_std.stdin.as_mut().unwrap().write_all(STD_C_CONTENT.as_bytes()).unwrap();
     clang_std.wait().unwrap();
     if !Command::new("clang").arg("-o").arg(filename_out).arg(out_std_path_str).arg(bitcode_file).spawn().expect("linker failed").wait().unwrap().success() {
         return;
     }
-    //std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
+    std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
 }
 
 pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &RustamlContext, filename : &Path, filename_out : &Path, should_keep_temp : bool) -> ExitCode{
@@ -757,7 +758,7 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
         main_function,
         var_types,
         var_vals: FxHashMap::default(),
-        internal_functions: internal_functions,
+        internal_functions,
         external_functions_declared: FxHashSet::default()
     };
 

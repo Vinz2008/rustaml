@@ -1,3 +1,6 @@
+#![allow(clippy::needless_return)]
+#![allow(clippy::box_collection)]
+#![allow(clippy::let_and_return)]
 #![feature(debug_closure_helpers)]
 
 use std::{path::Path, process::ExitCode};
@@ -44,6 +47,6 @@ pub fn interpret_code(code : &str, filename : &Path) -> Result<(), ExitCode> {
 // TODO : add compiler
 
 #[cfg(feature = "native")]
-pub fn compile(code : &str, filename : &Path) -> Result<String, ExitCode>{
+pub fn compile(_code : &str, _filename : &Path) -> Result<String, ExitCode>{
     todo!()
 }

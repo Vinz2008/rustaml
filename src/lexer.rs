@@ -34,7 +34,6 @@ impl Operator {
         }
     }
 
-    // TODO : instead of returning OperandType, pass the operand type to the function and use it     
     pub fn get_operand_type(&self, is_left : bool, other_operand_type : &Type) -> Type {
         match self {
             Self::IsEqual | Self::IsNotEqual => other_operand_type.clone(),
@@ -53,7 +52,6 @@ impl Operator {
         matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^' | ':' | '!')
     }
 
-    // TODO : pass char slice to support multi chars op
     pub fn str_to_op(s: &str, range : &Range<usize>) -> Result<Operator, LexerErr> {
         let op = match s {
             "+" => Operator::Plus,
@@ -184,8 +182,6 @@ impl Lexer {
 
 
 fn lex_nb(lexer: &mut Lexer) -> Result<Token, LexerErr> {
-    // TODO : floats
-
     fn continue_nb(c: char, is_float : &mut bool, is_range : &mut bool) -> bool {
         match c {
             '0'..='9' => true,
@@ -231,7 +227,7 @@ fn lex_nb(lexer: &mut Lexer) -> Result<Token, LexerErr> {
 
         //dbg!(nb);
 
-        Ok(Token::new(TokenData::Float(nb), range)) // TODO
+        Ok(Token::new(TokenData::Float(nb), range))
     } else {
 
         let nb = str::parse::<i64>(str.as_str());
@@ -243,7 +239,7 @@ fn lex_nb(lexer: &mut Lexer) -> Result<Token, LexerErr> {
 
         //dbg!(nb);
 
-        Ok(Token::new(TokenData::Integer(nb), range)) // TODO
+        Ok(Token::new(TokenData::Integer(nb), range))
     }
 }
 
@@ -264,7 +260,6 @@ fn lex_alphabetic(lexer: &mut Lexer) -> Token {
 
     let range = start_pos..lexer.pos;
 
-    // TODO : replace the match with a global keyword hashmap access, if not there,it is identifier
     let tok_data = match buf.iter().collect::<String>().as_str() {
         "let" => TokenData::Let,
         "if" => TokenData::If,
@@ -301,7 +296,7 @@ fn lex_op(lexer: &mut Lexer) -> Result<Option<Token>, LexerErr> {
 
     //dbg!(&buf);
 
-    let range = start_pos..lexer.pos; // TODO
+    let range = start_pos..lexer.pos;
 
     let op_str = buf.iter().collect::<String>();
 

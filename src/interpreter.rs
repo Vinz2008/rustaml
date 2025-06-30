@@ -244,7 +244,6 @@ fn interpret_binop_nb(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
         Val::Integer(nb) => nb,
         _ => panic!("Expected number in right-side of binary operation"),
     };
-    // TODO : do unchecked operations ?
     let res_nb = match op {
         Operator::Plus => {
             lhs_nb + rhs_nb
@@ -256,6 +255,7 @@ fn interpret_binop_nb(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
             lhs_nb * rhs_nb
         },
         Operator::Div => {
+            // TODO : check if 0, have a special error message in this case (return a result), then use unchecked_div to remove the panic check in the assembly 
             lhs_nb / rhs_nb
         },
         _ => unreachable!(),
@@ -344,7 +344,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
 
 fn interpret_function_call(context: &mut InterpretContext, name : StringRef, args : Vec<ASTRef>) -> Val {
 
-    let func_def = context.functions.get(&name).unwrap_or_else(|| panic!("Function {} not found", name.get_str(&context.rustaml_context.str_interner))).clone(); // TODO : remove the clone ?
+    let func_def = context.functions.get(&name).unwrap_or_else(|| panic!("Function {} not found", name.get_str(&context.rustaml_context.str_interner))).clone();
 
     if args.len() != func_def.args.len() {
         panic!("Invalid args number in function call, expected {}, got {}", func_def.args.len(), args.len());
