@@ -10,3 +10,5 @@ let sum l = match l with
   | e :: li -> e + sum li ;;
 
 let s = sum list ;;
+
+let a = "hello" ^ "world" ;;

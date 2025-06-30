@@ -19,6 +19,24 @@ struct ListNode {
     struct ListNode* next; // if empty null 
 };
 
+uint8_t __str_cmp(const char* s1, const char* s2){
+    while (*s1 != '\0' && *s1 == *s2){
+        s1++;
+        s2++;
+    }
+
+    return *s1 == *s2;
+}
+
+char* __str_append(const char* s1, const char* s2){
+    size_t len_s1 = strlen(s1);
+    size_t len_s2 = strlen(s2);
+    char* ret = malloc(len_s1 + len_s2 + 1);
+    memcpy(ret, s1, len_s1);
+    memcpy(ret + len_s1, s2, len_s2);
+    ret[len_s1 + len_s2] = '\0';
+    return ret;
+}
 
 // TODO : generate this code directly in llvm instead of generating a call ?
 struct ListNode* __list_node_init(uint8_t type_tag, uint64_t val){
@@ -71,12 +89,13 @@ uint8_t __list_node_cmp(uint8_t tag1, uint64_t val1, uint8_t tag2, uint64_t val2
     } else if (tag1 == STR_TYPE && tag2 == STR_TYPE){
         char* str1 = (char*)val1;
         char* str2 = (char*)val2;
-        size_t len1 = strlen(str1);
+        return __str_cmp(str1, str2);
+        /*size_t len1 = strlen(str1);
         size_t len2 = strlen(str2);
         if (len1 != len2){
             return false;
         }
-        return strcmp(str1, str2); 
+        return strcmp(str1, str2);*/ 
     } else if (tag1 == LIST_TYPE && tag2 == LIST_TYPE){
         struct ListNode* list1 = (struct ListNode*)val1;
         struct ListNode* list2 = (struct ListNode*)val2;
@@ -100,3 +119,5 @@ uint8_t __list_cmp(struct ListNode* list1, struct ListNode* list2){
 
     return list1 == list2; // both are NULL
 }
+
+
