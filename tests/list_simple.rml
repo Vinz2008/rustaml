@@ -12,3 +12,5 @@ let sum l = match l with
 let s = sum list ;;
 
 let a = "hello" ^ "world" ;;
+
+let b = 1 != 2 ;;

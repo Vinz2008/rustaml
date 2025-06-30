@@ -227,6 +227,7 @@ fn init_precedences() -> FxHashMap<Operator, (i32, Associativity)> {
     // TODO : reserve map size ?
     // see https://ocaml.org/manual/5.3/expr.html#ss%3Aprecedence-and-associativity for precedence ?
     p.insert(Operator::IsEqual, (10, Associativity::Left));
+    p.insert(Operator::IsNotEqual, (10, Associativity::Left));
     p.insert(Operator::Superior, (10, Associativity::Left));
     p.insert(Operator::Inferior, (10, Associativity::Left));
     p.insert(Operator::SuperiorOrEqual, (10, Associativity::Left));
