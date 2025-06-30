@@ -134,6 +134,7 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
         ParserErrData::UnexpectedTok {tok } => print_unexpected_tok_error(error_nb, range, filename_str, content, tok),
         ParserErrData::TypeInferenceErr { arg_name } => print_type_inference_error(error_nb, range, filename_str, content, &arg_name),
         ParserErrData::UnknownTypeAnnotation {  } => todo!(), // TODO
+        ParserErrData::NotFunctionTypeInAnnotationLet { name } => todo!(),
     };
 
     ExitCode::FAILURE

@@ -269,10 +269,13 @@ pub enum ParserErrData {
         got_tok : TokenData,
     },
     UnknownTypeAnnotation {
-
+        // TODO
     },
     TypeInferenceErr {
         arg_name: String,
+    },
+    NotFunctionTypeInAnnotationLet {
+        name: String
     }
 }
 
@@ -440,9 +443,11 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
                 Type::Function(arg_types, None)*/
             }
         };
+
+        let function_type_range = 0..0; // TODO
         let (arg_types, mut return_type) = match function_type {
             Type::Function(a, r) => (a, r),
-            _ => panic!("Expected a function type"), // TODO 
+            _ => return Err(ParserErr::new(ParserErrData::NotFunctionTypeInAnnotationLet { name: name.get_str(&parser.rustaml_context.str_interner).to_owned() }, function_type_range)), 
         };
 
     
