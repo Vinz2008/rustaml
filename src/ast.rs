@@ -36,7 +36,7 @@ pub enum Pattern {
     Float(f64), // | 2.6
     Range(i64, i64, bool), // bool is for the inclusivity | 0..1
     String(StringRef), // | "test"
-    List(Vec<Pattern>), // | [1, 2, 3] // TODO : replace vec with Box<[Pattern]
+    List(Vec<Pattern>), // | [1, 2, 3] // TODO : replace vec with Box<[Pattern]>
     ListDestructure(StringRef, Box<Pattern>), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
     Underscore,
 }
@@ -223,22 +223,23 @@ impl ASTNode {
 
 
 fn init_precedences() -> FxHashMap<Operator, (i32, Associativity)> {
-    let mut p = FxHashMap::default();
-    // TODO : reserve map size ?
+
     // see https://ocaml.org/manual/5.3/expr.html#ss%3Aprecedence-and-associativity for precedence ?
-    p.insert(Operator::IsEqual, (10, Associativity::Left));
-    p.insert(Operator::IsNotEqual, (10, Associativity::Left));
-    p.insert(Operator::Superior, (10, Associativity::Left));
-    p.insert(Operator::Inferior, (10, Associativity::Left));
-    p.insert(Operator::SuperiorOrEqual, (10, Associativity::Left));
-    p.insert(Operator::InferiorOrEqual, (10, Associativity::Left));
-    p.insert(Operator::Plus, (20, Associativity::Left));
-    p.insert(Operator::Minus, (20, Associativity::Left));
-    p.insert(Operator::Mult, (30, Associativity::Left));
-    p.insert(Operator::Div, (30, Associativity::Left));
-    p.insert(Operator::StrAppend, (5, Associativity::Right));
-    p.insert(Operator::ListAppend, (6, Associativity::Right));
-    p
+
+    FxHashMap::from_iter([
+        (Operator::IsEqual, (10, Associativity::Left)),
+        (Operator::IsNotEqual, (10, Associativity::Left)),
+        (Operator::Superior, (10, Associativity::Left)),
+        (Operator::Inferior, (10, Associativity::Left)),
+        (Operator::SuperiorOrEqual, (10, Associativity::Left)),
+        (Operator::InferiorOrEqual, (10, Associativity::Left)),
+        (Operator::Plus, (20, Associativity::Left)),
+        (Operator::Minus, (20, Associativity::Left)),
+        (Operator::Mult, (30, Associativity::Left)),
+        (Operator::Div, (30, Associativity::Left)),
+        (Operator::StrAppend, (5, Associativity::Right)),
+        (Operator::ListAppend, (6, Associativity::Right)),
+    ])
 }
 
 
