@@ -143,7 +143,7 @@ fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_,
         None => builder.position_at_end(entry),
     }
 
-    dbg!(alloca_type);
+    //dbg!(alloca_type);
     builder.build_alloca(TryInto::<BasicTypeEnum>::try_into(alloca_type).unwrap(), name).unwrap()
 }
 
@@ -184,8 +184,8 @@ fn runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 }
 
 fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : ASTRef, body : Option<ASTRef>, is_global : bool) -> AnyValueEnum<'llvm_ctx> {
-    dbg!(DebugWrapContext::new(&compile_context.var_types, compile_context.rustaml_context));
-    dbg!(name.get_str(&compile_context.rustaml_context.str_interner));
+    //dbg!(DebugWrapContext::new(&compile_context.var_types, compile_context.rustaml_context));
+    //dbg!(name.get_str(&compile_context.rustaml_context.str_interner));
     let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("No type found for var {}", name.get_str(&compile_context.rustaml_context.str_interner)));
     let alloca_type = get_llvm_type(compile_context.context, var_type);
     
@@ -340,8 +340,8 @@ fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
     match op {
         Operator::ListAppend => {
             // TODO : to make this work, need to have better type inference for case like i :: l to not stop when finding that l is a List::Any, but also add the info that l is appended an int, so l is a List(Int)
-            dbg!(lhs_val, rhs_val);
-            dbg!(elem_type);
+            //dbg!(lhs_val, rhs_val);
+           // dbg!(elem_type);
             let type_tag_val = get_type_tag_val(compile_context.context, elem_type);
             create_list_append_call(compile_context, rhs_val.into_pointer_value(), type_tag_val, lhs_val).into()
         },
@@ -378,7 +378,7 @@ fn compile_var_use<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm
 
 fn create_list_append_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : PointerValue<'llvm_ctx>, type_tag_val : IntValue<'llvm_ctx>, val : AnyValueEnum<'llvm_ctx> ) -> PointerValue<'llvm_ctx> {
     let function = compile_context.get_internal_function("__list_node_append");
-    dbg!(function);
+    //dbg!(function);
     let args = &[list.into(), type_tag_val.into(), val.try_into().unwrap()];
     compile_context.builder.build_call(function, args, "list_append").unwrap().as_any_value_enum().into_pointer_value()
 }
@@ -627,7 +627,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
 
             let ret = compile_expr(compile_context, *body);
 
-            dbg!(ret);
+            //dbg!(ret);
 
             let return_val: Option<&dyn BasicValue<'_>> = match return_type {
                 Type::Unit => None,
@@ -715,7 +715,7 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path){
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
 }
 
-pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &RustamlContext, filename : &Path, filename_out : &Path, should_keep_temp : bool) -> ExitCode{
+pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &RustamlContext, filename : &Path, filename_out : Option<&Path>, keep_temp : bool) -> ExitCode{
     let context = Context::create();
     let builder = context.create_builder();
 
@@ -778,7 +778,7 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
     
 
 
-    let temp_path = if should_keep_temp {
+    let temp_path = if keep_temp {
         Path::new(".").to_owned() 
     } else { 
         std::env::temp_dir()
@@ -788,7 +788,7 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
     let filename_without_ext = filename.file_stem().unwrap().to_str().expect("not UTF-8 filename").to_owned();
 
     
-    let filename_with_hash = if should_keep_temp {
+    let filename_with_hash = if keep_temp {
         filename_without_ext
     } else {
     
@@ -811,7 +811,7 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
     
 
     
-    if should_keep_temp {
+    if keep_temp {
         let temp_path_ir = pathbuf![&temp_path, &format!("{}.ll", &filename_with_hash)];
         compile_context.module.print_to_file(&temp_path_ir).expect("Couldn't write llvm ir file");
     }
@@ -823,13 +823,16 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
     compile_context.module.write_bitcode_to_path(&temp_path_bitcode);
 
 
-    
-
-    link_exe(filename_out,  &temp_path_bitcode);
-
-    if !should_keep_temp {
-        std::fs::remove_file(temp_path_bitcode).expect("Couldn't delete bitcode file");
+    match filename_out {
+        Some(f_out) => {
+            link_exe(f_out,  &temp_path_bitcode);
+            if !keep_temp {
+                std::fs::remove_file(temp_path_bitcode).expect("Couldn't delete bitcode file");
+            }
+        }
+        None => {}
     }
+
 
     ExitCode::SUCCESS
 }

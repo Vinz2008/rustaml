@@ -46,12 +46,10 @@ enum Commands {
         filename: PathBuf,
 
         #[arg(short = 'o', value_name = "FILE")]
-        filename_out: PathBuf,
+        filename_out: Option<PathBuf>,
 
         #[arg(long, default_value_t = false)]
-        should_keep_temp : bool,
-
-
+        keep_temp : bool,
     },
     Check {
         #[arg(value_name = "FILE")]
@@ -100,7 +98,7 @@ fn get_ast(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<(A
 }
 
 #[cfg(not(feature = "native"))]
-pub fn compile(_ast : ASTRef, _vars: FxHashMap<StringRef, Type>, _rustaml_context: &RustamlContext, _filename : &Path, _filename_out : &Path, _should_keep_temp : bool) -> ExitCode {
+pub fn compile(_ast : ASTRef, _vars: FxHashMap<StringRef, Type>, _rustaml_context: &RustamlContext, _filename : &Path, _filename_out : &Path, _keep_temp : bool) -> ExitCode {
     panic!("the compiler feature was not enabled");
 }
 
@@ -127,13 +125,13 @@ fn main() -> ExitCode {
 
             interpreter::interpret(ast, &mut rustaml_context)
         }
-        Commands::Compile { filename, filename_out, should_keep_temp } => {
+        Commands::Compile { filename, filename_out, keep_temp } => {
             let ast_and_vars = get_ast(&filename, &mut rustaml_context);
             let (ast, vars) = match ast_and_vars {
                 Ok(a_v) => a_v,
                 Err(e) => return e,
             };
-            compile(ast, vars, &rustaml_context, &filename, &filename_out, should_keep_temp)
+            compile(ast, vars, &rustaml_context, &filename, filename_out.as_deref(), keep_temp)
         },
 
         Commands::Check { filename, dump_inference: _ } => {
