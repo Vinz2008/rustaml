@@ -126,7 +126,7 @@ fn runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 
     let stderr_global = compile_context.module.add_global(ptr_type, None, "stderr");
     stderr_global.set_linkage(inkwell::module::Linkage::External);
-    let message_str  = compile_context.builder.build_global_string_ptr(message, "error_message").unwrap();
+    let message_str  = compile_context.builder.build_global_string_ptr(&format!("{}\n", message), "error_message").unwrap();
     let stderr_load = compile_context.builder.build_load(ptr_type, stderr_global.as_pointer_value(), "stderr_load").unwrap();
     let fprintf_args: Vec<BasicMetadataValueEnum> = vec![stderr_load.into(), message_str.as_pointer_value().into()];
     compile_context.builder.build_call(fprintf_fun, &fprintf_args, "error_fprintf").unwrap();
@@ -409,7 +409,7 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
             }*/
         },
         // the type should be checked before (TODO ?)
-        Pattern::ListDestructure(_, _) => compile_context.context.bool_type().const_int(true as u64, false),
+        Pattern::ListDestructure(_, _) => compile_context.builder.build_int_compare(IntPredicate::NE, matched_val.into_pointer_value(), compile_context.context.ptr_type(AddressSpace::default()).const_null(), "cmp_destructure_empty").unwrap(),
         p => panic!("unknown pattern {:?}", DebugWrapContext::new(pattern, compile_context.rustaml_context)),
         //_ => todo!()
     }
@@ -637,7 +637,7 @@ const STD_C_CONTENT: &'static str = include_str!("../std.c");
 fn link_exe(filename_out : &Path, bitcode_file : &Path){
     // use cc ?
     // TODO : use lld (https://github.com/mun-lang/lld-rs) for linking instead ?
-    // TODO
+    // TODO : use libclang ? (clang-rs ? https://github.com/llvm/llvm-project/blob/main/clang/tools/driver/cc1_main.cpp#L85 ?)
 
     let out_std_path = pathbuf![&std::env::temp_dir(), "std.bc"];
     let out_std_path_str = out_std_path.as_os_str();
