@@ -14,6 +14,7 @@ pub enum Operator {
     Div,
     Equal,
     IsEqual,
+    IsNotEqual,
     SuperiorOrEqual,
     InferiorOrEqual,
     Superior,
@@ -28,7 +29,7 @@ impl Operator {
         match self {
             Self::StrAppend => Type::Str,
             Self::ListAppend => Type::List(Box::new(Type::Any)),
-            Self::IsEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => Type::Bool,
+            Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => Type::Bool,
             _ => Type::Integer,
         }
     }
@@ -36,7 +37,7 @@ impl Operator {
     // TODO : instead of returning OperandType, pass the operand type to the function and use it     
     pub fn get_operand_type(&self, is_left : bool, other_operand_type : &Type) -> Type {
         match self {
-            Self::IsEqual => other_operand_type.clone(),
+            Self::IsEqual | Self::IsNotEqual => other_operand_type.clone(),
             Self::StrAppend => Type::Str,
             Self::ListAppend => if is_left { 
                 Type::Any
@@ -49,7 +50,7 @@ impl Operator {
     }
 
     fn is_char_op(c : char) -> bool {
-        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^' | ':')
+        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^' | ':' | '!')
     }
 
     // TODO : pass char slice to support multi chars op
@@ -61,6 +62,7 @@ impl Operator {
             "/" => Operator::Div,
             "=" => Operator::Equal,
             "==" => Operator::IsEqual,
+            "!=" => Operator::IsNotEqual,
             ">=" => Operator::SuperiorOrEqual,
             "<=" => Operator::InferiorOrEqual,
             ">" => Operator::Superior,

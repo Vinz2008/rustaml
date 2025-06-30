@@ -1,6 +1,6 @@
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, ExitCode, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug::DebugWrapContext, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
-use inkwell::{attributes::Attribute, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, IntPredicate, OptimizationLevel};
+use inkwell::{attributes::Attribute, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
@@ -276,21 +276,33 @@ fn compile_binop_nb<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
 }
 
 // TODO : replace most of AnyValueEnum with BasicValueEnum ?
-fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, operand_type : Type, name : &str) -> AnyValueEnum<'llvm_ctx>{
+fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, operand_type : Type, name : &str) -> IntValue<'llvm_ctx>{
 
     match (lhs_val, rhs_val){
         (AnyValueEnum::IntValue(i),  AnyValueEnum::IntValue(i2)) => {
             let predicate = match op {
-                Operator::IsEqual => inkwell::IntPredicate::EQ,
-                Operator::Inferior => inkwell::IntPredicate::SLT,
-                Operator::Superior => inkwell::IntPredicate::SGT,
-                Operator::InferiorOrEqual => inkwell::IntPredicate::SLE,
-                Operator::SuperiorOrEqual => inkwell::IntPredicate::SGE,
+                Operator::IsEqual => IntPredicate::EQ,
+                Operator::IsNotEqual => IntPredicate::NE,
+                Operator::Inferior => IntPredicate::SLT,
+                Operator::Superior => IntPredicate::SGT,
+                Operator::InferiorOrEqual => IntPredicate::SLE,
+                Operator::SuperiorOrEqual => IntPredicate::SGE,
                 _ => unreachable!(),
             };
-            compile_context.builder.build_int_compare(predicate, i, i2, name).unwrap().into()
+            compile_context.builder.build_int_compare(predicate, i, i2, name).unwrap()
         },
-        (AnyValueEnum::FloatValue(_f),  AnyValueEnum::FloatValue(_f2)) => todo!(),
+        (AnyValueEnum::FloatValue(f),  AnyValueEnum::FloatValue(f2)) => {
+            let predicate = match op {
+                Operator::Equal => FloatPredicate::OEQ,
+                Operator::IsNotEqual => FloatPredicate::ONE,
+                Operator::Inferior => FloatPredicate::OLT,
+                Operator::Superior => FloatPredicate::OGT,
+                Operator::InferiorOrEqual => FloatPredicate::OLE,
+                Operator::SuperiorOrEqual => FloatPredicate::OGE,
+                _ => unreachable!(),
+            };
+            compile_context.builder.build_float_compare(predicate, f, f2, name).unwrap()
+        },
         // TODO : add comparison of list and strings (need to add a lhs_type arg to match it here to differentiate pointers to lists and pointers to strings)
         (AnyValueEnum::PointerValue(p),  AnyValueEnum::PointerValue(p2)) => {
             let args = vec![p.into(), p2.into()];
@@ -304,24 +316,10 @@ fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
                 _ => unreachable!(),
             };
 
-            cmp_call.unwrap().as_any_value_enum()
+            cmp_call.unwrap().as_any_value_enum().into_int_value()
         },
         _ => panic!("Invalid type for bool op {:?}", op),
     }
-    
-    
-    
-    /*match op {
-        Operator::IsEqual => {
-            match (lhs_val, rhs_val){
-                ( AnyValueEnum::IntValue(i),  AnyValueEnum::IntValue(i2)) => compile_context.builder.build_int_compare(IntP, lhs, rhs, name),
-                ( AnyValueEnum::FloatValue(f),  AnyValueEnum::FloatValue(f2)) => todo!(),
-                ( AnyValueEnum::PointerValue(p),  AnyValueEnum::PointerValue(p2)) => todo!()
-                 _ => panic!("Invalid type for bool op {:?}", op),
-            }
-        }
-        _ => unreachable!()
-    }*/
 }
 
 fn compile_binop_str<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, name : &str) -> AnyValueEnum<'llvm_ctx>{
@@ -357,7 +355,7 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     let rhs_val = compile_expr(compile_context, rhs);
     match op.get_type() {
         Type::Integer => compile_binop_nb(compile_context, op, lhs_val, rhs_val, &name),
-        Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types), &name),
+        Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types), &name).into(),
         Type::Str => compile_binop_str(compile_context, op, lhs_val, rhs_val, &name),
         // here do not trust the -e (it is Type::Any), use get_type on the head
         Type::List(_e) => compile_binop_list(compile_context, op, lhs_val, rhs_val, /*e.as_ref()*/ &lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types), &name),
