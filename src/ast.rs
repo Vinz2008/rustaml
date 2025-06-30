@@ -206,7 +206,7 @@ impl ASTNode {
                 let func_type = vars.get(name).unwrap();
                 match func_type {
                     Type::Function(_args, ret) => ret.as_ref().clone(),
-                    _ => panic!("Trying to call a function"),
+                    _ => panic!("Trying to call something that is not a function"),
                 } 
             },
             ASTNode::VarUse { name} => match vars.get(name){
