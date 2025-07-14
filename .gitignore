@@ -3,3 +3,4 @@
 *.ll
 out
 *.dump
+tests/big_file.rml
