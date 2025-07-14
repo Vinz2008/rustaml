@@ -7,15 +7,18 @@ pub struct RustamlContext {
     pub list_node_pool : ListPool,
 
     pub dump_inference : RefCell<DumpInfer>,
+
+    pub is_debug_print : bool,
 }
 
 impl RustamlContext {
-    pub fn new(dump_inference : bool) -> RustamlContext {
+    pub fn new(dump_inference : bool, is_debug_print : bool) -> RustamlContext {
         RustamlContext { 
             str_interner: StrInterner::new(), 
             ast_pool: ASTPool::new(), 
             list_node_pool: ListPool::new(), 
             dump_inference: RefCell::new(DumpInfer::new(dump_inference)),
+            is_debug_print,
         }
     }
 }

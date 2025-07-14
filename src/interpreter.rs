@@ -4,6 +4,7 @@ use std::fmt::{self, Debug};
 
 use crate::ast::{ASTRef};
 use crate::debug::DebugWithContext;
+use crate::debug_println;
 use crate::rustaml::RustamlContext;
 use crate::string_intern::{StrInterner, StringRef};
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
@@ -581,7 +582,7 @@ pub fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext) -> ExitCode 
     interpret_node(&mut context, ast);
 
     
-    println!("content = {:#?}", context);
+    debug_println!(context.rustaml_context.is_debug_print, "content = {:#?}", context);
     //dbg!(context);
 
     ExitCode::SUCCESS

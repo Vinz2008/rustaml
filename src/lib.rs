@@ -19,10 +19,10 @@ pub mod debug;
 #[cfg(feature = "native")]
 pub mod compiler;
 
-pub fn interpret_code(code : &str, filename : &Path) -> Result<(), ExitCode> {
-    let mut rustaml_context = RustamlContext::new(false);
+pub fn interpret_code(code : &str, filename : &Path, is_debug_print  : bool) -> Result<(), ExitCode> {
+    let mut rustaml_context = RustamlContext::new(false, is_debug_print);
     let content = code.chars().collect::<Vec<_>>();
-    let tokens = lexer::lex(content);
+    let tokens = lexer::lex(content, is_debug_print);
     let tokens = match tokens {
         Ok(t) => t,
         Err(e) => {

@@ -18,8 +18,8 @@ pathbuf = { version = "1.0.0", optional = true}
 [profile.release]
 lto = "fat"
 panic = "abort"
-strip = "debuginfo"
-#debug = 2
+#strip = "debuginfo"
+debug = "full"
 
 [features]
 native = ["dep:inkwell", "dep:pathbuf"]

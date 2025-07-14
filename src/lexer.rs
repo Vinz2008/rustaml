@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::ast::Type;
+use crate::{ast::Type, debug_println};
 
 use enum_tags::Tag;
 
@@ -333,7 +333,7 @@ fn lex_string(lexer: &mut Lexer) -> Result<Token, LexerErr> {
     Ok(Token::new(TokenData::String(buf), range))
 }
 
-pub fn lex(content: Vec<char>) -> Result<Vec<Token>, LexerErr> {
+pub fn lex(content: Vec<char>, is_debug_print : bool) -> Result<Vec<Token>, LexerErr> {
     //dbg!(&content);
     let mut lexer = Lexer { content, pos: 0 };
 
@@ -375,7 +375,7 @@ pub fn lex(content: Vec<char>) -> Result<Vec<Token>, LexerErr> {
     }
 
     //dbg!(&tokens);
-    println!("tokens = {:#?}", tokens);
+    debug_println!(is_debug_print, "tokens = {:#?}", tokens);
 
     Ok(tokens)
 }
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn lexer_simple() {
         let input = "let a = 2 ;;".to_string().chars().collect();
-        let result = lex(input).unwrap().into_iter().map(|t| t.tok_data).collect::<Vec<_>>();
+        let result = lex(input, false).unwrap().into_iter().map(|t| t.tok_data).collect::<Vec<_>>();
         let expected = vec![TokenData::Let, TokenData::Identifier(vec!['a']), TokenData::Op(Operator::Equal), TokenData::Integer(2), TokenData::EndOfExpr];
         assert_eq!(result, expected);
     }

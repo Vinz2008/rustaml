@@ -2,7 +2,7 @@ use std::{fs::File, io::Write, ops::Range, path::Path};
 
 use rustc_hash::FxHashMap;
 
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug::DebugWrapContext, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug::DebugWrapContext, debug_println, rustaml::RustamlContext, string_intern::StringRef};
 
 
 // TODO : put this in a type_inference_debug.rs ?
@@ -254,10 +254,10 @@ pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<Strin
                 ASTNode::VarUse { name } => *name == var_name, 
                 _ => false,
             };
-            println!("is_left_var = {}", is_left_var);
+            debug_println!(rustaml_context.is_debug_print, "is_left_var = {}", is_left_var);
 
             //dbg!(is_left_var);
-            println!("is_right_var = {}", is_right_var);
+            debug_println!(rustaml_context.is_debug_print, "is_right_var = {}", is_right_var);
             //dbg!(is_right_var);
 
             if is_left_var || is_right_var {
@@ -266,16 +266,16 @@ pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<Strin
                 } else {
                     lhs.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)
                 };
-                println!("other_operand_type : {:#?}", &other_operand_type);
+                debug_println!(rustaml_context.is_debug_print, "other_operand_type : {:#?}", &other_operand_type);
                 //dbg!(&other_operand_type);
                 let operand_type = op.get_operand_type(is_left_var, &other_operand_type);
-                println!("operand_type : {:#?}", &operand_type);
+                debug_println!(rustaml_context.is_debug_print, "operand_type : {:#?}", &operand_type);
                 //dbg!(&operand_type);
-                println!("other_operand_type : {:#?}", &other_operand_type);
+                debug_println!(rustaml_context.is_debug_print, "other_operand_type : {:#?}", &other_operand_type);
                 //dbg!(&other_operand_type);
                 // TODO : create prinln_context for these ?
-                println!("var_name = {:#?}", DebugWrapContext::new(&var_name, rustaml_context));
-                println!("node = {:#?}", DebugWrapContext::new(&node, rustaml_context));
+                debug_println!(rustaml_context.is_debug_print, "var_name = {:#?}", DebugWrapContext::new(&var_name, rustaml_context));
+                debug_println!(rustaml_context.is_debug_print, "node = {:#?}", DebugWrapContext::new(&node, rustaml_context));
                 Some(operand_type)
             } else {
                 let lhs_inferred = _infer_var_type(rustaml_context, vars, var_name, *lhs, range);

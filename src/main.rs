@@ -39,6 +39,9 @@ enum Commands {
     Interpret {
         #[arg(value_name = "FILE")]
         filename: PathBuf,
+
+        #[arg(long, short = 'd', default_value_t = false)]
+        debug_print : bool,
     },
     /// compile file
     Compile {
@@ -50,6 +53,9 @@ enum Commands {
 
         #[arg(long, default_value_t = false)]
         keep_temp : bool,
+
+        #[arg(long, short = 'd', default_value_t = false)]
+        debug_print : bool,
     },
     Check {
         #[arg(value_name = "FILE")]
@@ -57,6 +63,10 @@ enum Commands {
 
         #[arg(long, default_value_t = false)]
         dump_inference : bool,
+
+
+        #[arg(long, short = 'd', default_value_t = false)]
+        debug_print : bool,
     }
 }
 
@@ -75,7 +85,7 @@ fn get_ast(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<(A
             panic!("Error when opening {} : {}", filename.display(), err)
     });
     let content = content_bytes.iter().map(|b| *b as char).collect::<Vec<_>>();
-    let tokens = lexer::lex(content);
+    let tokens = lexer::lex(content, rustaml_context.is_debug_print);
     let tokens = match tokens {
         Ok(t) => t,
         Err(e) => {
@@ -108,15 +118,21 @@ fn main() -> ExitCode {
     /*let mut str_interner = StrInterner::new();
     let mut ast_pool = ASTPool::new();*/
 
-    let dump_inference = match args.command {
-        Some(Commands::Check { filename: _, dump_inference }) => dump_inference,
-        _ => false,
+    let (dump_inference, debug_print) = match args.command {
+        Some(Commands::Check { filename: _, dump_inference, debug_print }) => (dump_inference, debug_print),
+        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, debug_print }) => {
+            (false, debug_print)
+        },
+        Some(Commands::Interpret { filename: _, debug_print }) => {
+            (false, debug_print)
+        },
+        _ => (false, false),
     };
 
-    let mut rustaml_context = RustamlContext::new(dump_inference);
+    let mut rustaml_context = RustamlContext::new(dump_inference, debug_print);
 
     match args.command.expect("No subcommand specified!") {
-        Commands::Interpret { filename } => {
+        Commands::Interpret { filename, debug_print: _ } => {
             let ast_and_vars = get_ast(&filename, &mut rustaml_context);
             let (ast, _vars) = match ast_and_vars {
                 Ok(a_v) => a_v,
@@ -125,7 +141,7 @@ fn main() -> ExitCode {
 
             interpreter::interpret(ast, &mut rustaml_context)
         }
-        Commands::Compile { filename, filename_out, keep_temp } => {
+        Commands::Compile { filename, filename_out, keep_temp, debug_print: _ } => {
             let ast_and_vars = get_ast(&filename, &mut rustaml_context);
             let (ast, vars) = match ast_and_vars {
                 Ok(a_v) => a_v,
@@ -134,7 +150,7 @@ fn main() -> ExitCode {
             compile(ast, vars, &rustaml_context, &filename, filename_out.as_deref(), keep_temp)
         },
 
-        Commands::Check { filename, dump_inference: _ } => {
+        Commands::Check { filename, dump_inference: _, debug_print: _ } => {
             let ast_and_vars = get_ast(&filename, &mut rustaml_context);
             let _ast_v = match ast_and_vars {
                 Ok(a_v) => a_v,

@@ -113,3 +113,17 @@ impl<T> DebugWithContext for &'_ T where T: DebugWithContext {
         (*self).fmt_with_context(f, rustaml_context)
     }
 }
+
+#[macro_export]
+macro_rules! debug_println {
+    ($is_debug_print:expr) => {
+        if $is_debug_print {
+            println!()
+        }
+    };
+    ($is_debug_print:expr, $($arg:tt)*) => {
+        if $is_debug_print {
+            println!($($arg)*);
+        }
+    };
+}
