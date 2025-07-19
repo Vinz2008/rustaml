@@ -1,6 +1,7 @@
 {
     "rust-analyzer.cargo.features": [
-        "native"
+        "native",
+        "human_panic"
     ],
     "files.associations": {
         "io": "llvm",
