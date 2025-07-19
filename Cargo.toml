@@ -13,6 +13,7 @@ rustc-hash = "2.1.1"
 
 inkwell = { version = "0.6.0", features = ["llvm18-1"], optional = true }
 pathbuf = { version = "1.0.0", optional = true}
+human-panic = {version = "2.0.3", optional = true }
 
 
 [profile.release]
@@ -23,3 +24,4 @@ debug = "full"
 
 [features]
 native = ["dep:inkwell", "dep:pathbuf"]
+human_panic = ["dep:human-panic"]
