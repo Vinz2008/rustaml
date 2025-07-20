@@ -1,4 +1,4 @@
-use crate::{ast::ASTPool, interpreter::ListPool, string_intern::StrInterner, type_inference::DumpInfer};
+use crate::{ast::ASTPool, interpreter::ListPool, string_intern::StrInterner, type_inference_debug::DumpInfer};
 use std::cell::RefCell;
 
 pub struct RustamlContext {

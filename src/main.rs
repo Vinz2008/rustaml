@@ -18,6 +18,7 @@ mod ast;
 mod interpreter;
 mod lexer;
 mod type_inference;
+mod type_inference_debug;
 mod string_intern;
 mod print_error;
 mod rustaml;
