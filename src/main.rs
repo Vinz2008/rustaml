@@ -99,7 +99,8 @@ fn get_ast(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<(A
         Ok(t) => t,
         Err(e) => {
             let content = &String::from_utf8(content_bytes).unwrap();
-            return Err(print_error::print_lexer_error(e, filename, content))
+            print_error::print_lexer_error(e, filename, content);
+            return Err(ExitCode::FAILURE)
         },
     };
 
@@ -108,7 +109,8 @@ fn get_ast(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<(A
         Ok(a_v) => a_v,
         Err(e) => {
             let content = &String::from_utf8(content_bytes).unwrap();
-            return Err(print_error::print_parser_error(e, filename, content))
+            print_error::print_parser_error(e, filename, content);
+            return Err(ExitCode::FAILURE);
         },
     };
 

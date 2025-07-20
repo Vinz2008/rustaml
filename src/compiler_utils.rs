@@ -18,7 +18,7 @@ pub fn get_type_tag_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context, t : &Type)
     llvm_context.i8_type().const_int(get_type_tag(t) as u64, false)
 }
 
-pub fn get_list_type<'llvm_ctx>(llvm_context: &'llvm_ctx Context) -> StructType<'llvm_ctx>{
+fn get_list_type<'llvm_ctx>(llvm_context: &'llvm_ctx Context) -> StructType<'llvm_ctx>{
     // put it in an Optional in the context
 
     let field_types: &[BasicTypeEnum] = &[llvm_context.i8_type().into(), llvm_context.i64_type().into(), llvm_context.ptr_type(AddressSpace::default()).into()];
