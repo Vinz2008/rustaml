@@ -61,17 +61,6 @@ where
     }
 }
 
-
-// TODO : is this still needed ?
-impl<T> DebugWithContext for Box<T>
-where
-    T: DebugWithContext,
-{
-    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
-        self.as_ref().fmt_with_context(f, rustaml_context)
-    }
-}
-
 impl<K, V> DebugWithContext for FxHashMap<K, V> 
 where 
     K : DebugWithContext,
