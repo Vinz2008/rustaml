@@ -472,6 +472,7 @@ name = "rustaml"
 version = "0.1.0"
 dependencies = [
  "ariadne",
+ "cfg-if",
  "clap",
  "enum-tags",
  "enum-tags-traits",

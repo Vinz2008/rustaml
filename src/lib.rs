@@ -5,6 +5,8 @@
 
 use std::{path::Path, process::ExitCode};
 
+use cfg_if::cfg_if;
+
 use crate::rustaml::RustamlContext;
 
 pub mod rustaml;
@@ -17,8 +19,13 @@ pub mod string_intern;
 pub mod print_error;
 pub mod debug;
 
-#[cfg(feature = "native")]
-pub mod compiler;
+
+cfg_if! {
+    if #[cfg(feature = "native")] {
+        pub mod compiler;
+        pub mod compiler_utils;
+    }
+}
 
 pub fn interpret_code(code : &str, filename : &Path, is_debug_print  : bool) -> Result<(), ExitCode> {
     let mut rustaml_context = RustamlContext::new(false, is_debug_print);

@@ -24,12 +24,17 @@ mod print_error;
 mod rustaml;
 mod debug;
 
-#[cfg(feature = "native")]
-mod compiler;
+use cfg_if::cfg_if;
 
+cfg_if! {
+    if #[cfg(feature = "native")] {
+        mod compiler;
+        mod compiler_utils;
 
-#[cfg(feature = "native")]
-use crate::compiler::compile;
+        use crate::compiler::compile;
+    }
+}
+
 
 // TODO : replace dbg calls for println (buffered print and use of stdout)
 
