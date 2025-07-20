@@ -269,7 +269,7 @@ pub enum ParserErrData {
         got_tok : TokenData,
     },
     UnknownTypeAnnotation {
-        // TODO
+        type_str : String
     },
     TypeInferenceErr {
         arg_name: String,
@@ -364,7 +364,7 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<Type, ParserErr> {
                     parser.eat_tok(Some(TokenDataTag::ArrayClose))?;
                     Type::List(Box::new(elem_type))
                 },
-                _ => return Err(ParserErr::new(ParserErrData::UnknownTypeAnnotation {  }, tok.range.clone())),
+                s => return Err(ParserErr::new(ParserErrData::UnknownTypeAnnotation { type_str: s.to_owned() }, tok.range.clone())),
             };
             Ok(type_annot)
         },
@@ -432,19 +432,18 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
         //let arg_types = vec![Type::Number; args.len()];
 
+        let function_type_range_start = parser.current_tok().unwrap().range.start;
+
         let function_type: Type = match parser.current_tok_data() {
             Some(TokenData::Colon) => parse_type_annotation(parser)?,
             Some(_) | None => {
                 Type::Function(vec![Type::Any; arg_names.len()], Box::new(Type::Any))
-                /*let mut arg_types = Vec::new();
-                for arg_name in &arg_names {
-                    arg_types.push(infer_var_type(parser, arg_name, node));
-                }
-                Type::Function(arg_types, None)*/
             }
         };
 
-        let function_type_range = 0..0; // TODO
+        let function_type_range_end = parser.current_tok().unwrap().range.start - 1;  // TODO ? (verify if good)
+
+        let function_type_range = function_type_range_start..function_type_range_end;
         let (arg_types, mut return_type) = match function_type {
             Type::Function(a, r) => (a, r),
             _ => return Err(ParserErr::new(ParserErrData::NotFunctionTypeInAnnotationLet { name: name.get_str(&parser.rustaml_context.str_interner).to_owned() }, function_type_range)), 

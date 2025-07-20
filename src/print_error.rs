@@ -1,10 +1,10 @@
-use std::{ops::Range, path::Path};
+use std::{fmt::format, ops::Range, path::Path};
 use levenshtein::levenshtein;
 
 use crate::{ast::{ParserErr, ParserErrData}, lexer::{LexerErr, Operator, TokenData, TokenDataTag}};
 use crate::lexer::LexerErrData;
 
-use ariadne::{ColorGenerator, Label, Report, ReportKind, Source};
+use ariadne::{Color, ColorGenerator, Label, Report, ReportKind, Source};
 use enum_tags::TaggedEnum;
 
 const PARSER_ERROR_OFFSET : u32 = 100;
@@ -14,7 +14,8 @@ struct ErrorBasicInfos<'a> {
     error_nb : u32,
     range : Range<usize>,
     filename : &'a str,
-    content : &'a str
+    content : &'a str,
+    color: Color,
 }
 
 
@@ -22,7 +23,7 @@ struct ErrorBasicInfos<'a> {
 struct ErrorPrint<'a> {
     error_basic_infos : ErrorBasicInfos<'a>,
     message : String,
-    label : Option<Label<(&'a str, std::ops::Range<usize>)>>,
+    label : Option<&'a str>,
     note : Option<String>,
 }
 
@@ -32,7 +33,7 @@ fn print_error(err : ErrorPrint){
     .with_message(err.message);
     
     if let Some(label) = err.label {
-        report = report.with_label(label);
+        report = report.with_label(Label::new((err.error_basic_infos.filename, err.error_basic_infos.range.clone())).with_message(label).with_color(err.error_basic_infos.color));
     }
 
     if let Some(note) = err.note {
@@ -68,27 +69,19 @@ fn nearest_op(s : &str) -> &'static str {
 }
 
 fn print_invalid_op_error(error_basic_infos : ErrorBasicInfos, op : String) -> ErrorPrint {
-    let mut colors = ColorGenerator::new();
-    let a = colors.next();
-    let label = Some(Label::new((error_basic_infos.filename, error_basic_infos.range.clone())).with_message("This operator doesn't exist").with_color(a));
-
     ErrorPrint {
         error_basic_infos,
         message: format!("Invalid operator \"{}\"", op),
-        label,
+        label: Some("This operator doesn't exist"),
         note: Some(format!("maybe you meant {}", nearest_op(&op))),
     }
 }
 
 fn print_unexpected_char_error(error_basic_infos : ErrorBasicInfos, c : char) -> ErrorPrint {
-    let mut colors = ColorGenerator::new();
-    let a = colors.next();
-    let label = Some(Label::new((error_basic_infos.filename, error_basic_infos.range.clone())).with_message("This character shouldn't be there").with_color(a));
-
     ErrorPrint {
         error_basic_infos,
         message: format!("Unexpected char \'{}\'", c),
-        label,
+        label: Some("This character shouldn't be there"),
         ..Default::default()
     }
 }
@@ -100,11 +93,15 @@ pub fn print_lexer_error(lexer_error : LexerErr, filename : &Path, content : &st
     let range = lexer_error.range;
     let filename_str = filename.to_str().unwrap();
 
+    let mut colors = ColorGenerator::new();
+    let color = colors.next();
+
     let error_basic_infos = ErrorBasicInfos {
         error_nb,
         range,
         filename: filename_str,
-        content: content
+        content: content,
+        color
     };
 
     let error_print = match *lexer_error.lexer_err_data {
@@ -120,61 +117,55 @@ pub fn print_lexer_error(lexer_error : LexerErr, filename : &Path, content : &st
 // TODO : refactor this code ? (make only one function ?)
 
 fn print_unexpected_eof_error(error_basic_infos : ErrorBasicInfos) -> ErrorPrint {
-    let mut colors = ColorGenerator::new();
-    let a = colors.next();
-    let label = Some(Label::new((error_basic_infos.filename, error_basic_infos.range.clone())).with_message("There is here a EOF that should not be here").with_color(a));
-
     ErrorPrint {
         error_basic_infos,
         message: "Unexpected end of file".to_owned(),
-        label,
+        label: Some("There is here a EOF that should not be here"),
         ..Default::default()
     }
 }
 
 fn print_wrong_tok_error(error_basic_infos : ErrorBasicInfos, expected_tok : TokenDataTag, got_tok : TokenData) -> ErrorPrint {
-    let mut colors = ColorGenerator::new();
-    let a = colors.next();
-
-    let label = Some(Label::new((error_basic_infos.filename, error_basic_infos.range.clone())).with_message("This is the wrong token").with_color(a));
-
     ErrorPrint {
         error_basic_infos,
         message: format!("Wrong Token : expected {:?} but got {:?}", expected_tok, got_tok),
-        label,
+        label: Some("This is the wrong token"),
         ..Default::default()
     }
 }
 
 fn print_unexpected_tok_error(error_basic_infos : ErrorBasicInfos, tok : TokenData) -> ErrorPrint {
-    let mut colors = ColorGenerator::new();
-    let a = colors.next();
-    let label = Some(Label::new((error_basic_infos.filename, error_basic_infos.range.clone())).with_message("This is the wrong token").with_color(a));
-
     ErrorPrint {
         error_basic_infos,
         message: format!("Unexpected Token {:?}", tok),
-        label,
+        label: Some("This is the wrong token"),
         ..Default::default()
     }
 }
 
 fn print_type_inference_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, arg_name : &str) -> ErrorPrint<'a> {
-    let mut colors = ColorGenerator::new();
-    let a = colors.next();
-
-    let label = Some(Label::new((error_basic_infos.filename, error_basic_infos.range.clone())).with_message("This argument's type couldn't be deduced from the body of the function").with_color(a));
-
     ErrorPrint {
         error_basic_infos,
         message: format!("Type inference error with the argument {:?}", arg_name),
-        label,
+        label: Some("This argument's type couldn't be deduced from the body of the function"),
         note: Some("Either add a type annotation, or change the body to disambiguate".to_owned()),
     }
 }
 
-fn print_unknown_type_annotation(error_basic_infos : ErrorBasicInfos) -> ErrorPrint {
-    todo!()
+fn print_unknown_type_annotation<'a>(error_basic_infos : ErrorBasicInfos<'a>, type_str : &str) -> ErrorPrint<'a> {
+    ErrorPrint {
+        error_basic_infos,
+        message: format!("Unknown type annotation : {}", type_str),
+        ..Default::default()
+    }
+}
+
+fn print_not_function_type_in_let<'a>(error_basic_infos : ErrorBasicInfos<'a>, name : &str) -> ErrorPrint<'a> {
+    ErrorPrint {
+        error_basic_infos,
+        message: format!("The type for {} is not a function type", name),
+        ..Default::default()
+    }
 }
 
 pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : &str) {
@@ -185,11 +176,15 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
     let range = parser_error.range;
     let filename_str = filename.to_str().unwrap();
 
+    let mut colors = ColorGenerator::new();
+    let color = colors.next();
+
     let error_basic_infos = ErrorBasicInfos {
         error_nb,
         range,
         filename: filename_str,
-        content: content
+        content: content,
+        color
     };
 
     let error_print = match *parser_error.parser_err_data {
@@ -197,8 +192,8 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
         ParserErrData::WrongTok { expected_tok, got_tok } => print_wrong_tok_error(error_basic_infos, expected_tok, got_tok),
         ParserErrData::UnexpectedTok {tok } => print_unexpected_tok_error(error_basic_infos, tok),
         ParserErrData::TypeInferenceErr { arg_name } => print_type_inference_error(error_basic_infos, &arg_name),
-        ParserErrData::UnknownTypeAnnotation {  } => print_unknown_type_annotation(error_basic_infos), // TODO
-        ParserErrData::NotFunctionTypeInAnnotationLet { name } => todo!(),
+        ParserErrData::UnknownTypeAnnotation { type_str } => print_unknown_type_annotation(error_basic_infos, &type_str), // TODO
+        ParserErrData::NotFunctionTypeInAnnotationLet { name } => print_not_function_type_in_let(error_basic_infos, &name),
     };
 
     print_error(error_print);
