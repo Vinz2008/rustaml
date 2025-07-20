@@ -689,16 +689,12 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
     compile_context.module.write_bitcode_to_path(&temp_path_bitcode);
 
 
-    match filename_out {
-        Some(f_out) => {
-            link_exe(f_out,  &temp_path_bitcode);
-            if !keep_temp {
-                std::fs::remove_file(temp_path_bitcode).expect("Couldn't delete bitcode file");
-            }
+    if let Some(f_out) = filename_out {
+        link_exe(f_out,  &temp_path_bitcode);
+        if !keep_temp {
+            std::fs::remove_file(temp_path_bitcode).expect("Couldn't delete bitcode file");
         }
-        None => {}
     }
-
 
     ExitCode::SUCCESS
 }

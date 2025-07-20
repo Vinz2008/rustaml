@@ -1,4 +1,4 @@
-use std::{fmt::format, ops::Range, path::Path};
+use std::{ops::Range, path::Path};
 use levenshtein::levenshtein;
 
 use crate::{ast::{ParserErr, ParserErrData}, lexer::{LexerErr, Operator, TokenData, TokenDataTag}};
@@ -100,7 +100,7 @@ pub fn print_lexer_error(lexer_error : LexerErr, filename : &Path, content : &st
         error_nb,
         range,
         filename: filename_str,
-        content: content,
+        content,
         color
     };
 
@@ -183,7 +183,7 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
         error_nb,
         range,
         filename: filename_str,
-        content: content,
+        content,
         color
     };
 
