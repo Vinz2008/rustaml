@@ -190,7 +190,7 @@ pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<Strin
                     rhs.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)
                 } else {
                     lhs.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)
-                };
+                }.ok()?;
                 debug_println!(rustaml_context.is_debug_print, "other_operand_type : {:#?}", &other_operand_type);
                 //dbg!(&other_operand_type);
                 let operand_type = op.get_operand_type(is_left_var, &other_operand_type);

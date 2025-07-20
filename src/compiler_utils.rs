@@ -39,7 +39,7 @@ pub fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type 
             get_fn_type(llvm_context, ret_llvm, &param_types, false).into()
         },
 
-        // TODO : layout of list
+        // layout of list
         // struct ListNode {
         //      uint8_t type_tag;
         //      void* val; // can be also a i64 or f64 depending on type_tag

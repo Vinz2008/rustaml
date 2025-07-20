@@ -168,6 +168,15 @@ fn print_not_function_type_in_let<'a>(error_basic_infos : ErrorBasicInfos<'a>, n
     }
 }
 
+// TODO : add most near var (need to add another string in the err enum and find it when constructing the error)
+fn print_unknown_var<'a>(error_basic_infos : ErrorBasicInfos<'a>, name: &str) -> ErrorPrint<'a> {
+    ErrorPrint { 
+        error_basic_infos,
+        message: format!("Unknown var {}", name),
+        ..Default::default()  
+    }
+}
+
 pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : &str) {
     
     // println!("Parsing error : {:?}", parser_error);
@@ -191,9 +200,10 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
         ParserErrData::UnexpectedEOF => print_unexpected_eof_error(error_basic_infos),
         ParserErrData::WrongTok { expected_tok, got_tok } => print_wrong_tok_error(error_basic_infos, expected_tok, got_tok),
         ParserErrData::UnexpectedTok {tok } => print_unexpected_tok_error(error_basic_infos, tok),
+        ParserErrData::UnknownVar { name } => print_unknown_var(error_basic_infos, &name),
         ParserErrData::TypeInferenceErr { arg_name } => print_type_inference_error(error_basic_infos, &arg_name),
         ParserErrData::UnknownTypeAnnotation { type_str } => print_unknown_type_annotation(error_basic_infos, &type_str), // TODO
-        ParserErrData::NotFunctionTypeInAnnotationLet { name } => print_not_function_type_in_let(error_basic_infos, &name),
+        ParserErrData::NotFunctionTypeInAnnotationLet { function_name: name } => print_not_function_type_in_let(error_basic_infos, &name),
     };
 
     print_error(error_print);

@@ -1,6 +1,6 @@
 use rustc_hash::FxHashMap;
 use std::{cmp::Ordering, process::ExitCode};
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Display};
 
 use crate::ast::{ASTRef};
 use crate::debug::DebugWithContext;
@@ -182,7 +182,32 @@ impl PartialOrd for Val {
     }
 }
 
+struct ValWrapDisplay<'a> {
+    val : Val,
+    rustaml_context: &'a RustamlContext,
+}
+
+impl Display for ValWrapDisplay<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.val {
+            Val::Integer(i) => write!(f, "{}", i),
+            Val::Float(fl) => write!(f, "{}", fl),
+            Val::Bool(b) => write!(f, "{}", b),
+            Val::String(s) => write!(f, "{}", s.get_str(&self.rustaml_context.str_interner)),
+            Val::List(l) => todo!(), // TODO : pretty print lists
+            Val::Unit => Ok(()),
+        }
+    }
+}
+
 impl Val {
+    fn display<'a>(&self, rustaml_context: &'a RustamlContext) -> ValWrapDisplay<'a> {
+        ValWrapDisplay { 
+            val: self.clone(), 
+            rustaml_context  
+        }
+    }
+
     fn get_type(&self, list_pool: &ListPool) -> Type {
         match self {
             Val::Integer(_) => Type::Integer,
@@ -207,6 +232,17 @@ struct FunctionDef {
     args : Vec<StringRef>,
     body : ASTRef,
     return_type : Type,
+}
+
+impl FunctionDef {
+    fn new(name : StringRef, args : Vec<StringRef>, body : ASTRef, return_type : Type) -> FunctionDef {
+        FunctionDef { 
+            name, 
+            args, 
+            body, 
+            return_type 
+        }
+    }
 }
 
 impl DebugWithContext for FunctionDef {
@@ -343,7 +379,30 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
 
 }
 
+const STD_FUNCTIONS : &[&str] = &[
+    "print"
+];
+
+fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args_val : Vec<Val>) -> Val {
+    match name.get_str(&context.rustaml_context.str_interner) {
+        "print" => {
+            // TODO : verification before when parsing ?
+            assert_eq!(args_val.len(), 1);
+            println!("{}", args_val[0].display(context.rustaml_context));
+            Val::Unit
+        }
+        _ => unreachable!()
+    }
+}
+
 fn interpret_function_call(context: &mut InterpretContext, name : StringRef, args : Vec<ASTRef>) -> Val {
+
+    let args_val = args.iter().map(|e| interpret_node(context, *e)).collect::<Vec<_>>();
+
+
+    if STD_FUNCTIONS.contains(&name.get_str(&context.rustaml_context.str_interner)){
+        return interpret_std_function(context, name, args_val);
+    }
 
     let func_def = context.functions.get(&name).unwrap_or_else(|| panic!("Function {} not found", name.get_str(&context.rustaml_context.str_interner))).clone();
 
@@ -351,7 +410,7 @@ fn interpret_function_call(context: &mut InterpretContext, name : StringRef, arg
         panic!("Invalid args number in function call, expected {}, got {}", func_def.args.len(), args.len());
     }
 
-    let args_val = args.into_iter().map(|e| interpret_node(context, e)).collect::<Vec<_>>();
+    
     
     let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
     for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {

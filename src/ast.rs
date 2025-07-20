@@ -66,7 +66,7 @@ impl ASTPool {
         &self.0[expr.0 as usize]
     }
 
-    fn push(&mut self, node : ASTNode) -> ASTRef {
+    pub fn push(&mut self, node : ASTNode) -> ASTRef {
         let idx = self.0.len();
         self.0.push(node);
         ASTRef(idx.try_into().expect("too many ast nodes in the pool"))
@@ -187,15 +187,15 @@ impl DebugWithContext for Type {
 }
 
 impl ASTNode {
-    pub fn get_type(&self, rustaml_context : &RustamlContext, vars: &FxHashMap<StringRef, Type>) -> Type {
-        match self {
+    pub fn get_type(&self, rustaml_context : &RustamlContext, vars: &FxHashMap<StringRef, Type>) -> Result<Type, ParserErr> {
+        let t = match self {
             ASTNode::Boolean { b: _ } => Type::Bool,
             ASTNode::Integer { nb: _ } => Type::Integer,
             ASTNode::Float { nb : _ } => Type::Float,
             ASTNode::String { str: _ } => Type::Str,
             ASTNode::List { list } => { 
                 let elem_type = match list.first() {
-                    Some(f) => f.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars),
+                    Some(f) => f.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?,
                     None => Type::Any,
                 };
                 Type::List(Box::new(elem_type)) 
@@ -211,13 +211,15 @@ impl ASTNode {
             },
             ASTNode::VarUse { name} => match vars.get(name){
                 Some(t) => t.clone(),
-                None => unreachable!("Unknown var {}", name.get_str(&rustaml_context.str_interner))
+                None => return Err(ParserErr::new(ParserErrData::UnknownVar { name: name.get_str(&rustaml_context.str_interner).to_owned() }, 0..0)), // TODO
              },
-            ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars), // no need for typechecking the two branches because it is done when constructing the IfExpr
-            ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars),
+            ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?, // no need for typechecking the two branches because it is done when constructing the IfExpr
+            ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?,
             ASTNode::TopLevel { nodes: _ } => Type::Unit,
             ASTNode::FunctionDefinition { name: _, args: _, body: _, return_type: _ } => Type::Unit,
-        }
+        };
+
+        Ok(t)
     }
 }
 
@@ -268,6 +270,9 @@ pub enum ParserErrData {
         expected_tok : TokenDataTag,
         got_tok : TokenData,
     },
+    UnknownVar {
+        name : String,
+    },
     UnknownTypeAnnotation {
         type_str : String
     },
@@ -275,7 +280,7 @@ pub enum ParserErrData {
         arg_name: String,
     },
     NotFunctionTypeInAnnotationLet {
-        name: String
+        function_name: String
     }
 }
 
@@ -446,7 +451,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         let function_type_range = function_type_range_start..function_type_range_end;
         let (arg_types, mut return_type) = match function_type {
             Type::Function(a, r) => (a, r),
-            _ => return Err(ParserErr::new(ParserErrData::NotFunctionTypeInAnnotationLet { name: name.get_str(&parser.rustaml_context.str_interner).to_owned() }, function_type_range)), 
+            _ => return Err(ParserErr::new(ParserErrData::NotFunctionTypeInAnnotationLet { function_name: name.get_str(&parser.rustaml_context.str_interner).to_owned() }, function_type_range)), 
         };
 
     
@@ -469,7 +474,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         let body = parse_node(parser)?;
 
         if matches!(return_type.as_ref(), Type::Any){
-            let body_type = body.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars);
+            let body_type = body.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)?;
             return_type = Box::new(body_type);
         }
 
@@ -508,7 +513,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
         let val_node = parse_node(parser)?;
         if var_type.is_none() {
-            var_type = Some(val_node.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars))
+            var_type = Some(val_node.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)?);
         }
 
         parser.vars.insert(name, var_type.unwrap());
@@ -582,7 +587,7 @@ fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Res
 fn parse_if(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let cond_expr = parse_node(parser)?;
 
-    match cond_expr.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars) {
+    match cond_expr.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)? {
         Type::Bool => {},
         t => panic!("Error in type checking : {:?} type passed in if expr", t), // TODO : return a result instead
     }
@@ -821,12 +826,20 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::TopLevel { nodes }))
 }
 
+fn init_std_functions(rustaml_context : &mut RustamlContext) -> FxHashMap<StringRef, Type> {
+    let mut i = |s| rustaml_context.str_interner.intern(s);
+    FxHashMap::from_iter([
+        (i("print"), Type::Function(vec![Type::Any], Box::new(Type::Unit)))
+    ])
+}
+
 pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext) -> Result<(ASTRef, FxHashMap<StringRef, Type>), ParserErr> {
     let (root_node, vars) = { 
+        let vars = init_std_functions(rustaml_context);
         let mut parser = Parser { 
             tokens, 
             pos: 0,
-            vars: FxHashMap::default(),
+            vars,
             precedences: init_precedences(),
             rustaml_context,
         };
