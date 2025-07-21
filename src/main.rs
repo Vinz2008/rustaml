@@ -63,6 +63,9 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         keep_temp : bool,
 
+        #[arg(short = 'O', value_parser = clap::value_parser!(u8).range(0..=3), num_args(0..=1))]
+        optimization_level : Option<u8>,
+
         #[arg(long, short = 'd', default_value_t = false)]
         debug_print : bool,
     },
@@ -136,7 +139,7 @@ fn main() -> ExitCode {
 
     let (dump_inference, debug_print) = match args.command {
         Some(Commands::Check { filename: _, dump_inference, debug_print }) => (dump_inference, debug_print),
-        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, debug_print }) => {
+        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, debug_print }) => {
             (false, debug_print)
         },
         Some(Commands::Interpret { filename: _, debug_print }) => {
@@ -157,13 +160,13 @@ fn main() -> ExitCode {
 
             interpreter::interpret(ast, &mut rustaml_context)
         }
-        Commands::Compile { filename, filename_out, keep_temp, debug_print: _ } => {
+        Commands::Compile { filename, filename_out, keep_temp, optimization_level, debug_print: _ } => {
             let ast_and_vars = get_ast(&filename, &mut rustaml_context);
             let (ast, vars) = match ast_and_vars {
                 Ok(a_v) => a_v,
                 Err(e) => return e,
             };
-            compile(ast, vars, &rustaml_context, &filename, filename_out.as_deref(), keep_temp)
+            compile(ast, vars, &rustaml_context, &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp)
         },
 
         Commands::Check { filename, dump_inference: _, debug_print: _ } => {

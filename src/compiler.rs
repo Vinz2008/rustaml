@@ -1,6 +1,6 @@
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, ExitCode, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_var, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val}, debug::DebugWrapContext, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
-use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
+use inkwell::{attributes::Attribute, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
@@ -531,41 +531,15 @@ fn get_main_function<'llvm_ctx>(llvm_context : &'llvm_ctx Context, module : &Mod
     main
 }
 
-
-fn run_passes_on(module: &Module, target_machine : &TargetMachine) {
-    // TODO : this probably runs these in any case, ignoring optimization level
-    // either :
-    // - remove optimizations levels, because optimizations can be very important for basic usage, ex : tail call elimination
-    // - add ifs for passes or use default<Onb> (see run_passes doc)
-
-    let passes: &[&str] = &[
-        // inkwell default
-        "instcombine",
-        "reassociate",
-        "gvn",
-        "simplifycfg",
-        // "basic-aa",
-        "mem2reg",
-
-        // TODO : is it necessary ?
-        "loop-vectorize", 
-        "slp-vectorizer",
-        
-        // added by me, very important (?)
-        "tailcallelim",
-        // add inlining ?
-    ];
-
-    
-    module
-        .run_passes(passes.join(",").as_str(), target_machine, PassBuilderOptions::create())
-        .unwrap();
+fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : OptimizationLevel) {
+    let passes_str = format!("default<O{}>", opt_level as u8);
+    module.run_passes(&passes_str, target_machine, PassBuilderOptions::create()).unwrap();
 }
 
 // TODO : instead install file in filesystem ?
 const STD_C_CONTENT: &str = include_str!("../std.c");
 
-fn link_exe(filename_out : &Path, bitcode_file : &Path){
+fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : OptimizationLevel){
     // use cc ?
     // TODO : use lld (https://github.com/mun-lang/lld-rs) for linking instead ?
     // TODO : use libclang ? (clang-rs ? https://github.com/llvm/llvm-project/blob/main/clang/tools/driver/cc1_main.cpp#L85 ?)
@@ -573,16 +547,24 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path){
     let out_std_path = pathbuf![&std::env::temp_dir(), "std.bc"];
     let out_std_path_str = out_std_path.as_os_str();
 
+    // TODO : pass optimization level to this function
     let mut clang_std = Command::new("clang").arg("-x").arg("c").arg("-emit-llvm").arg("-O3").arg("-c").arg("-").arg("-o").arg(out_std_path_str).stdin(Stdio::piped()).spawn().expect("compiling std failed");
     clang_std.stdin.as_mut().unwrap().write_all(STD_C_CONTENT.as_bytes()).unwrap();
     clang_std.wait().unwrap();
-    if !Command::new("clang").arg("-o").arg(filename_out).arg(out_std_path_str).arg(bitcode_file).spawn().expect("linker failed").wait().unwrap().success() {
+
+    let mut link_cmd = Command::new("clang");
+
+    if !matches!(opt_level, OptimizationLevel::None) {
+        link_cmd.arg("-flto");
+    }
+
+    if !link_cmd.arg("-o").arg(filename_out).arg(out_std_path_str).arg(bitcode_file).spawn().expect("linker failed").wait().unwrap().success() {
         return;
     }
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
 }
 
-pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &RustamlContext, filename : &Path, filename_out : Option<&Path>, keep_temp : bool) -> ExitCode{
+pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool) -> ExitCode{
     let context = Context::create();
     let builder = context.create_builder();
 
@@ -594,7 +576,13 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
 
     let target = Target::from_triple(&target_triple).unwrap();
 
-    let optimization_level = OptimizationLevel::Default;
+    let optimization_level = match optimization_level {
+        0 => OptimizationLevel::None,
+        1 => OptimizationLevel::Less,
+        2 => OptimizationLevel::Default,
+        3 => OptimizationLevel::Aggressive,
+        _ => OptimizationLevel::Default,
+    };
 
     let target_machine = target
         .create_target_machine(
@@ -676,22 +664,19 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
     
     let temp_path_bitcode = pathbuf![&temp_path, &format!("{}.bc", &filename_with_hash)];
     
-
+    // TODO : readd this for optimizations
+    run_passes_on(compile_context.module, &target_machine, optimization_level);
     
     if keep_temp {
         let temp_path_ir = pathbuf![&temp_path, &format!("{}.ll", &filename_with_hash)];
         compile_context.module.print_to_file(&temp_path_ir).expect("Couldn't write llvm ir file");
     }
-
-
-    // TODO : readd this for optimizations
-    run_passes_on(compile_context.module, &target_machine);
     
     compile_context.module.write_bitcode_to_path(&temp_path_bitcode);
 
 
     if let Some(f_out) = filename_out {
-        link_exe(f_out,  &temp_path_bitcode);
+        link_exe(f_out,  &temp_path_bitcode, optimization_level);
         if !keep_temp {
             std::fs::remove_file(temp_path_bitcode).expect("Couldn't delete bitcode file");
         }
