@@ -187,6 +187,7 @@ impl DebugWithContext for Type {
 }
 
 impl ASTNode {
+    // TODO : return a GetTypeErr instead of a ParserErr that can be coerced to other error types
     pub fn get_type(&self, rustaml_context : &RustamlContext, vars: &FxHashMap<StringRef, Type>) -> Result<Type, ParserErr> {
         let t = match self {
             ASTNode::Boolean { b: _ } => Type::Bool,

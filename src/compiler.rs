@@ -237,12 +237,13 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     let name = format!("{:?}", op).to_lowercase();
     let lhs_val = compile_expr(compile_context, lhs);
     let rhs_val = compile_expr(compile_context, rhs);
+    // TODO : add better error handling to remove unwraps for get_type calls
     match op.get_type() {
         Type::Integer => compile_binop_nb(compile_context, op, lhs_val, rhs_val, &name),
-        Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types), &name).into(),
+        Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap(), &name).into(),
         Type::Str => compile_binop_str(compile_context, op, lhs_val, rhs_val, &name),
         // here do not trust the -e (it is Type::Any), use get_type on the head
-        Type::List(_e) => compile_binop_list(compile_context, op, lhs_val, rhs_val, /*e.as_ref()*/ &lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types)),
+        Type::List(_e) => compile_binop_list(compile_context, op, lhs_val, rhs_val, /*e.as_ref()*/ &lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap()),
         _ => unreachable!(),
     }
 }
@@ -273,7 +274,7 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
     // TODO : optimize this by keeping the last node and just appending to it to not have to go through the list each time by doing append ?
 
     let list_element_type = match list.first() {
-        Some(f) => f.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types),
+        Some(f) => f.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap(),
         None => Type::Integer// empty list, so type will not be used, dummy time
     };
 
@@ -396,12 +397,12 @@ fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
 fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, match_node : ASTRef, matched_expr : ASTRef, patterns : &[(Pattern, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
     
     let matched_val = compile_expr(compile_context, matched_expr);
-    let matched_val_type = matched_expr.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types);
+    let matched_val_type = matched_expr.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
     let function = get_current_function(compile_context.builder);
 
 
     // TODO : instead of calling get_type here, get all the types and store them in the nodes during parsing ?
-    let match_type = match_node.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types);
+    let match_type = match_node.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
     let match_type_llvm: AnyTypeEnum = get_llvm_type(compile_context.context, &match_type);
 
     let mut match_bbs = Vec::new();
