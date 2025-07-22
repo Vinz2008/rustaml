@@ -194,7 +194,7 @@ impl Display for ValWrapDisplay<'_> {
             Val::Float(fl) => write!(f, "{}", fl),
             Val::Bool(b) => write!(f, "{}", b),
             Val::String(s) => write!(f, "{}", s.get_str(&self.rustaml_context.str_interner)),
-            Val::List(l) => todo!(), // TODO : pretty print lists
+            Val::List(_l) => todo!(), // TODO : pretty print lists
             Val::Unit => Ok(()),
         }
     }
@@ -234,7 +234,7 @@ struct FunctionDef {
     return_type : Type,
 }
 
-impl FunctionDef {
+/*impl FunctionDef {
     fn new(name : StringRef, args : Vec<StringRef>, body : ASTRef, return_type : Type) -> FunctionDef {
         FunctionDef { 
             name, 
@@ -243,7 +243,7 @@ impl FunctionDef {
             return_type 
         }
     }
-}
+}*/
 
 impl DebugWithContext for FunctionDef {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
