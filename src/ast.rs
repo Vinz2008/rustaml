@@ -255,7 +255,7 @@ pub enum Associativity {
 pub struct Parser<'context> {
     tokens: Vec<Token>,
     pos: usize,
-    // optional types because of type inference of return values of functions that need to be inserted for recursive functions (TODO ?)
+    // TODO : replace vars with global vars, and add in each function, a local var table
     pub vars : FxHashMap<StringRef, Type>, // include functions (which are just vars with function types)
     precedences : FxHashMap<Operator, (i32, Associativity)>,
     pub rustaml_context : &'context mut RustamlContext,
