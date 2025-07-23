@@ -12,6 +12,10 @@ pub enum Operator {
     Minus,
     Mult,
     Div,
+    PlusFloat,
+    MinusFloat,
+    MultFloat,
+    DivFloat,
     Equal,
     IsEqual,
     IsNotEqual,
@@ -27,10 +31,12 @@ impl Operator {
     pub const OPERATORS: &'static [&'static str] = &["+", "-", "*", "/", "=", "==", ">=", "<="];
     pub fn get_type(&self) -> Type {
         match self {
+            Self::Plus | Self::Minus | Self::Mult | Self::Div => Type::Integer,
+            Self::PlusFloat | Self::MinusFloat | Self::MultFloat | Self::DivFloat => Type::Float,
+            Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => Type::Bool,
             Self::StrAppend => Type::Str,
             Self::ListAppend => Type::List(Box::new(Type::Any)),
-            Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => Type::Bool,
-            _ => Type::Integer,
+            Self::Equal => unreachable!()
         }
     }
 
@@ -49,7 +55,7 @@ impl Operator {
     }
 
     fn is_char_op(c : char) -> bool {
-        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^' | ':' | '!')
+        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^' | ':' | '!' | '.')
     }
 
     pub fn str_to_op(s: &str, range : &Range<usize>) -> Result<Operator, LexerErr> {
@@ -67,7 +73,11 @@ impl Operator {
             "<" => Operator::Inferior,
             "^" => Operator::StrAppend,
             "::" => Operator::ListAppend,
-            _ => return Err(LexerErr::new(LexerErrData::InvalidOp(Box::new(s.to_owned())), range.clone())),
+            "+." => Operator::PlusFloat,
+            "-." => Operator::MinusFloat,
+            "*." => Operator::MultFloat,
+            "/." => Operator::DivFloat,
+            _ => return Err(LexerErr::new(LexerErrData::InvalidOp(s.to_owned()), range.clone())),
         };
         Ok(op)
     }
@@ -99,7 +109,7 @@ pub enum TokenData {
     Arrow, // ->
     Pipe, // |
     EndOfExpr, // ;;
-    Range, // ..
+    Range(bool), // .., bool is if inclusive
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -122,8 +132,8 @@ struct Lexer {
 
 #[derive(Debug, Tag)]
 pub enum LexerErrData {
-    NumberParsingFailure(Box<Vec<char>>),
-    InvalidOp(Box<String>),
+    NumberParsingFailure(Vec<char>),
+    InvalidOp(String),
     UnexpectedChar(char),
     UnexpectedEOF,
 }
@@ -222,7 +232,7 @@ fn lex_nb(lexer: &mut Lexer) -> Result<Token, LexerErr> {
         let nb = str::parse::<f64>(str.as_str());
         let nb = match nb {
             Ok(n) => n,
-            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(Box::new(buf)), range)),
+            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(buf), range)),
         };
 
         //dbg!(nb);
@@ -234,7 +244,7 @@ fn lex_nb(lexer: &mut Lexer) -> Result<Token, LexerErr> {
 
         let nb = match nb {
             Ok(n) => n,
-            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(Box::new(buf)), range)),
+            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(buf), range)),
         };
 
         //dbg!(nb);
@@ -282,13 +292,10 @@ fn handle_comment(lexer: &mut Lexer){
 
 // optional because it can be a comment
 fn lex_op(lexer: &mut Lexer) -> Result<Option<Token>, LexerErr> {
-    fn continue_op(c: char) -> bool {
-        Operator::is_char_op(c)
-    }
 
     let start_pos = lexer.pos - 1;
 
-    while lexer.pos < lexer.content.len() && continue_op(lexer.current_char().unwrap()) {
+    while lexer.pos < lexer.content.len() && Operator::is_char_op(lexer.current_char().unwrap()) {
         lexer.read_char();
     }
 
@@ -307,6 +314,8 @@ fn lex_op(lexer: &mut Lexer) -> Result<Option<Token>, LexerErr> {
             return Ok(None)
         },
         ":" => TokenData::Colon,
+        ".." => TokenData::Range(false),
+        "=.." => TokenData::Range(true),
         _ => TokenData::Op(Operator::str_to_op(&op_str, &range)?)
     };
 
@@ -350,12 +359,12 @@ pub fn lex(content: Vec<char>, is_debug_print : bool) -> Result<Vec<Token>, Lexe
             '[' => Some(Token::new(TokenData::ArrayOpen, range)),
             ']' => Some(Token::new(TokenData::ArrayClose, range)),
             ',' => Some(Token::new(TokenData::Comma, range)),
-            '.' => {
+            /*'.' => {
                 match lexer.read_char() {
                     Some('.') => Some(Token::new(TokenData::Range, lexer.pos-2..lexer.pos-1)),
                     _ => panic!("Not complete \"..\" token"),
                 }
-            },
+            },*/
             ';' => {
                 match lexer.read_char(){
                     Some(';') => Some(Token::new(TokenData::EndOfExpr, lexer.pos-2..lexer.pos-1)),

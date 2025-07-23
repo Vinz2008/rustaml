@@ -271,15 +271,15 @@ impl<'context> Debug for InterpretContext<'context> {
 
 // TODO : gc allocator (https://crates.io/crates/gc)
 
-fn interpret_binop_nb(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+fn interpret_binop_int(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let lhs_nb = match lhs_val {
         Val::Integer(nb) => nb,
-        _ => panic!("Expected number in left-side of binary operation"),
+        _ => panic!("Expected integer in left-side of binary operation"),
     };
 
     let rhs_nb = match rhs_val {
         Val::Integer(nb) => nb,
-        _ => panic!("Expected number in right-side of binary operation"),
+        _ => panic!("Expected integer in right-side of binary operation"),
     };
     let res_nb = match op {
         Operator::Plus => {
@@ -299,6 +299,37 @@ fn interpret_binop_nb(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     };
 
     Val::Integer(res_nb)
+}
+
+fn interpret_binop_float(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+    let lhs_nb = match lhs_val {
+        Val::Float(nb) => nb,
+        _ => panic!("Expected float in left-side of binary operation"),
+    };
+
+    let rhs_nb = match rhs_val {
+        Val::Float(nb) => nb,
+        _ => panic!("Expected float in right-side of binary operation"),
+    };
+
+    let res_nb = match op {
+        Operator::PlusFloat => {
+            lhs_nb + rhs_nb
+        },
+        Operator::MinusFloat => {
+            lhs_nb - rhs_nb
+        },
+        Operator::MultFloat => {
+            lhs_nb * rhs_nb
+        },
+        Operator::DivFloat => {
+            // TODO : check if 0, have a special error message in this case (return a result), then use unchecked_div to remove the panic check in the assembly 
+            lhs_nb / rhs_nb
+        },
+        _ => unreachable!(),
+    };
+
+    Val::Float(res_nb)
 }
 
 fn interpret_binop_bool(list_pool:  &ListPool, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
@@ -370,7 +401,8 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
     let rhs_val = interpret_node(context, rhs);
 
     match op.get_type() {
-        Type::Integer => interpret_binop_nb(op, lhs_val, rhs_val),
+        Type::Integer => interpret_binop_int(op, lhs_val, rhs_val),
+        Type::Float => interpret_binop_float(op, lhs_val, rhs_val),
         Type::Bool => interpret_binop_bool(&context.rustaml_context.list_node_pool, op, lhs_val, rhs_val),
         Type::Str => interpret_binop_str(&mut context.rustaml_context.str_interner, op, lhs_val, rhs_val),
         Type::List(_) => interpret_binop_list(&mut context.rustaml_context.list_node_pool, op, lhs_val, rhs_val),

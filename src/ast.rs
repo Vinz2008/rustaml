@@ -238,8 +238,12 @@ fn init_precedences() -> FxHashMap<Operator, (i32, Associativity)> {
         (Operator::InferiorOrEqual, (10, Associativity::Left)),
         (Operator::Plus, (20, Associativity::Left)),
         (Operator::Minus, (20, Associativity::Left)),
+        (Operator::PlusFloat, (20, Associativity::Left)),
+        (Operator::MinusFloat, (20, Associativity::Left)),
         (Operator::Mult, (30, Associativity::Left)),
         (Operator::Div, (30, Associativity::Left)),
+        (Operator::MultFloat, (30, Associativity::Left)),
+        (Operator::DivFloat, (30, Associativity::Left)),
         (Operator::StrAppend, (5, Associativity::Right)),
         (Operator::ListAppend, (6, Associativity::Right)),
     ])
@@ -650,12 +654,8 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
             
         },
         TokenData::Integer(nb) => { 
-            if matches!(parser.current_tok_data(), Some(TokenData::Range) | Some(TokenData::Op(Operator::Equal))) {
-                let inclusivity = matches!(parser.current_tok_data(), Some(TokenData::Op(Operator::Equal)));
+            if let Some(&TokenData::Range(inclusivity)) = parser.current_tok_data() {
                 parser.eat_tok(None)?;
-                if inclusivity {
-                    parser.eat_tok(Some(TokenDataTag::Range))?;
-                }
                 let end_tok = parser.eat_tok(Some(TokenDataTag::Integer))?;
                 let end_nb = match end_tok.tok_data {
                     TokenData::Integer(end) => end,
@@ -769,19 +769,10 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTRef, min_precedence: i32) -> Re
                 Some(_) | None => break,
             };
             let (precedence, associativity) = *parser.precedences.get(new_operator).unwrap();
-            /*if precedence <= first_precedence {
-                break;
-            }*/
 
             if precedence < first_precedence || (precedence == first_precedence && matches!(associativity, Associativity::Left)){
                 break;
             }
-
-            /*let new_precedence = if precedence > first_precedence {
-                first_precedence + 1
-            } else {
-                first_precedence
-            };*/
 
             let new_precedence = match associativity {
                 Associativity::Left => precedence + 1,

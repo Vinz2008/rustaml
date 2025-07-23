@@ -105,8 +105,8 @@ pub fn print_lexer_error(lexer_error : LexerErr, filename : &Path, content : &st
     };
 
     let error_print = match *lexer_error.lexer_err_data {
-        LexerErrData::NumberParsingFailure(b) => print_number_parsing_failure(error_basic_infos, *b),
-        LexerErrData::InvalidOp(s) => print_invalid_op_error(error_basic_infos, *s),
+        LexerErrData::NumberParsingFailure(b) => print_number_parsing_failure(error_basic_infos, b),
+        LexerErrData::InvalidOp(s) => print_invalid_op_error(error_basic_infos, s),
         LexerErrData::UnexpectedEOF => print_unexpected_eof_error(error_basic_infos),
         LexerErrData::UnexpectedChar(c) => print_unexpected_char_error(error_basic_infos, c),
     };
