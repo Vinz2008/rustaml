@@ -1,6 +1,6 @@
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, ExitCode, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_var, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val}, debug::DebugWrapContext, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
-use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
+use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
@@ -132,7 +132,7 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
     }.into()
 }
 
-fn compile_binop_nb<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, name : &str) -> AnyValueEnum<'llvm_ctx>{
+fn compile_binop_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, name : &str) -> IntValue<'llvm_ctx>{
     
     match (lhs_val, rhs_val){
         (AnyValueEnum::IntValue(i),  AnyValueEnum::IntValue(i2)) => {
@@ -145,18 +145,25 @@ fn compile_binop_nb<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
                 _ => unreachable!(),
             }.into()
         }
+        _ => panic!("Invalid type for integer op {:?}", op),
+    }
+    
+}
+
+fn compile_binop_float<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, name : &str) -> FloatValue<'llvm_ctx>{
+    match (lhs_val, rhs_val){
         (AnyValueEnum::FloatValue(f),  AnyValueEnum::FloatValue(f2)) => {
             match op {
-                Operator::Plus => compile_context.builder.build_float_add(f, f2, name).unwrap(),
-                Operator::Minus => compile_context.builder.build_float_sub(f, f2, name).unwrap(),
-                Operator::Mult => compile_context.builder.build_float_mul(f, f2, name).unwrap(),
-                Operator::Div => compile_context.builder.build_float_div(f, f2, name).unwrap(),
+                Operator::PlusFloat => compile_context.builder.build_float_add(f, f2, name).unwrap(),
+                Operator::MinusFloat => compile_context.builder.build_float_sub(f, f2, name).unwrap(),
+                Operator::MultFloat => compile_context.builder.build_float_mul(f, f2, name).unwrap(),
+                Operator::DivFloat => compile_context.builder.build_float_div(f, f2, name).unwrap(),
                 _ => unreachable!(),
             }.into()
         },
-        _ => panic!("Invalid type for nb op {:?}", op),
+
+        _ => panic!("Invalid type for float op {:?}", op),
     }
-    
 }
 
 // TODO : replace most of AnyValueEnum with BasicValueEnum ?
@@ -239,7 +246,8 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     let rhs_val = compile_expr(compile_context, rhs);
     // TODO : add better error handling to remove unwraps for get_type calls
     match op.get_type() {
-        Type::Integer => compile_binop_nb(compile_context, op, lhs_val, rhs_val, &name),
+        Type::Integer => compile_binop_int(compile_context, op, lhs_val, rhs_val, &name).into(),
+        Type::Float => compile_binop_float(compile_context, op, lhs_val, rhs_val, &name).into(),
         Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap(), &name).into(),
         Type::Str => compile_binop_str(compile_context, op, lhs_val, rhs_val, &name),
         // here do not trust the -e (it is Type::Any), use get_type on the head
