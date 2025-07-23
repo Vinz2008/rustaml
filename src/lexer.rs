@@ -136,6 +136,7 @@ pub enum LexerErrData {
     InvalidOp(String),
     UnexpectedChar(char),
     UnexpectedEOF,
+    NotCompleteEndOfExpr,
 }
 
 
@@ -359,16 +360,10 @@ pub fn lex(content: Vec<char>, is_debug_print : bool) -> Result<Vec<Token>, Lexe
             '[' => Some(Token::new(TokenData::ArrayOpen, range)),
             ']' => Some(Token::new(TokenData::ArrayClose, range)),
             ',' => Some(Token::new(TokenData::Comma, range)),
-            /*'.' => {
-                match lexer.read_char() {
-                    Some('.') => Some(Token::new(TokenData::Range, lexer.pos-2..lexer.pos-1)),
-                    _ => panic!("Not complete \"..\" token"),
-                }
-            },*/
             ';' => {
                 match lexer.read_char(){
                     Some(';') => Some(Token::new(TokenData::EndOfExpr, lexer.pos-2..lexer.pos-1)),
-                    _ => panic!("Not complete \";;\" token"),
+                    _ => return Err(LexerErr::new(LexerErrData::NotCompleteEndOfExpr, lexer.pos-1..lexer.pos-1)),
                 }
             },
             '|' => Some(Token::new(TokenData::Pipe, range)),

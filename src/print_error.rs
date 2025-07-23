@@ -86,6 +86,16 @@ fn print_unexpected_char_error(error_basic_infos : ErrorBasicInfos, c : char) ->
     }
 }
 
+fn print_not_complete_end_of_expr(error_basic_infos : ErrorBasicInfos) -> ErrorPrint {
+    ErrorPrint { 
+        error_basic_infos, 
+        message: "Not complete end of expression token \";;\"".to_owned(),
+        label: Some("This is where the character is missing"),
+        note: Some("Just add a ';' to fix this error".to_owned()),
+        ..Default::default()
+    }
+}
+
 pub fn print_lexer_error(lexer_error : LexerErr, filename : &Path, content : &str) {
     // println!("Parsing error : {:?}", parser_error);
 
@@ -109,6 +119,7 @@ pub fn print_lexer_error(lexer_error : LexerErr, filename : &Path, content : &st
         LexerErrData::InvalidOp(s) => print_invalid_op_error(error_basic_infos, s),
         LexerErrData::UnexpectedEOF => print_unexpected_eof_error(error_basic_infos),
         LexerErrData::UnexpectedChar(c) => print_unexpected_char_error(error_basic_infos, c),
+        LexerErrData::NotCompleteEndOfExpr => print_not_complete_end_of_expr(error_basic_infos),
     };
 
     print_error(error_print);
@@ -205,6 +216,8 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
         ParserErrData::UnknownTypeAnnotation { type_str } => print_unknown_type_annotation(error_basic_infos, &type_str), // TODO
         ParserErrData::NotFunctionTypeInAnnotationLet { function_name: name } => print_not_function_type_in_let(error_basic_infos, &name),
     };
+
+    assert!((matches!(error_print.note,  Some(_)) && matches!(error_print.label,  Some(_))) || (matches!(error_print.note, None) && matches!(error_print.label, None)));
 
     print_error(error_print);
 }
