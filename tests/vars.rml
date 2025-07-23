@@ -1,0 +1,10 @@
+let a = 2 ;;
+
+let f arg = let b = 2 in b + arg ;;
+
+// let c = b ;;
+
+let f2 arg2 = let a = 3 in a + arg2 ;;
+
+
+let d = f2 0 ;;
