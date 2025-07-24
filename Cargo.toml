@@ -20,9 +20,10 @@ cfg-if = "1.0.1"
 [profile.release]
 lto = "fat"
 panic = "abort"
-#strip = "debuginfo"
-debug = "full"
+strip = "debuginfo"
+#debug = "full"
 
 [features]
 native = ["dep:inkwell", "dep:pathbuf"]
-human_panic = ["dep:human-panic"]
+human-panic = ["dep:human-panic"]
+gc-test = []

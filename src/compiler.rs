@@ -124,7 +124,7 @@ fn compile_if<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>
 }
 
 fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, args: &[ASTRef]) -> AnyValueEnum<'llvm_ctx>{
-    let args_vals = args.iter().map(|a| compile_expr(compile_context, *a).try_into().unwrap()).collect::<Vec<BasicMetadataValueEnum>>();
+    let args_vals = args.iter().map(|&a| compile_expr(compile_context, a).try_into().unwrap()).collect::<Vec<BasicMetadataValueEnum>>();
     let ret = compile_context.builder.build_call(*compile_context.functions.get(&name).unwrap(), args_vals.as_slice(), name.get_str(&compile_context.rustaml_context.str_interner)).unwrap().try_as_basic_value();
     match ret {
         Either::Left(l) => l,
@@ -265,8 +265,8 @@ fn compile_var_use<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm
     let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("Unknown variable {:?}", name.get_str(&compile_context.rustaml_context.str_interner)));
     let load_type = get_llvm_type(compile_context.context, var_type);
     let load_basic_type = TryInto::<BasicTypeEnum>::try_into(load_type).unwrap();
-    let ptr = compile_context.var_vals.get(&name).unwrap();
-    compile_context.builder.build_load(load_basic_type, *ptr, name.get_str(&compile_context.rustaml_context.str_interner)).unwrap().into()
+    let ptr = *compile_context.var_vals.get(&name).unwrap();
+    compile_context.builder.build_load(load_basic_type, ptr, name.get_str(&compile_context.rustaml_context.str_interner)).unwrap().into()
 }
 
 fn create_list_append_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : PointerValue<'llvm_ctx>, type_tag_val : IntValue<'llvm_ctx>, val : AnyValueEnum<'llvm_ctx> ) -> PointerValue<'llvm_ctx> {
@@ -295,8 +295,8 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
 
     let type_tag_val = get_type_tag_val(compile_context.context, &list_element_type);
 
-    for e in list {
-        let val = compile_expr(compile_context, *e);
+    for &e in list {
+        let val = compile_expr(compile_context, e);
         let node_val = create_list_append_call(compile_context, current_node, type_tag_val, val);
 
         current_node = node_val;

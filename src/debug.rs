@@ -103,6 +103,12 @@ impl<T> DebugWithContext for &'_ T where T: DebugWithContext {
     }
 }
 
+impl<T> DebugWithContext for &'_ mut T where T: DebugWithContext {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
+        (**self).fmt_with_context(f, rustaml_context)
+    }
+}
+
 #[macro_export]
 macro_rules! debug_println {
     ($is_debug_print:expr) => {

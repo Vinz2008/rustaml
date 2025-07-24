@@ -752,7 +752,7 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTRef, min_precedence: i32) -> Re
     while parser.has_tokens_left() {
         let current_tok_data = parser.current_tok_data();
         let operator = match current_tok_data {
-            Some(TokenData::Op(op)) => *op,
+            Some(&TokenData::Op(op)) => op,
             Some(_) | None => break,
         };
         let (first_precedence, _) = *parser.precedences.get(&operator).unwrap();

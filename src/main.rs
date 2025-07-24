@@ -23,6 +23,7 @@ mod string_intern;
 mod print_error;
 mod rustaml;
 mod debug;
+mod gc;
 
 use cfg_if::cfg_if;
 

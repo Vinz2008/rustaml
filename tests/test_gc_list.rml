@@ -1,0 +1,15 @@
+let big_list n : int -> list[int] = 
+  if n == 0 then []
+  else n :: big_list (n - 1) ;;
+
+// let list = big_list 10 ;;
+
+
+let test = let big_list_temp = big_list 100 in 3 ;;
+
+// useless code to have the gc run when the feature gc-test is enabled
+let a = 4 ;;
+
+let b = 5 ;;
+
+let test = big_list 50 ;;

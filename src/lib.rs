@@ -18,6 +18,7 @@ pub mod type_inference_debug;
 pub mod string_intern;
 pub mod print_error;
 pub mod debug;
+pub mod gc;
 
 
 cfg_if! {
