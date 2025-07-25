@@ -44,7 +44,7 @@ impl ListPool {
 
         let freed_node = match freed_node {
             Some(n) => n,
-            None => return,
+            None => panic!("gc tried to free a None list node"),
         };
         
         // TODO : drop internal vals ? (would need to have a free function on vals)
@@ -123,9 +123,13 @@ impl DebugWithContext for ListPool {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub struct ListRef(pub u32);
+pub struct ListRef(u32);
 
 impl ListRef {
+    pub unsafe fn new_unchecked(idx : u32) -> ListRef {
+        ListRef(idx)
+    }
+
     pub fn get(self, list_pool : &ListPool) -> &List {
         list_pool.get(self)
     }
@@ -159,15 +163,6 @@ impl DebugWithContext for ListRef {
 pub enum List {
     None,
     Node(Val, ListRef)
-}
-
-impl Debug for List {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::None => write!(f, "None"),
-            Self::Node(arg0, arg1) => f.debug_tuple("Node").field(&"value").field(&arg1.0).finish(),
-        }
-    }
 }
 
 
@@ -488,7 +483,7 @@ fn interpret_binop_list(list_pool : &mut ListPool, is_debug : bool, op : Operato
 
     let rhs_list = match rhs_val {
         Val::List(l) => l,
-        _ => panic!("Expected list in right-side of binary operation"),
+        _ => panic!("Expected list in right-side of binary operation, got val of type {:?}", rhs_type),
     };
 
     let rhs_elem_type = match rhs_type {

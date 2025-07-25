@@ -353,7 +353,7 @@ fn parse_float(parser: &mut Parser, nb: f64) -> ASTRef {
 }
 
 fn parse_string(parser: &mut Parser, buf : Vec<char>) -> ASTRef {
-    parser.rustaml_context.ast_pool.push(ASTNode::String { str: parser.rustaml_context.str_interner.intern(&buf.iter().collect::<String>()) })
+    parser.rustaml_context.ast_pool.push(ASTNode::String { str: parser.rustaml_context.str_interner.intern_compiler(&buf.iter().collect::<String>()) })
 }
 
 
@@ -421,7 +421,7 @@ fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
 fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let name_tok = parser.eat_tok(Some(TokenDataTag::Identifier))?;
     let name = match name_tok.tok_data {
-        TokenData::Identifier(s) => parser.rustaml_context.str_interner.intern(&s.iter().collect::<String>()),
+        TokenData::Identifier(s) => parser.rustaml_context.str_interner.intern_compiler(&s.iter().collect::<String>()),
         _ => unreachable!(),
     };
     let node = if matches!(parser.current_tok_data(), Some(TokenData::Identifier(_))) {
@@ -462,7 +462,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     
         parser.vars.insert(name,  Type::Function(arg_types.clone(), return_type.clone()));
 
-        let mut args = arg_names.into_iter().zip(arg_types.clone()).map(|x| Arg { name: parser.rustaml_context.str_interner.intern(&x.0), arg_type: x.1 }).collect::<Vec<Arg>>();
+        let mut args = arg_names.into_iter().zip(arg_types.clone()).map(|x| Arg { name: parser.rustaml_context.str_interner.intern_compiler(&x.0), arg_type: x.1 }).collect::<Vec<Arg>>();
 
         for Arg { name, arg_type} in &args {
             parser.vars.insert(*name, arg_type.clone());
@@ -574,7 +574,7 @@ fn parse_function_call(parser: &mut Parser, function_name : StringRef) -> Result
 }
 
 fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Result<ASTRef, ParserErr> {
-    let identifier = parser.rustaml_context.str_interner.intern(&identifier_buf.iter().collect::<String>());
+    let identifier = parser.rustaml_context.str_interner.intern_compiler(&identifier_buf.iter().collect::<String>());
     let is_function = match parser.vars.get(&identifier) {
         Some(t) => matches!(t, Type::Function(_, _)),
         None => false, // no error because there are variables that are created in match that are not accounted for in vars (TODO !!!)
@@ -643,12 +643,12 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
 
                 let head = buf.iter().collect::<String>();
                 let tail_pattern = parse_pattern(parser)?;
-                Pattern::ListDestructure(parser.rustaml_context.str_interner.intern(&head), Box::new(tail_pattern))
+                Pattern::ListDestructure(parser.rustaml_context.str_interner.intern_compiler(&head), Box::new(tail_pattern))
             } else {
                 let s = buf.iter().collect::<String>();
                 match s.as_str() {
                     "_" => Pattern::Underscore,
-                    s_ref => Pattern::VarName(parser.rustaml_context.str_interner.intern(s_ref)),
+                    s_ref => Pattern::VarName(parser.rustaml_context.str_interner.intern_compiler(s_ref)),
                 }
             }
             
@@ -668,7 +668,7 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
             } 
         },
         TokenData::Float(nb) => Pattern::Float(nb),
-        TokenData::String(s) => Pattern::String(parser.rustaml_context.str_interner.intern(&s.iter().collect::<String>())),
+        TokenData::String(s) => Pattern::String(parser.rustaml_context.str_interner.intern_compiler(&s.iter().collect::<String>())),
         TokenData::ArrayOpen => {
             let elems = parse_list_form(parser, parse_pattern)?;
 
@@ -819,7 +819,7 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 }
 
 fn init_std_functions(rustaml_context : &mut RustamlContext) -> FxHashMap<StringRef, Type> {
-    let mut i = |s| rustaml_context.str_interner.intern(s);
+    let mut i = |s| rustaml_context.str_interner.intern_compiler(s);
     FxHashMap::from_iter([
         (i("print"), Type::Function(vec![Type::Any], Box::new(Type::Unit)))
     ])

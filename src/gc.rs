@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::{debug::DebugWrapContext, interpreter::{InterpretContext, List, ListPool, ListRef, Val}};
+use crate::{debug::DebugWrapContext, interpreter::{InterpretContext, List, ListPool, ListRef, Val}, string_intern::{StrInterned, StrInterner, StringRef}};
 
 #[derive(Debug)]
 pub struct Gc<T> {
@@ -22,6 +22,8 @@ pub fn collect_gc(context : &mut InterpretContext){
     println!("-- COLLECT GC START");
 
     mark_and_sweep_list_nodes(context);
+
+    mark_and_sweep_strings(context);
 
     #[cfg(feature = "gc-test")]
     println!("-- COLLECT GC END");
@@ -78,10 +80,16 @@ fn mark_list_ref(list_node_pool : &mut ListPool, grey_stack : &mut VecDeque<List
     }
 }
 
+#[cfg(feature = "gc-test")]
+fn helper_print_lists(context : &InterpretContext, is_before : bool){
+    let when = if is_before { "BEFORE" } else { "AFTER" };
+    println!("GC : LIST NODES {} -> {} (used : {}, free : {}, capacity : {})", when, context.rustaml_context.list_node_pool.0.len(), context.rustaml_context.list_node_pool.nb_used_nodes(), context.rustaml_context.list_node_pool.nb_free_nodes(), context.rustaml_context.list_node_pool.0.capacity());
+}
+
 fn mark_and_sweep_list_nodes(context : &mut InterpretContext){
     
     #[cfg(feature = "gc-test")]
-    println!("GC : LIST NODES BEFORE -> {} (used : {}, free : {}, capacity : {})", context.rustaml_context.list_node_pool.0.len(), context.rustaml_context.list_node_pool.nb_used_nodes(), context.rustaml_context.list_node_pool.nb_free_nodes(), context.rustaml_context.list_node_pool.0.capacity());
+    helper_print_lists(context, true);
 
     let mut grey_stack = VecDeque::new();
 
@@ -109,7 +117,7 @@ fn mark_and_sweep_list_nodes(context : &mut InterpretContext){
     for (idx, list) in context.rustaml_context.list_node_pool.0.iter_mut().enumerate() {
         if let Some(l) = list {
             if !l.is_marked {
-                let list_ref = ListRef(idx.try_into().unwrap());
+                let list_ref = unsafe { ListRef::new_unchecked(idx.try_into().unwrap()) };
                 lists_to_free.push(list_ref);
             } else {
                 // to make at the end the every node unmarked
@@ -128,5 +136,60 @@ fn mark_and_sweep_list_nodes(context : &mut InterpretContext){
     shrink_list_pool_if_needed(&mut context.rustaml_context.list_node_pool);
 
     #[cfg(feature = "gc-test")]
-    println!("GC : LIST NODES AFTER -> {} (used : {}, free : {}, capacity : {})", context.rustaml_context.list_node_pool.0.len(), context.rustaml_context.list_node_pool.nb_used_nodes(), context.rustaml_context.list_node_pool.nb_free_nodes(), context.rustaml_context.list_node_pool.0.capacity());
+    helper_print_lists(context, false);
+}
+
+fn mark_str_ref(str_interner : &mut StrInterner, s : StringRef){
+    let gc_str = s.get_gc_mut(str_interner);
+    gc_str.is_marked = true;
+
+}
+
+#[cfg(feature = "gc-test")]
+fn helper_print_strings(context : &InterpretContext, is_before : bool){
+    let when = if is_before { "BEFORE" } else { "AFTER" };
+    println!("GC : LIST STRINGS {} -> {} (used by runtime : {}, used by compile time : {}, free : {}, capacity : {})", when, context.rustaml_context.str_interner.len(), context.rustaml_context.str_interner.runtime_nb(), context.rustaml_context.str_interner.compiler_nb(), context.rustaml_context.str_interner.free_nb(), context.rustaml_context.str_interner.capacity());
+}
+
+fn mark_and_sweep_strings(context : &mut InterpretContext){
+    #[cfg(feature = "gc-test")]
+    helper_print_strings(context, true);
+
+
+    // mark
+    for (_, var_val) in &context.vars {
+        match var_val {
+            Val::String(s) => mark_str_ref(&mut context.rustaml_context.str_interner, *s),
+            _ => {}
+        }
+    }
+
+    #[cfg(feature = "gc-test")]
+    println!("after marking : {:?}", DebugWrapContext::new(&context.rustaml_context.str_interner, context.rustaml_context));
+
+    // sweep
+
+    let mut strs_to_free = Vec::new();
+    for (idx, str) in context.rustaml_context.str_interner.strs.iter_mut().enumerate() {
+        match str {
+            StrInterned::Compiler(_) => {},
+            StrInterned::Runtime(str) => {
+                if let Some(s) = str {
+                    if !s.is_marked {
+                        let str_ref = unsafe { StringRef::new_unchecked(idx.try_into().unwrap()) };
+                        strs_to_free.push(str_ref);
+                    } else {
+                        s.is_marked = false;
+                    }
+                }
+            }
+        }
+    }
+
+    for str_to_free in strs_to_free {
+        str_to_free.free(&mut context.rustaml_context.str_interner);
+    }
+
+    #[cfg(feature = "gc-test")]
+    helper_print_strings(context, false);
 }

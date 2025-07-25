@@ -11,7 +11,7 @@ use rustc_hash::FxHashMap;
 
 use crate::{ast::{ASTRef, Type}, rustaml::RustamlContext, string_intern::StringRef};
 
-#[cfg(feature = "human_panic")]
+#[cfg(feature = "human-panic")]
 use human_panic::setup_panic;
 
 mod ast;
@@ -129,7 +129,7 @@ pub fn compile(_ast : ASTRef, _vars: FxHashMap<StringRef, Type>, _rustaml_contex
 
 fn main() -> ExitCode {
 
-    #[cfg(feature = "human_panic")]
+    #[cfg(feature = "human-panic")]
     setup_panic!();
 
 

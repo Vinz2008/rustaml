@@ -1,0 +1,15 @@
+let big_str n : int -> str = 
+  if n == 0 then ""
+  else "a" ^ big_str (n - 1) ;;
+
+// let s = big_str 10 ;;
+
+
+let test = let big_str_temp = big_str 100 in 3 ;;
+
+// useless code to have the gc run when the feature gc-test is enabled
+let a = 4 ;;
+
+let b = 5 ;;
+
+// let test = big_str 50 ;;
