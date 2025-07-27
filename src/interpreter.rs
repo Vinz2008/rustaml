@@ -2,13 +2,13 @@ use rustc_hash::FxHashMap;
 use std::cmp::max;
 use std::{cmp::Ordering, process::ExitCode};
 use std::fmt::{self, Debug, Display};
+use debug_with_context::DebugWithContext;
 
-use crate::ast::{ASTRef};
-use crate::debug::{DebugWithContext};
+use crate::ast::ASTRef;
 use crate::debug_println;
 use crate::gc::{try_gc_collect, Gc, GcContext};
 use crate::rustaml::RustamlContext;
-use crate::string_intern::{StrInterner, StringRef};
+use crate::string_intern::StringRef;
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
 #[cfg(feature = "gc-test-collect")] 
@@ -97,7 +97,7 @@ impl ListPool {
     }
 }
 
-impl DebugWithContext for ListPool {
+impl DebugWithContext<RustamlContext> for ListPool {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         f.debug_tuple("ListPool").field_with(|f| {
             let mut debug_l = f.debug_list();
@@ -151,7 +151,7 @@ impl ListRef {
     }
 }
 
-impl DebugWithContext for ListRef {
+impl DebugWithContext<RustamlContext> for ListRef {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         self.get(&rustaml_context.list_node_pool).fmt_with_context(f, rustaml_context)
     }
@@ -237,7 +237,7 @@ impl<'a> Iterator for ListIter<'a> {
     }
 }
 
-impl DebugWithContext for List {
+impl DebugWithContext<RustamlContext> for List {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         let mut current = self;
         let mut iter_nb = 0;
@@ -268,7 +268,7 @@ pub enum Val {
     Unit,
 }
 
-impl DebugWithContext for Val {
+impl DebugWithContext<RustamlContext> for Val {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         match self {
             Self::Integer(arg0) => f.debug_tuple("Integer").field(arg0).finish(),
@@ -355,7 +355,7 @@ struct FunctionDef {
     }
 }*/
 
-impl DebugWithContext for FunctionDef {
+impl DebugWithContext<RustamlContext> for FunctionDef {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         f.debug_struct("FunctionDef").field("name", &self.name.get_str(&rustaml_context.str_interner)).field_with("args", |fmt| self.args.fmt_with_context(fmt, rustaml_context)).field_with("body", |fmt| self.body.fmt_with_context(fmt, rustaml_context)).field("return_type", &self.return_type).finish()
     }

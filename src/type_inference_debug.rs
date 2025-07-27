@@ -1,6 +1,7 @@
 use std::{fs::File, io::Write, path::Path};
+use debug_with_context::DebugWrapContext;
 
-use crate::{ast::{ASTRef, Type}, debug::DebugWrapContext, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{ASTRef, Type}, rustaml::RustamlContext, string_intern::StringRef};
 
 struct TypeFound {
     node : ASTRef,

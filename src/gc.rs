@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
+use debug_with_context::DebugWrapContext;
 
-use crate::{debug::DebugWrapContext, interpreter::{InterpretContext, List, ListPool, ListRef, Val}, string_intern::{StrInterned, StrInterner, StringRef}};
+use crate::{interpreter::{InterpretContext, List, ListPool, ListRef, Val}, string_intern::{StrInterned, StrInterner, StringRef}};
 
 pub struct GcContext {
     bytes_allocated : usize,

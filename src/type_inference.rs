@@ -2,7 +2,9 @@ use std::ops::Range;
 
 use rustc_hash::FxHashMap;
 
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug::DebugWrapContext, debug_println, rustaml::RustamlContext, string_intern::StringRef};
+use debug_with_context::DebugWrapContext;
+
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug_println, rustaml::RustamlContext, string_intern::StringRef};
 
 
 // TODO : put this in a type_inference_debug.rs ?
