@@ -96,7 +96,7 @@ fn mark_list_ref(list_node_pool : &mut ListPool, grey_stack : &mut VecDeque<List
     // only recursion in case of lists of lists (there is rarely nesting of types in a very deep way, so it is safe)
     if does_list_contain_lists(l.get(list_node_pool)){
         // TODO : refactor to not have this vec ?
-        let val_list_refs = l.get(list_node_pool).iter(list_node_pool).map(|e| val_to_list_ref_unchecked(e)).collect::<Vec<_>>();
+        let val_list_refs = l.get(list_node_pool).iter(list_node_pool).map(val_to_list_ref_unchecked).collect::<Vec<_>>();
         for val_list_ref in val_list_refs {
             mark_list_ref(list_node_pool, grey_stack, val_list_ref);
         }
@@ -118,10 +118,9 @@ fn mark_and_sweep_list_nodes(context : &mut InterpretContext){
     let mut grey_stack = VecDeque::new();
 
     // mark
-    for (_, var_val) in &context.vars {
-        match var_val {
-            Val::List(l) => mark_list_ref(&mut context.rustaml_context.list_node_pool, &mut grey_stack, *l),
-            _ => {}
+    for var_val in context.vars.values() {
+        if let Val::List(l) = var_val {
+            mark_list_ref(&mut context.rustaml_context.list_node_pool, &mut grey_stack, *l);
         }
     }
 
@@ -189,10 +188,9 @@ fn mark_and_sweep_strings(context : &mut InterpretContext){
 
 
     // mark
-    for (_, var_val) in &context.vars {
-        match var_val {
-            Val::String(s) => mark_str_ref(&mut context.rustaml_context.str_interner, *s),
-            _ => {}
+    for var_val in context.vars.values() {
+        if let Val::String(s) = var_val {
+            mark_str_ref(&mut context.rustaml_context.str_interner, *s);
         }
     }
 

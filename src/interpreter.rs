@@ -53,7 +53,7 @@ impl ListPool {
 
     fn push(&mut self, node : List) -> ListRef {
         for (idx, e) in self.0.iter_mut().enumerate() {
-            if let None = e {
+            if e.is_none() {
                 *e = Some(Gc::new(node));
                 return ListRef(idx.try_into().unwrap());
             }
@@ -126,6 +126,9 @@ impl DebugWithContext<RustamlContext> for ListPool {
 pub struct ListRef(u32);
 
 impl ListRef {
+    /// # Safety
+    ///
+    /// This function should only be called with known good indexes from the list pool
     pub unsafe fn new_unchecked(idx : u32) -> ListRef {
         ListRef(idx)
     }

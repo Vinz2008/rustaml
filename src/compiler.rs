@@ -144,7 +144,7 @@ fn compile_binop_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
                 Operator::Mult => compile_context.builder.build_int_mul(i, i2, name).unwrap(),
                 Operator::Div => compile_context.builder.build_int_signed_div(i, i2, name).unwrap(),
                 _ => unreachable!(),
-            }.into()
+            }
         }
         _ => panic!("Invalid type for integer op {:?}", op),
     }
@@ -160,7 +160,7 @@ fn compile_binop_float<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
                 Operator::MultFloat => compile_context.builder.build_float_mul(f, f2, name).unwrap(),
                 Operator::DivFloat => compile_context.builder.build_float_div(f, f2, name).unwrap(),
                 _ => unreachable!(),
-            }.into()
+            }
         },
 
         _ => panic!("Invalid type for float op {:?}", op),
