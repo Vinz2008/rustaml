@@ -2,6 +2,26 @@ use std::collections::VecDeque;
 
 use crate::{debug::DebugWrapContext, interpreter::{InterpretContext, List, ListPool, ListRef, Val}, string_intern::{StrInterned, StrInterner, StringRef}};
 
+pub struct GcContext {
+    bytes_allocated : usize,
+    bytes_for_next_gc : usize,
+}
+
+impl GcContext {
+    const GC_HEAP_GROW_FACTOR : usize = 2; // TODO : change ?
+
+    pub const fn new() -> GcContext {
+        GcContext { 
+            bytes_allocated: 0, 
+            bytes_for_next_gc: 1024, // TODO : change ?
+        }
+    }
+
+    pub fn add_allocation(&mut self, allocated_size : usize){
+        self.bytes_allocated += allocated_size;
+    }
+}
+
 #[derive(Debug)]
 pub struct Gc<T> {
     pub data : T,
@@ -17,16 +37,20 @@ impl<T> Gc<T> {
     }
 }
 
-pub fn collect_gc(context : &mut InterpretContext){
-    #[cfg(feature = "gc-test")]
-    println!("-- COLLECT GC START");
+pub fn collect_gc(context : &mut InterpretContext, update_next_limit : bool){
+    #[cfg(feature = "gc-test-print")]
+    println!("-- COLLECT GC START (done at {} Mb allocated)", context.gc_context.bytes_allocated/1_000_000);
 
     mark_and_sweep_list_nodes(context);
 
     mark_and_sweep_strings(context);
 
-    #[cfg(feature = "gc-test")]
-    println!("-- COLLECT GC END");
+    if update_next_limit {
+        context.gc_context.bytes_for_next_gc = context.gc_context.bytes_allocated * GcContext::GC_HEAP_GROW_FACTOR;
+    }
+
+    #[cfg(feature = "gc-test-print")]
+    println!("-- COLLECT GC END (next at {} Mb allocated)", context.gc_context.bytes_for_next_gc/1_000_000);
 }
 
 // TODO : create a iter_roots iterator for iterating roots ?
@@ -34,7 +58,6 @@ pub fn collect_gc(context : &mut InterpretContext){
 
 fn shrink_list_pool_if_needed(list_node_pool : &mut ListPool){
     let free_at_end = list_node_pool.nb_free_at_end();
-    println!("{}", free_at_end);
     // TODO : do heuristics for the 1/3 part ? (what should be the ratio ?)
     if free_at_end > list_node_pool.0.len()/3 {
         list_node_pool.shrink_end(free_at_end);
@@ -80,16 +103,16 @@ fn mark_list_ref(list_node_pool : &mut ListPool, grey_stack : &mut VecDeque<List
     }
 }
 
-#[cfg(feature = "gc-test")]
-fn helper_print_lists(context : &InterpretContext, is_before : bool){
+#[cfg(feature = "gc-test-print")]
+fn helper_print_lists(list_node_pool : &ListPool, is_before : bool){
     let when = if is_before { "BEFORE" } else { "AFTER" };
-    println!("GC : LIST NODES {} -> {} (used : {}, free : {}, capacity : {})", when, context.rustaml_context.list_node_pool.0.len(), context.rustaml_context.list_node_pool.nb_used_nodes(), context.rustaml_context.list_node_pool.nb_free_nodes(), context.rustaml_context.list_node_pool.0.capacity());
+    println!("GC : LIST NODES {} -> {} (used : {}, free : {}, capacity : {})", when, list_node_pool.0.len(), list_node_pool.nb_used_nodes(), list_node_pool.nb_free_nodes(), list_node_pool.0.capacity());
 }
 
 fn mark_and_sweep_list_nodes(context : &mut InterpretContext){
     
-    #[cfg(feature = "gc-test")]
-    helper_print_lists(context, true);
+    #[cfg(feature = "gc-test-print")]
+    helper_print_lists(&context.rustaml_context.list_node_pool, true);
 
     let mut grey_stack = VecDeque::new();
 
@@ -108,7 +131,7 @@ fn mark_and_sweep_list_nodes(context : &mut InterpretContext){
         mark_list_ref(&mut context.rustaml_context.list_node_pool, &mut grey_stack, grey_node);
     }
 
-    #[cfg(feature = "gc-test")]
+    #[cfg(feature = "gc-test-print")]
     println!("after marking : {:?}", DebugWrapContext::new(&context.rustaml_context.list_node_pool, context.rustaml_context));
 
     // sweep
@@ -135,8 +158,8 @@ fn mark_and_sweep_list_nodes(context : &mut InterpretContext){
 
     shrink_list_pool_if_needed(&mut context.rustaml_context.list_node_pool);
 
-    #[cfg(feature = "gc-test")]
-    helper_print_lists(context, false);
+    #[cfg(feature = "gc-test-print")]
+    helper_print_lists(&context.rustaml_context.list_node_pool, false);
 }
 
 fn mark_str_ref(str_interner : &mut StrInterner, s : StringRef){
@@ -145,15 +168,23 @@ fn mark_str_ref(str_interner : &mut StrInterner, s : StringRef){
 
 }
 
-#[cfg(feature = "gc-test")]
-fn helper_print_strings(context : &InterpretContext, is_before : bool){
+fn shrink_string_pool_if_needed(string_interner : &mut StrInterner){
+    let free_at_end = string_interner.nb_free_at_end();
+    // TODO : do heuristics for the 1/3 part ? (what should be the ratio ?)
+    if free_at_end > string_interner.len()/3 {
+        string_interner.shrink_end(free_at_end);
+    }
+}
+
+#[cfg(feature = "gc-test-print")]
+fn helper_print_strings(str_interner : &StrInterner, is_before : bool){
     let when = if is_before { "BEFORE" } else { "AFTER" };
-    println!("GC : LIST STRINGS {} -> {} (used by runtime : {}, used by compile time : {}, free : {}, capacity : {})", when, context.rustaml_context.str_interner.len(), context.rustaml_context.str_interner.runtime_nb(), context.rustaml_context.str_interner.compiler_nb(), context.rustaml_context.str_interner.free_nb(), context.rustaml_context.str_interner.capacity());
+    println!("GC : LIST STRINGS {} -> {} (used by runtime : {}, used by compile time : {}, free : {}, capacity : {})", when, str_interner.len(), str_interner.runtime_nb(), str_interner.compiler_nb(), str_interner.free_nb(), str_interner.capacity());
 }
 
 fn mark_and_sweep_strings(context : &mut InterpretContext){
-    #[cfg(feature = "gc-test")]
-    helper_print_strings(context, true);
+    #[cfg(feature = "gc-test-print")]
+    helper_print_strings(&context.rustaml_context.str_interner, true);
 
 
     // mark
@@ -164,7 +195,7 @@ fn mark_and_sweep_strings(context : &mut InterpretContext){
         }
     }
 
-    #[cfg(feature = "gc-test")]
+    #[cfg(feature = "gc-test-print")]
     println!("after marking : {:?}", DebugWrapContext::new(&context.rustaml_context.str_interner, context.rustaml_context));
 
     // sweep
@@ -190,6 +221,14 @@ fn mark_and_sweep_strings(context : &mut InterpretContext){
         str_to_free.free(&mut context.rustaml_context.str_interner);
     }
 
-    #[cfg(feature = "gc-test")]
-    helper_print_strings(context, false);
+    shrink_string_pool_if_needed(&mut context.rustaml_context.str_interner);
+
+    #[cfg(feature = "gc-test-print")]
+    helper_print_strings(&context.rustaml_context.str_interner, false);
+}
+
+pub fn try_gc_collect(context : &mut InterpretContext){
+    if context.gc_context.bytes_allocated > context.gc_context.bytes_for_next_gc {
+        collect_gc(context, true);
+    }
 }

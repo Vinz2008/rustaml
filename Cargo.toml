@@ -26,4 +26,5 @@ strip = "debuginfo"
 [features]
 native = ["dep:inkwell", "dep:pathbuf"]
 human-panic = ["dep:human-panic"]
-gc-test = []
+gc-test-print = []
+gc-test-collect = []

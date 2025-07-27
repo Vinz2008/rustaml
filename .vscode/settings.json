@@ -2,7 +2,8 @@
     "rust-analyzer.cargo.features": [
         "native",
         "human-panic",
-        "gc-test"
+        "gc-test-collect",
+        "gc-test-print"
     ],
     "files.associations": {
         "io": "llvm",

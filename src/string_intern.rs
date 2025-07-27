@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{cmp::max, fmt};
 
 use rustc_hash::FxHashMap;
 
@@ -53,6 +53,10 @@ impl StringRef {
         let rhs_str = str_interner.lookup(rhs);
         let new_str = lhs_str.to_owned() + rhs_str;
         str_interner.intern(&new_str, true)
+    }
+
+    pub fn len(self, str_interner : &StrInterner) -> usize {
+        str_interner.lookup(self).len()
     }
 
     pub fn free(self, str_interner : &mut StrInterner){
@@ -157,6 +161,30 @@ impl StrInterner {
 
     pub fn capacity(&self) -> usize {
         self.strs.capacity()
+    }
+
+    pub fn shrink_end(&mut self, free_at_end : usize){
+        let old_len = self.len();
+        let end_length = max(old_len - free_at_end, 10 + self.compiler_nb());
+        if end_length == 0 {
+            self.strs.clear();
+            self.strs.shrink_to(old_len/3);
+        } else {
+            self.strs.truncate(end_length);
+            let end_capacity = (end_length as f64 * 1.3) as usize;
+            self.strs.shrink_to(end_capacity);
+        }
+    }
+
+    pub fn nb_free_at_end(&self) -> usize {
+        self.strs.iter().rev().take_while(|e| {
+            match e {
+                StrInterned::Runtime(s) => {
+                    s.is_none()
+                }
+                StrInterned::Compiler(_) => false,
+            }
+        }).count()
     }
 
     pub fn free(&mut self, idx : StringRef){

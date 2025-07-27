@@ -7,7 +7,7 @@ let big_list n : int -> list[int] =
 
 let test = let big_list_temp = big_list 100 in 3 ;;
 
-// useless code to have the gc run when the feature gc-test is enabled
+// useless code to have the gc run when the feature gc-test-collect is enabled
 let a = 4 ;;
 
 let b = 5 ;;

@@ -6,12 +6,12 @@ use std::fmt::{self, Debug, Display};
 use crate::ast::{ASTRef};
 use crate::debug::{DebugWithContext};
 use crate::debug_println;
-use crate::gc::Gc;
+use crate::gc::{try_gc_collect, Gc, GcContext};
 use crate::rustaml::RustamlContext;
 use crate::string_intern::{StrInterner, StringRef};
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
-#[cfg(feature = "gc-test")] 
+#[cfg(feature = "gc-test-collect")] 
 use crate::gc::collect_gc;
 
 // None values are freed lists that can be reused
@@ -80,14 +80,14 @@ impl ListPool {
 
     // TODO : heuristics for this
     pub fn shrink_end(&mut self, free_at_end : usize){
+        let old_len = self.0.len();
         // TODO : multiply this by a factor(1.2 ? 1.5) to keep a certain capacity more than the length
-        let end_length = max(self.0.len() - free_at_end, 20);
-        println!("end_length : {}", end_length);
+        let end_length = max(old_len - free_at_end, 20);
+        //println!("end_length : {}", end_length);
         // keep at least 20 None
         if end_length == 0 {
-            let old_len = self.0.len();
             self.0.clear();
-            self.0.shrink_to(old_len/2);
+            self.0.shrink_to(old_len/3);
         } else {
             self.0.truncate(end_length);
             let end_capacity = (end_length as f64 * 1.3) as usize;
@@ -366,6 +366,7 @@ pub struct InterpretContext<'context> {
     functions : FxHashMap<StringRef, FunctionDef>,
     pub vars: FxHashMap<StringRef, Val>,
     pub rustaml_context : &'context mut RustamlContext,
+    pub gc_context : GcContext,
 }
 
 
@@ -460,7 +461,7 @@ fn interpret_binop_bool(list_pool:  &ListPool, op : Operator, lhs_val : Val, rhs
     }
 }
 
-fn interpret_binop_str(str_interner : &mut StrInterner, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+fn interpret_binop_str(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let lhs_str = match lhs_val {
         Val::String(s) => s,
         _ => panic!("Expected string in left-side of binary operation"),
@@ -472,7 +473,11 @@ fn interpret_binop_str(str_interner : &mut StrInterner, op : Operator, lhs_val :
     };
     
     match op {
-        Operator::StrAppend => Val::String(lhs_str.add(rhs_str, str_interner)),
+        Operator::StrAppend => {
+            let str_ref = lhs_str.add(rhs_str, &mut context.rustaml_context.str_interner);
+            context.gc_context.add_allocation(str_ref.len(&context.rustaml_context.str_interner));
+            Val::String(str_ref)
+        },
         _ => unreachable!()
     }
 }
@@ -515,7 +520,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
         Type::Integer => interpret_binop_int(op, lhs_val, rhs_val),
         Type::Float => interpret_binop_float(op, lhs_val, rhs_val),
         Type::Bool => interpret_binop_bool(&context.rustaml_context.list_node_pool, op, lhs_val, rhs_val),
-        Type::Str => interpret_binop_str(&mut context.rustaml_context.str_interner, op, lhs_val, rhs_val),
+        Type::Str => interpret_binop_str(context, op, lhs_val, rhs_val),
         Type::List(_) => interpret_binop_list(&mut context.rustaml_context.list_node_pool, context.rustaml_context.is_debug_print, op, lhs_val, rhs_val),
         _ => unreachable!(),
     }
@@ -735,8 +740,8 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
             for node in nodes {
                 interpret_node(context, *node);
 
-                #[cfg(feature = "gc-test")]
-                collect_gc(context);
+                #[cfg(feature = "gc-test-collect")]
+                collect_gc(context, false);
             }
             Val::Unit
         }
@@ -756,6 +761,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::VarDecl { name, val, body } => {
             let val_node = interpret_node(context, *val);
             context.vars.insert(*name, val_node);
+            try_gc_collect(context);
             match body {
                 Some(b) => {
                     let body_val = interpret_node(context, *b);
@@ -783,7 +789,8 @@ pub fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext) -> ExitCode 
     let mut context = InterpretContext {
         vars: FxHashMap::default(),
         functions: FxHashMap::default(),
-        rustaml_context 
+        rustaml_context,
+        gc_context: GcContext::new(),
     };
 
     interpret_node(&mut context, ast);
