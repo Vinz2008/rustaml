@@ -4,10 +4,10 @@ A simple functional language (still very in progress) inspired by ocaml and writ
 
 
 ## Parts that are Done
-- [ ] Lexer
-- [ ] Parser (AST)
-- [ ] Interpreter
-- [ ] Codegen
+- [x] Lexer
+- [x] Parser (AST)
+- [x] Interpreter
+- [x] Codegen
 - [ ] Optimizations
 
 ## TODO
