@@ -140,12 +140,7 @@ impl StrInterner {
     }
 
     pub fn runtime_nb(&self) -> usize {
-        self.strs.iter().filter(|s| {
-            match s {
-                StrInterned::Runtime(Some(_)) => true,
-                _ => false,
-            }
-        }).count()
+        self.strs.iter().filter(|s| matches!(s, StrInterned::Runtime(Some(_)))).count()
     }
 
     pub fn compiler_nb(&self) -> usize {

@@ -8,7 +8,8 @@ use enum_tags::{Tag, TaggedEnum};
 use crate::{debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef, type_inference::{infer_var_type, TypeInferenceErr}};
 use debug_with_context::{DebugWithContext, DebugWrapContext};
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, DebugWithContext)]
+#[debug_context(RustamlContext)]
 pub struct Arg {
     pub name : StringRef,
     pub arg_type : Type,
@@ -16,7 +17,7 @@ pub struct Arg {
 
 
 
-impl DebugWithContext<RustamlContext> for Arg {    
+/*impl DebugWithContext<RustamlContext> for Arg {    
     fn fmt_with_context(&self, f: &mut std::fmt::Formatter, rustaml_context : &RustamlContext) -> std::fmt::Result {
         f.debug_struct("Arg")
         .field_with("name",  |fmt| {
@@ -24,13 +25,14 @@ impl DebugWithContext<RustamlContext> for Arg {
         })
         .field_with("arg_type", |fmt| self.arg_type.fmt_with_context(fmt, rustaml_context)).finish()
     }
-}
+}*/
 
 // TODO : create a pattern pool ?
 
 // TODO : add a guard clauses (create struct with an enum and guard clauses)
 
-#[derive(Clone, PartialEq,)]
+#[derive(Clone, PartialEq, DebugWithContext)]
+#[debug_context(RustamlContext)]
 pub enum Pattern {
     VarName(StringRef), // | x pattern
     Integer(i64), // | 2
@@ -42,7 +44,7 @@ pub enum Pattern {
     Underscore,
 }
 
-impl DebugWithContext<RustamlContext> for Pattern {
+/*impl DebugWithContext<RustamlContext> for Pattern {
     fn fmt_with_context(&self, f: &mut std::fmt::Formatter, rustaml_context: &RustamlContext) -> std::fmt::Result {
         match self {
             Self::VarName(arg0) => f.debug_tuple("VarName").field_with(|fmt| arg0.fmt_with_context(fmt, rustaml_context)).finish(),
@@ -55,7 +57,7 @@ impl DebugWithContext<RustamlContext> for Pattern {
             Self::Underscore => write!(f, "Underscore"),
         }
     }
-}
+}*/
 
 pub struct ASTPool(Vec<ASTNode>);
 
@@ -91,7 +93,8 @@ impl DebugWithContext<RustamlContext> for ASTRef {
 }
 
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, DebugWithContext)]
+#[debug_context(RustamlContext)]
 pub enum ASTNode {
     TopLevel {
         nodes: Vec<ASTRef>,
@@ -146,7 +149,7 @@ pub enum ASTNode {
     }
 }
 
-impl DebugWithContext<RustamlContext> for ASTNode {
+/*impl DebugWithContext<RustamlContext> for ASTNode {
     fn fmt_with_context(&self, f: &mut std::fmt::Formatter, rustaml_context : &RustamlContext) -> std::fmt::Result {
         match self {
             Self::TopLevel { nodes } => f.debug_struct("TopLevel").field_with("nodes", |fmt| nodes.fmt_with_context(fmt, rustaml_context)).finish(),
@@ -164,7 +167,7 @@ impl DebugWithContext<RustamlContext> for ASTNode {
             Self::FunctionCall { name, args } => f.debug_struct("FunctionCall").field("name", &name.get_str(&rustaml_context.str_interner)).field_with("args", |fmt| args.fmt_with_context(fmt, rustaml_context)).finish(),
         }
     }
-}
+}*/
 
 
 // TODO : add a type pool to remove boxes (test performance ?)
@@ -181,6 +184,7 @@ pub enum Type {
     Unit,
 }
 
+// TODO : replace with macro (add a flag to say that the type just implements debug)
 impl DebugWithContext<RustamlContext> for Type {
     fn fmt_with_context(&self, f: &mut std::fmt::Formatter, _rustaml_context: &RustamlContext) -> std::fmt::Result {
         write!(f, "{:?}", self)

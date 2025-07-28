@@ -1,12 +1,14 @@
 use std::ops::Range;
 
-use crate::{ast::Type, debug_println};
+use crate::{ast::Type, debug_println, rustaml::RustamlContext};
 
+use debug_with_context::DebugWithContext;
 use enum_tags::Tag;
 
 // TODO : add operator for floats (+., *., etc) for type inference
 
-#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, DebugWithContext)]
+#[debug_context(RustamlContext)]
 pub enum Operator {
     Plus,
     Minus,

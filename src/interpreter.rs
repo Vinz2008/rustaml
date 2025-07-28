@@ -15,6 +15,8 @@ use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 use crate::gc::collect_gc;
 
 // None values are freed lists that can be reused
+/*#[derive(DebugWithContext)]
+#[debug_context(RustamlContext)]*/
 pub struct ListPool(pub Vec<Option<Gc<List>>>);
 
 impl ListPool {
@@ -97,6 +99,7 @@ impl ListPool {
     }
 }
 
+// does not use macro for opti (not printing the entire list, just the node)
 impl DebugWithContext<RustamlContext> for ListPool {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         f.debug_tuple("ListPool").field_with(|f| {
@@ -261,7 +264,8 @@ impl DebugWithContext<RustamlContext> for List {
 }
 
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, DebugWithContext)]
+#[debug_context(RustamlContext)]
 pub enum Val {
     Integer(i64),
     Float(f64),
@@ -271,7 +275,7 @@ pub enum Val {
     Unit,
 }
 
-impl DebugWithContext<RustamlContext> for Val {
+/*impl DebugWithContext<RustamlContext> for Val {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         match self {
             Self::Integer(arg0) => f.debug_tuple("Integer").field(arg0).finish(),
@@ -282,7 +286,7 @@ impl DebugWithContext<RustamlContext> for Val {
             Self::Unit => write!(f, "Unit"),
         }
     }
-}
+}*/
 
 impl PartialOrd for Val {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -339,7 +343,8 @@ impl Val {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, DebugWithContext)]
+#[debug_context(RustamlContext)]
 struct FunctionDef {
     name : StringRef,
     args : Vec<StringRef>,
@@ -358,11 +363,11 @@ struct FunctionDef {
     }
 }*/
 
-impl DebugWithContext<RustamlContext> for FunctionDef {
+/*impl DebugWithContext<RustamlContext> for FunctionDef {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         f.debug_struct("FunctionDef").field("name", &self.name.get_str(&rustaml_context.str_interner)).field_with("args", |fmt| self.args.fmt_with_context(fmt, rustaml_context)).field_with("body", |fmt| self.body.fmt_with_context(fmt, rustaml_context)).field("return_type", &self.return_type).finish()
     }
-}
+}*/
 
 
 pub struct InterpretContext<'context> {

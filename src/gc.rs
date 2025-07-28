@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
-use debug_with_context::DebugWrapContext;
+use debug_with_context::{DebugWithContext, DebugWrapContext};
 
-use crate::{interpreter::{InterpretContext, List, ListPool, ListRef, Val}, string_intern::{StrInterned, StrInterner, StringRef}};
+use crate::{interpreter::{InterpretContext, List, ListPool, ListRef, Val}, rustaml::RustamlContext, string_intern::{StrInterned, StrInterner, StringRef}};
 
 pub struct GcContext {
     bytes_allocated : usize,
@@ -23,7 +23,8 @@ impl GcContext {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, DebugWithContext)]
+#[debug_context(RustamlContext)]
 pub struct Gc<T> {
     pub data : T,
     pub is_marked : bool,
