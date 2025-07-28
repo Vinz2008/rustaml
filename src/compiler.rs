@@ -1,5 +1,6 @@
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, ExitCode, Stdio}, time::{SystemTime, UNIX_EPOCH}};
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_var, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val}, debug::DebugWrapContext, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
+use debug_with_context::DebugWrapContext;
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_var, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val}, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
 use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -143,7 +144,7 @@ fn compile_binop_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
                 Operator::Mult => compile_context.builder.build_int_mul(i, i2, name).unwrap(),
                 Operator::Div => compile_context.builder.build_int_signed_div(i, i2, name).unwrap(),
                 _ => unreachable!(),
-            }.into()
+            }
         }
         _ => panic!("Invalid type for integer op {:?}", op),
     }
@@ -159,7 +160,7 @@ fn compile_binop_float<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
                 Operator::MultFloat => compile_context.builder.build_float_mul(f, f2, name).unwrap(),
                 Operator::DivFloat => compile_context.builder.build_float_div(f, f2, name).unwrap(),
                 _ => unreachable!(),
-            }.into()
+            }
         },
 
         _ => panic!("Invalid type for float op {:?}", op),

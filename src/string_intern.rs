@@ -2,7 +2,9 @@ use std::{cmp::max, fmt};
 
 use rustc_hash::FxHashMap;
 
-use crate::{debug::DebugWithContext, gc::Gc, rustaml::RustamlContext};
+use debug_with_context::DebugWithContext;
+
+use crate::{gc::Gc, rustaml::RustamlContext};
 
 // TODO : optimize this (https://matklad.github.io/2020/03/22/fast-simple-rust-interner.html)
 
@@ -66,7 +68,7 @@ impl StringRef {
 
 
 
-impl DebugWithContext for StringRef {
+impl DebugWithContext<RustamlContext> for StringRef {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context : &RustamlContext) -> fmt::Result {
         write!(f, "{}", rustaml_context.str_interner.lookup(*self))
     }
@@ -138,12 +140,7 @@ impl StrInterner {
     }
 
     pub fn runtime_nb(&self) -> usize {
-        self.strs.iter().filter(|s| {
-            match s {
-                StrInterned::Runtime(Some(_)) => true,
-                _ => false,
-            }
-        }).count()
+        self.strs.iter().filter(|s| matches!(s, StrInterned::Runtime(Some(_)))).count()
     }
 
     pub fn compiler_nb(&self) -> usize {
@@ -204,7 +201,7 @@ impl StrInterner {
     }
 }
 
-impl DebugWithContext for StrInterner {
+impl DebugWithContext<RustamlContext> for StrInterner {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, _rustaml_context: &RustamlContext) -> fmt::Result {
         f.debug_tuple("StrInterner").field_with(|f| {
             let mut debug_l = f.debug_list();

@@ -2,19 +2,21 @@ use rustc_hash::FxHashMap;
 use std::cmp::max;
 use std::{cmp::Ordering, process::ExitCode};
 use std::fmt::{self, Debug, Display};
+use debug_with_context::DebugWithContext;
 
-use crate::ast::{ASTRef};
-use crate::debug::{DebugWithContext};
+use crate::ast::ASTRef;
 use crate::debug_println;
 use crate::gc::{try_gc_collect, Gc, GcContext};
 use crate::rustaml::RustamlContext;
-use crate::string_intern::{StrInterner, StringRef};
+use crate::string_intern::StringRef;
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
 #[cfg(feature = "gc-test-collect")] 
 use crate::gc::collect_gc;
 
 // None values are freed lists that can be reused
+/*#[derive(DebugWithContext)]
+#[debug_context(RustamlContext)]*/
 pub struct ListPool(pub Vec<Option<Gc<List>>>);
 
 impl ListPool {
@@ -53,7 +55,7 @@ impl ListPool {
 
     fn push(&mut self, node : List) -> ListRef {
         for (idx, e) in self.0.iter_mut().enumerate() {
-            if let None = e {
+            if e.is_none() {
                 *e = Some(Gc::new(node));
                 return ListRef(idx.try_into().unwrap());
             }
@@ -97,7 +99,8 @@ impl ListPool {
     }
 }
 
-impl DebugWithContext for ListPool {
+// does not use macro for opti (not printing the entire list, just the node)
+impl DebugWithContext<RustamlContext> for ListPool {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         f.debug_tuple("ListPool").field_with(|f| {
             let mut debug_l = f.debug_list();
@@ -126,6 +129,9 @@ impl DebugWithContext for ListPool {
 pub struct ListRef(u32);
 
 impl ListRef {
+    /// # Safety
+    ///
+    /// This function should only be called with known good indexes from the list pool
     pub unsafe fn new_unchecked(idx : u32) -> ListRef {
         ListRef(idx)
     }
@@ -151,7 +157,7 @@ impl ListRef {
     }
 }
 
-impl DebugWithContext for ListRef {
+impl DebugWithContext<RustamlContext> for ListRef {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         self.get(&rustaml_context.list_node_pool).fmt_with_context(f, rustaml_context)
     }
@@ -237,7 +243,7 @@ impl<'a> Iterator for ListIter<'a> {
     }
 }
 
-impl DebugWithContext for List {
+impl DebugWithContext<RustamlContext> for List {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         let mut current = self;
         let mut iter_nb = 0;
@@ -258,7 +264,8 @@ impl DebugWithContext for List {
 }
 
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, DebugWithContext)]
+#[debug_context(RustamlContext)]
 pub enum Val {
     Integer(i64),
     Float(f64),
@@ -268,7 +275,7 @@ pub enum Val {
     Unit,
 }
 
-impl DebugWithContext for Val {
+/*impl DebugWithContext<RustamlContext> for Val {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         match self {
             Self::Integer(arg0) => f.debug_tuple("Integer").field(arg0).finish(),
@@ -279,7 +286,7 @@ impl DebugWithContext for Val {
             Self::Unit => write!(f, "Unit"),
         }
     }
-}
+}*/
 
 impl PartialOrd for Val {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -336,7 +343,8 @@ impl Val {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, DebugWithContext)]
+#[debug_context(RustamlContext)]
 struct FunctionDef {
     name : StringRef,
     args : Vec<StringRef>,
@@ -355,11 +363,11 @@ struct FunctionDef {
     }
 }*/
 
-impl DebugWithContext for FunctionDef {
+/*impl DebugWithContext<RustamlContext> for FunctionDef {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
         f.debug_struct("FunctionDef").field("name", &self.name.get_str(&rustaml_context.str_interner)).field_with("args", |fmt| self.args.fmt_with_context(fmt, rustaml_context)).field_with("body", |fmt| self.body.fmt_with_context(fmt, rustaml_context)).field("return_type", &self.return_type).finish()
     }
-}
+}*/
 
 
 pub struct InterpretContext<'context> {

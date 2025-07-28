@@ -5,9 +5,11 @@ use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
-use crate::{debug::{DebugWithContext, DebugWrapContext}, debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef, type_inference::{infer_var_type, TypeInferenceErr}};
+use crate::{debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef, type_inference::{infer_var_type, TypeInferenceErr}};
+use debug_with_context::{DebugWithContext, DebugWrapContext};
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, DebugWithContext)]
+#[debug_context(RustamlContext)]
 pub struct Arg {
     pub name : StringRef,
     pub arg_type : Type,
@@ -15,21 +17,22 @@ pub struct Arg {
 
 
 
-impl DebugWithContext for Arg {    
+/*impl DebugWithContext<RustamlContext> for Arg {    
     fn fmt_with_context(&self, f: &mut std::fmt::Formatter, rustaml_context : &RustamlContext) -> std::fmt::Result {
         f.debug_struct("Arg")
         .field_with("name",  |fmt| {
             self.name.fmt_with_context(fmt, rustaml_context)
         })
-        .field("arg_type", &self.arg_type).finish()
+        .field_with("arg_type", |fmt| self.arg_type.fmt_with_context(fmt, rustaml_context)).finish()
     }
-}
+}*/
 
 // TODO : create a pattern pool ?
 
 // TODO : add a guard clauses (create struct with an enum and guard clauses)
 
-#[derive(Clone, PartialEq,)]
+#[derive(Clone, PartialEq, DebugWithContext)]
+#[debug_context(RustamlContext)]
 pub enum Pattern {
     VarName(StringRef), // | x pattern
     Integer(i64), // | 2
@@ -41,10 +44,10 @@ pub enum Pattern {
     Underscore,
 }
 
-impl DebugWithContext for Pattern {
+/*impl DebugWithContext<RustamlContext> for Pattern {
     fn fmt_with_context(&self, f: &mut std::fmt::Formatter, rustaml_context: &RustamlContext) -> std::fmt::Result {
         match self {
-            Self::VarName(arg0) => f.debug_tuple("VarName").field(&arg0.get_str(&rustaml_context.str_interner)).finish(),
+            Self::VarName(arg0) => f.debug_tuple("VarName").field_with(|fmt| arg0.fmt_with_context(fmt, rustaml_context)).finish(),
             Self::Integer(arg0) => f.debug_tuple("Integer").field(arg0).finish(),
             Self::Float(arg0) => f.debug_tuple("Float").field(arg0).finish(),
             Self::Range(arg0, arg1, arg2) => f.debug_tuple("Range").field(arg0).field(arg1).field(arg2).finish(),
@@ -54,7 +57,7 @@ impl DebugWithContext for Pattern {
             Self::Underscore => write!(f, "Underscore"),
         }
     }
-}
+}*/
 
 pub struct ASTPool(Vec<ASTNode>);
 
@@ -83,14 +86,15 @@ impl ASTRef {
     }
 }
 
-impl DebugWithContext for ASTRef {
+impl DebugWithContext<RustamlContext> for ASTRef {
     fn fmt_with_context(&self, f: &mut std::fmt::Formatter, rustaml_context : &RustamlContext) -> std::fmt::Result {
         self.get(&rustaml_context.ast_pool).fmt_with_context(f, rustaml_context)
     }
 }
 
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, DebugWithContext)]
+#[debug_context(RustamlContext)]
 pub enum ASTNode {
     TopLevel {
         nodes: Vec<ASTRef>,
@@ -145,7 +149,7 @@ pub enum ASTNode {
     }
 }
 
-impl DebugWithContext for ASTNode {
+/*impl DebugWithContext<RustamlContext> for ASTNode {
     fn fmt_with_context(&self, f: &mut std::fmt::Formatter, rustaml_context : &RustamlContext) -> std::fmt::Result {
         match self {
             Self::TopLevel { nodes } => f.debug_struct("TopLevel").field_with("nodes", |fmt| nodes.fmt_with_context(fmt, rustaml_context)).finish(),
@@ -163,7 +167,7 @@ impl DebugWithContext for ASTNode {
             Self::FunctionCall { name, args } => f.debug_struct("FunctionCall").field("name", &name.get_str(&rustaml_context.str_interner)).field_with("args", |fmt| args.fmt_with_context(fmt, rustaml_context)).finish(),
         }
     }
-}
+}*/
 
 
 // TODO : add a type pool to remove boxes (test performance ?)
@@ -180,7 +184,8 @@ pub enum Type {
     Unit,
 }
 
-impl DebugWithContext for Type {
+// TODO : replace with macro (add a flag to say that the type just implements debug)
+impl DebugWithContext<RustamlContext> for Type {
     fn fmt_with_context(&self, f: &mut std::fmt::Formatter, _rustaml_context: &RustamlContext) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
