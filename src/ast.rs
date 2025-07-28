@@ -15,18 +15,6 @@ pub struct Arg {
     pub arg_type : Type,
 }
 
-
-
-/*impl DebugWithContext<RustamlContext> for Arg {    
-    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, rustaml_context : &RustamlContext) -> std::fmt::Result {
-        f.debug_struct("Arg")
-        .field_with("name",  |fmt| {
-            self.name.fmt_with_context(fmt, rustaml_context)
-        })
-        .field_with("arg_type", |fmt| self.arg_type.fmt_with_context(fmt, rustaml_context)).finish()
-    }
-}*/
-
 // TODO : create a pattern pool ?
 
 // TODO : add a guard clauses (create struct with an enum and guard clauses)
@@ -43,21 +31,6 @@ pub enum Pattern {
     ListDestructure(StringRef, Box<Pattern>), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
     Underscore,
 }
-
-/*impl DebugWithContext<RustamlContext> for Pattern {
-    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, rustaml_context: &RustamlContext) -> std::fmt::Result {
-        match self {
-            Self::VarName(arg0) => f.debug_tuple("VarName").field_with(|fmt| arg0.fmt_with_context(fmt, rustaml_context)).finish(),
-            Self::Integer(arg0) => f.debug_tuple("Integer").field(arg0).finish(),
-            Self::Float(arg0) => f.debug_tuple("Float").field(arg0).finish(),
-            Self::Range(arg0, arg1, arg2) => f.debug_tuple("Range").field(arg0).field(arg1).field(arg2).finish(),
-            Self::String(arg0) => f.debug_tuple("String").field(&arg0.get_str(&rustaml_context.str_interner)).finish(),
-            Self::List(arg0) => f.debug_tuple("List").field_with(|fmt| arg0.fmt_with_context(fmt, rustaml_context)).finish(),
-            Self::ListDestructure(arg0, arg1) => f.debug_tuple("ListDestructure").field(&arg0.get_str(&rustaml_context.str_interner)).field_with(|fmt| arg1.fmt_with_context(fmt, rustaml_context)).finish(),
-            Self::Underscore => write!(f, "Underscore"),
-        }
-    }
-}*/
 
 pub struct ASTPool(Vec<ASTNode>);
 
@@ -148,26 +121,6 @@ pub enum ASTNode {
         args : Vec<ASTRef>,
     }
 }
-
-/*impl DebugWithContext<RustamlContext> for ASTNode {
-    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, rustaml_context : &RustamlContext) -> std::fmt::Result {
-        match self {
-            Self::TopLevel { nodes } => f.debug_struct("TopLevel").field_with("nodes", |fmt| nodes.fmt_with_context(fmt, rustaml_context)).finish(),
-            Self::FunctionDefinition { name, args, body, return_type } => f.debug_struct("FunctionDefinition").field("name", &name.get_str(&rustaml_context.str_interner)).field_with("args", |fmt| args.fmt_with_context(fmt, rustaml_context)).field_with("body", |fmt| body.get(&rustaml_context.ast_pool).fmt_with_context(fmt, rustaml_context)).field("return_type", return_type).finish(),
-            Self::VarDecl { name, val, body } => f.debug_struct("VarDecl").field("name", &name.get_str(&rustaml_context.str_interner)).field_with("val", |fmt| val.get(&rustaml_context.ast_pool).fmt_with_context(fmt, rustaml_context)).field_with("body", |fmt| body.fmt_with_context(fmt, rustaml_context)).finish(),
-            Self::VarUse { name } => f.debug_struct("VarUse").field("name", &name.get_str(&rustaml_context.str_interner)).finish(),
-            Self::IfExpr { cond_expr, then_body, else_body } => f.debug_struct("IfExpr").field_with("cond_expr", |fmt|  cond_expr.get(&rustaml_context.ast_pool).fmt_with_context(fmt, rustaml_context)).field_with("then_body", |fmt| then_body.fmt_with_context(fmt, rustaml_context)).field_with("else_body", |fmt| else_body.fmt_with_context(fmt, rustaml_context)).finish(),
-            Self::MatchExpr { matched_expr, patterns } => f.debug_struct("MatchExpr").field_with("matched_expr", |fmt| matched_expr.get(&rustaml_context.ast_pool).fmt_with_context(fmt, rustaml_context)).field_with("patterns", |fmt| patterns.fmt_with_context(fmt, rustaml_context)).finish(),
-            Self::Integer { nb } => f.debug_struct("Integer").field("nb", nb).finish(),
-            Self::Float { nb } => f.debug_struct("Float").field("nb", nb).finish(),
-            Self::String { str } => f.debug_struct("String").field("str", &str.get_str(&rustaml_context.str_interner)).finish(),
-            Self::List { list } => f.debug_struct("List").field_with("list", |fmt| list.fmt_with_context(fmt, rustaml_context)).finish(),
-            Self::Boolean { b } => f.debug_struct("Boolean").field("b", b).finish(),
-            Self::BinaryOp { op, lhs, rhs } => f.debug_struct("BinaryOp").field("op", op).field_with("lhs", |fmt| lhs.fmt_with_context(fmt, rustaml_context)).field_with("rhs", |fmt| rhs.fmt_with_context(fmt, rustaml_context)).finish(),
-            Self::FunctionCall { name, args } => f.debug_struct("FunctionCall").field("name", &name.get_str(&rustaml_context.str_interner)).field_with("args", |fmt| args.fmt_with_context(fmt, rustaml_context)).finish(),
-        }
-    }
-}*/
 
 
 // TODO : add a type pool to remove boxes (test performance ?)

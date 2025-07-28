@@ -15,8 +15,6 @@ use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 use crate::gc::collect_gc;
 
 // None values are freed lists that can be reused
-/*#[derive(DebugWithContext)]
-#[debug_context(RustamlContext)]*/
 pub struct ListPool(pub Vec<Option<Gc<List>>>);
 
 impl ListPool {
@@ -275,19 +273,6 @@ pub enum Val {
     Unit,
 }
 
-/*impl DebugWithContext<RustamlContext> for Val {
-    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
-        match self {
-            Self::Integer(arg0) => f.debug_tuple("Integer").field(arg0).finish(),
-            Self::Float(arg0) => f.debug_tuple("Float").field(arg0).finish(),
-            Self::Bool(arg0) => f.debug_tuple("Bool").field(arg0).finish(),
-            Self::String(arg0) => f.debug_tuple("String").field_with(|fmt| arg0.fmt_with_context(fmt, rustaml_context)).finish(),
-            Self::List(arg0) => f.debug_tuple("List").field_with(|fmt| arg0.fmt_with_context(fmt, rustaml_context)).finish(),
-            Self::Unit => write!(f, "Unit"),
-        }
-    }
-}*/
-
 impl PartialOrd for Val {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
@@ -351,24 +336,6 @@ struct FunctionDef {
     body : ASTRef,
     return_type : Type,
 }
-
-/*impl FunctionDef {
-    fn new(name : StringRef, args : Vec<StringRef>, body : ASTRef, return_type : Type) -> FunctionDef {
-        FunctionDef { 
-            name, 
-            args, 
-            body, 
-            return_type 
-        }
-    }
-}*/
-
-/*impl DebugWithContext<RustamlContext> for FunctionDef {
-    fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
-        f.debug_struct("FunctionDef").field("name", &self.name.get_str(&rustaml_context.str_interner)).field_with("args", |fmt| self.args.fmt_with_context(fmt, rustaml_context)).field_with("body", |fmt| self.body.fmt_with_context(fmt, rustaml_context)).field("return_type", &self.return_type).finish()
-    }
-}*/
-
 
 pub struct InterpretContext<'context> {
     functions : FxHashMap<StringRef, FunctionDef>,
