@@ -173,16 +173,18 @@ checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
 name = "debug_with_context"
-version = "0.1.0"
-source = "git+https://github.com/Vinz2008/debug_with_context#13017b87cc226ddecf0f9dfd9ae4be0483ec7cee"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17aa7d9a0dfd97bf2b95df9143c630a5e28e9301a8b4dc7e44964144557c89b2"
 dependencies = [
  "debug_with_context_macros",
 ]
 
 [[package]]
 name = "debug_with_context_macros"
-version = "0.1.0"
-source = "git+https://github.com/Vinz2008/debug_with_context#13017b87cc226ddecf0f9dfd9ae4be0483ec7cee"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22d2e9695460c7cc605a9ffc0fe31482b89c195fe247220ebfe7320b570c6b42"
 dependencies = [
  "proc-macro2",
  "quote",
