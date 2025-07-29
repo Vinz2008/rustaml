@@ -92,7 +92,6 @@ fn print_not_complete_end_of_expr(error_basic_infos : ErrorBasicInfos) -> ErrorP
         message: "Not complete end of expression token \";;\"".to_owned(),
         label: Some("This is where the character is missing"),
         note: Some("Just add a ';' to fix this error".to_owned()),
-        ..Default::default()
     }
 }
 

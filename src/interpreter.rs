@@ -1,6 +1,6 @@
 use rustc_hash::FxHashMap;
 use std::cmp::max;
-use std::{cmp::Ordering, process::ExitCode};
+use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
 use debug_with_context::DebugWithContext;
 
@@ -284,7 +284,7 @@ impl PartialOrd for Val {
     }
 }
 
-struct ValWrapDisplay<'a> {
+pub struct ValWrapDisplay<'a> {
     val : Val,
     rustaml_context: &'a RustamlContext,
 }
@@ -303,7 +303,7 @@ impl Display for ValWrapDisplay<'_> {
 }
 
 impl Val {
-    fn display<'a>(&self, rustaml_context: &'a RustamlContext) -> ValWrapDisplay<'a> {
+    pub fn display<'a>(&self, rustaml_context: &'a RustamlContext) -> ValWrapDisplay<'a> {
         ValWrapDisplay { 
             val: self.clone(), 
             rustaml_context  
@@ -712,13 +712,14 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
     let ast_node = ast.get(&context.rustaml_context.ast_pool).clone(); // remove the clone ? (because there are indexes in the ast node, the clone is not a deep copy)
     match &ast_node {
         ASTNode::TopLevel { nodes } => {
+            let mut last_node = Val::Unit;
             for node in nodes {
-                interpret_node(context, *node);
+                last_node = interpret_node(context, *node);
 
                 #[cfg(feature = "gc-test-collect")]
                 collect_gc(context, false);
             }
-            Val::Unit
+            last_node
         }
         ASTNode::FunctionDefinition { name, args, body, return_type } => {
             let func_def = FunctionDef { 
@@ -760,7 +761,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
     }
 }
 
-pub fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext) -> ExitCode {
+pub fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlContext) -> Val {
     let mut context = InterpretContext {
         vars: FxHashMap::default(),
         functions: FxHashMap::default(),
@@ -768,11 +769,15 @@ pub fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext) -> ExitCode 
         gc_context: GcContext::new(),
     };
 
-    interpret_node(&mut context, ast);
+    let v = interpret_node(&mut context, ast);
 
     
     debug_println!(context.rustaml_context.is_debug_print, "content = {:#?}", context);
     //dbg!(context);
 
-    ExitCode::SUCCESS
+    v
+}
+
+pub fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext){
+    interpret_with_val(ast, rustaml_context);
 }

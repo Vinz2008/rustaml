@@ -148,12 +148,7 @@ impl StrInterner {
     }
 
     pub fn free_nb(&self) -> usize {
-        self.strs.iter().filter(|s| {
-            match s {
-                StrInterned::Runtime(None) => true,
-                _ => false,
-            }
-        }).count()
+        self.strs.iter().filter(|s| matches!(s, StrInterned::Runtime(None))).count()
     }
 
     pub fn capacity(&self) -> usize {

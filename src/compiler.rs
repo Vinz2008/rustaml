@@ -573,7 +573,7 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
 }
 
-pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool) -> ExitCode{
+pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool) {
     let context = Context::create();
     let builder = context.create_builder();
 
@@ -691,5 +691,4 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
         }
     }
 
-    ExitCode::SUCCESS
 }

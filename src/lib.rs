@@ -30,7 +30,7 @@ cfg_if! {
 
 
 // make it not return ExitCode, just a empty error ?
-pub fn interpret_code(code : &str, filename : &Path, is_debug_print  : bool) -> Result<(), ExitCode> {
+pub fn interpret_code(code : &str, filename : &Path, is_debug_print  : bool) -> Result<(), ()> {
     let mut rustaml_context = RustamlContext::new(false, is_debug_print);
     let content = code.chars().collect::<Vec<_>>();
     let tokens = lexer::lex(content, is_debug_print);
@@ -38,7 +38,7 @@ pub fn interpret_code(code : &str, filename : &Path, is_debug_print  : bool) -> 
         Ok(t) => t,
         Err(e) => {
             print_error::print_lexer_error(e, filename, code);
-            return Err(ExitCode::FAILURE);
+            return Err(());
         },
     };
 
@@ -47,13 +47,10 @@ pub fn interpret_code(code : &str, filename : &Path, is_debug_print  : bool) -> 
         Ok(a_v) => a_v,
         Err(e) => {
             print_error::print_parser_error(e, filename, code);
-            return Err(ExitCode::FAILURE);
+            return Err(());
         },
     };
-    let ex = interpreter::interpret(ast, &mut rustaml_context);
-    if ex != ExitCode::SUCCESS {
-        return Err(ex);
-    }
+    interpreter::interpret(ast, &mut rustaml_context);
     Ok(())
 }
 

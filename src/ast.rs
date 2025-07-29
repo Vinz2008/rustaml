@@ -271,6 +271,10 @@ impl From<TypeInferenceErr> for ParserErr {
 
 impl Parser<'_> {
     fn has_tokens_left(&self) -> bool {
+        // TODO : this was added to make it work in the case of a single tok in a repl (can we make this cleaner ?)
+        if self.pos == 0 && self.tokens.len() == 1 {
+            return true;
+        }
         self.pos + 1 < self.tokens.len()
     }
 

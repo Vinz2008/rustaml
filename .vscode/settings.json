@@ -3,7 +3,8 @@
         "native",
         "human-panic",
         "gc-test-collect",
-        "gc-test-print"
+        "gc-test-print",
+        "repl"
     ],
     "files.associations": {
         "io": "llvm",
