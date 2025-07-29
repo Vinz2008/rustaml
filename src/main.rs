@@ -114,7 +114,7 @@ pub fn compile(_ast : ASTRef, _vars: FxHashMap<StringRef, Type>, _rustaml_contex
 }
 
 #[cfg(not(feature = "repl"))]
-pub fn repl(rustaml_context : &mut RustamlContext){
+pub fn repl(_rustaml_context : &mut RustamlContext){
     panic!("the repl feature was not enabled");
 }
 
