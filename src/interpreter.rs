@@ -615,13 +615,24 @@ fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : 
                 Val::List(l) => l,
                 _ => panic!("matching an expression that is not a list with a list pattern"),
             };
-            if l.is_empty() && matches!(matched_expr_list.get(list_pool), List::None){
+
+            let matched_expr_list_node = matched_expr_list.get(list_pool);
+
+            // if both empty
+            if l.is_empty() && matches!(matched_expr_list_node, List::None){
                 return true;
+            }
+
+            // TODO : maybe put len in the node to improve performance/create a cache for length ? (benchmark it/ add it as a feature ?)
+            let matched_expr_list_len = matched_expr_list_node.len(list_pool);
+
+            if matched_expr_list_len != l.len(){
+                return false;
             }
                 
             // TODO : refactor this if it is a performance problem (profile it ?)
             let mut pattern_matched_nb = 0;
-            for (p, v) in l.iter().zip(matched_expr_list.get(list_pool).iter(list_pool)) {
+            for (p, v) in l.iter().zip(matched_expr_list_node.iter(list_pool)) {
                 if !interpret_match_pattern(list_pool, v, p){
                     return false;
                 }
@@ -630,10 +641,7 @@ fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : 
 
 
             // TODO : this len is hot code (optimize it)
-            if pattern_matched_nb == l.len() && pattern_matched_nb == matched_expr_list.get(list_pool).len(list_pool) {
-                return true;
-            }
-            false
+            return pattern_matched_nb == l.len()
         },
         Pattern::ListDestructure(_, tail_pattern) => {
             let matched_expr_list = match matched_val {
