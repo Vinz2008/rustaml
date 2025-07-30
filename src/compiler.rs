@@ -162,6 +162,11 @@ fn compile_if<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>
 }
 
 fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, args: &[ASTRef]) -> AnyValueEnum<'llvm_ctx>{
+    // TODO : implement print
+    if name.get_str(&compile_context.rustaml_context.str_interner) == "print"{
+        todo!()
+    }
+    
     let args_vals = args.iter().map(|&a| compile_expr(compile_context, a).try_into().unwrap()).collect::<Vec<BasicMetadataValueEnum>>();
     let ret = compile_context.builder.build_call(*compile_context.functions.get(&name).unwrap(), args_vals.as_slice(), name.get_str(&compile_context.rustaml_context.str_interner)).unwrap().try_as_basic_value();
     match ret {
@@ -585,7 +590,7 @@ fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : O
 // TODO : instead install file in filesystem ?
 const STD_C_CONTENT: &str = include_str!("../std.c");
 
-fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : OptimizationLevel){
+fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : OptimizationLevel, enable_gc : bool){
     // use cc ?
     // TODO : use lld (https://github.com/mun-lang/lld-rs) for linking instead ?
     // TODO : use libclang ? (clang-rs ? https://github.com/llvm/llvm-project/blob/main/clang/tools/driver/cc1_main.cpp#L85 ?)
@@ -594,7 +599,16 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
     let out_std_path_str = out_std_path.as_os_str();
 
     // TODO : pass optimization level to this function
-    let mut clang_std = Command::new("clang").arg("-x").arg("c").arg("-emit-llvm").arg("-O3").arg("-c").arg("-").arg("-o").arg(out_std_path_str).stdin(Stdio::piped()).spawn().expect("compiling std failed");
+
+    let mut clang_std = Command::new("clang");
+    clang_std.arg("-x").arg("c").arg("-emit-llvm").arg("-O3").arg("-c");
+
+    if enable_gc {
+        clang_std.arg("-D_GC_");
+    }
+    
+    
+    let mut clang_std = clang_std.arg("-").arg("-o").arg(out_std_path_str).stdin(Stdio::piped()).spawn().expect("compiling std failed");
     clang_std.stdin.as_mut().unwrap().write_all(STD_C_CONTENT.as_bytes()).unwrap();
     clang_std.wait().unwrap();
 
@@ -604,13 +618,17 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
         link_cmd.arg("-flto");
     }
 
+    if enable_gc {
+        link_cmd.arg("-lgc");
+    }
+
     if !link_cmd.arg("-o").arg(filename_out).arg(out_std_path_str).arg(bitcode_file).spawn().expect("linker failed").wait().unwrap().success() {
         return;
     }
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
 }
 
-pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool) {
+pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool, enable_gc : bool) {
     let context = Context::create();
     let builder = context.create_builder();
 
@@ -722,7 +740,7 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
 
 
     if let Some(f_out) = filename_out {
-        link_exe(f_out,  &temp_path_bitcode, optimization_level);
+        link_exe(f_out,  &temp_path_bitcode, optimization_level, enable_gc);
         if !keep_temp {
             std::fs::remove_file(temp_path_bitcode).expect("Couldn't delete bitcode file");
         }

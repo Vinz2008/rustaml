@@ -81,6 +81,9 @@ enum Commands {
         #[arg(short = 'O', value_parser = clap::value_parser!(u8).range(0..=3), num_args(0..=1))]
         optimization_level : Option<u8>,
 
+        #[arg(long, default_value_t = false)]
+        enable_gc : bool,
+
         #[arg(long, short = 'd', default_value_t = false)]
         debug_print : bool,
     },
@@ -109,7 +112,7 @@ struct Args {
 }
 
 #[cfg(not(feature = "native"))]
-pub fn compile(_ast : ASTRef, _vars: FxHashMap<StringRef, Type>, _rustaml_context: &RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool) {
+pub fn compile(_ast : ASTRef, _vars: FxHashMap<StringRef, Type>, _rustaml_context: &RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool, _enable_gc : bool) {
     panic!("the compiler feature was not enabled");
 }
 
@@ -128,7 +131,7 @@ fn main() -> ExitCode {
 
     let (dump_inference, debug_print) = match args.command {
         Some(Commands::Check { filename: _, dump_inference, debug_print }) => (dump_inference, debug_print),
-        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, debug_print }) => {
+        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, enable_gc: _, debug_print }) => {
             (false, debug_print)
         },
         Some(Commands::Interpret { filename: _, debug_print }) => {
@@ -152,13 +155,14 @@ fn main() -> ExitCode {
 
             interpreter::interpret(ast, &mut rustaml_context);
         }
-        Commands::Compile { filename, filename_out, keep_temp, optimization_level, debug_print: _ } => {
+        Commands::Compile { filename, filename_out, keep_temp, optimization_level, enable_gc, debug_print: _ } => {
             let ast_and_vars = get_ast(&filename, &mut rustaml_context);
             let (ast, vars) = match ast_and_vars {
                 Ok(a_v) => a_v,
                 Err(()) => return ExitCode::FAILURE,
             };
-            compile(ast, vars, &rustaml_context, &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp);
+
+            compile(ast, vars, &rustaml_context, &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, enable_gc);
         },
 
         Commands::Check { filename, dump_inference, debug_print: _ } => {

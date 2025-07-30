@@ -15,6 +15,9 @@
         "*.toml": "toml",
         "*.hpoint": "cpoint",
         "*.rml": "ocaml",
-        "source_location": "c"
+        "source_location": "c",
+        "stdlib.h": "c",
+        "stdint.h": "c",
+        "stdbool.h": "c"
     }
 }
