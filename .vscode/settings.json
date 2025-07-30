@@ -5,7 +5,8 @@
         "gc-test-collect",
         "gc-test-print",
         "repl",
-        "stack-expand"
+        "stack-expand",
+        "debug-llvm"
     ],
     "files.associations": {
         "io": "llvm",

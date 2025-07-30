@@ -1,4 +1,4 @@
-use inkwell::{attributes::Attribute, builder::Builder, context::Context, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType}, values::{AnyValueEnum, BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace};
+use inkwell::{attributes::Attribute, builder::Builder, context::Context, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{AnyValueEnum, BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace};
 
 use crate::{ast::Type, compiler::CompileContext, string_intern::StringRef};
 
@@ -95,21 +95,12 @@ pub fn codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_,
     // TODO : only if in a hashset of already added symbols (is it needed ?)
     let ptr_type = compile_context.context.ptr_type(AddressSpace::default());
     
-    let fprintf_param_types: Vec<BasicMetadataTypeEnum> = vec![ptr_type.into(), ptr_type.into()];
-    let fprintf_type = get_fn_type(compile_context.context, compile_context.context.i32_type().into(), &fprintf_param_types, true);
-    let fprintf_fun = compile_context.module.add_function("fprintf", fprintf_type, Some(inkwell::module::Linkage::External));
+    let fprintf_fun = compile_context.get_internal_function("fprintf");
 
+    let exit_fun = compile_context.get_internal_function("exit");
 
-
-    let exit_param_types: Vec<BasicMetadataTypeEnum> = vec![compile_context.context.i32_type().into()];
-    let exit_type = get_fn_type(compile_context.context, compile_context.context.void_type().into(), &exit_param_types, false);
-    let exit_fun = compile_context.module.add_function("exit", exit_type, Some(inkwell::module::Linkage::External));
-    let noreturn_id = Attribute::get_named_enum_kind_id("noreturn");
-    let noreturn_attr = compile_context.context.create_enum_attribute(noreturn_id, 0);
-    exit_fun.add_attribute(inkwell::attributes::AttributeLoc::Function, noreturn_attr);
-
-    let stderr_global = compile_context.module.add_global(ptr_type, None, "stderr");
-    stderr_global.set_linkage(inkwell::module::Linkage::External);
+    let stderr_global = compile_context.get_internal_global_var("stderr", ptr_type.as_basic_type_enum());
+    
     let message_str  = compile_context.builder.build_global_string_ptr(&format!("{}\n", message), "error_message").unwrap();
     let stderr_load = compile_context.builder.build_load(ptr_type, stderr_global.as_pointer_value(), "stderr_load").unwrap();
     let fprintf_args: Vec<BasicMetadataValueEnum> = vec![stderr_load.into(), message_str.as_pointer_value().into()];

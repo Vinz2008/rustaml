@@ -1,7 +1,7 @@
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, ExitCode, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_var, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val}, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
-use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
+use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
@@ -14,7 +14,7 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     main_function : FunctionValue<'llvm_ctx>,
     var_types : FxHashMap<StringRef, Type>,
     pub var_vals : FxHashMap<StringRef, PointerValue<'llvm_ctx>>,
-    external_functions_declared : FxHashSet<&'static str>,
+    pub external_symbols_declared : FxHashSet<&'static str>,
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>,
 }
 
@@ -23,8 +23,14 @@ struct BuiltinFunction<'llvm_ctx> {
     name : &'static str,
     args : Vec<BasicMetadataTypeEnum<'llvm_ctx>>,
     ret : AnyTypeEnum<'llvm_ctx>,
+    attributes : Vec<(AttributeLoc, Attribute)>,
 }
 
+
+fn new_attribute<'llvm_ctx>(llvm_context : &'llvm_ctx Context, name : &'static str) -> Attribute {
+    let attribute_id = Attribute::get_named_enum_kind_id(name);
+    llvm_context.create_enum_attribute(attribute_id, 0)
+}
 
 // TODO : replace these strings with an enum ?
 fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<BuiltinFunction<'llvm_ctx>>{
@@ -33,32 +39,63 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
         BuiltinFunction {
             name: "__str_cmp",
             args: vec![ptr_type, ptr_type],
-            ret: llvm_context.i8_type().into()
+            ret: llvm_context.i8_type().into(),
+            attributes: vec![],
         },
         BuiltinFunction {
             name: "__str_append",
             args: vec![ptr_type, ptr_type],
             ret: llvm_context.ptr_type(AddressSpace::default()).into(),
+            attributes: vec![],
         },
         BuiltinFunction {
             name: "__list_node_append",
             args: vec![ptr_type, llvm_context.i8_type().into(), llvm_context.i64_type().into()],
             ret: llvm_context.ptr_type(AddressSpace::default()).into(),
+            attributes: vec![],
+        },
+        BuiltinFunction {
+            name: "fprintf",
+            args: vec![ptr_type, ptr_type],
+            ret: llvm_context.i32_type().into(),
+            attributes: vec![],
+        },
+        BuiltinFunction {
+            name: "exit",
+            args: vec![llvm_context.i32_type().into()],
+            ret: llvm_context.void_type().into(),
+            attributes: vec![(AttributeLoc::Function, new_attribute(llvm_context, "noreturn"))],
+
         }
     ]
 }
 
 impl<'context, 'refs, 'llvm_ctx> CompileContext<'context, 'refs, 'llvm_ctx> {
-    fn get_internal_function(&mut self, name : &'static str) -> FunctionValue<'llvm_ctx> {
-        if self.external_functions_declared.contains(name){
+    pub fn get_internal_function(&mut self, name : &'static str) -> FunctionValue<'llvm_ctx> {
+        if self.external_symbols_declared.contains(name){
             self.module.get_function(name).unwrap()
         } else {
             // use find instead of a hashmap because the number of internal functions is low
             let builtin_function = self.internal_functions.iter().find(|f| f.name == name).unwrap();
             let function_type = get_fn_type(self.context, builtin_function.ret, &builtin_function.args, false);
             let function_decl = self.module.add_function(name, function_type, Some(Linkage::External));
-            self.external_functions_declared.insert(name);
+            for &(attr_loc, attr) in &builtin_function.attributes {
+                function_decl.add_attribute(attr_loc, attr);
+            }
+            self.external_symbols_declared.insert(name);
             function_decl
+        }
+    }
+
+    // TODO : if this function become more used, make a list like the internal function for builtin_global_vars types
+    pub fn get_internal_global_var(&mut self, name : &'static str, type_var : BasicTypeEnum<'llvm_ctx>) -> GlobalValue<'llvm_ctx> {
+        if self.external_symbols_declared.contains(name){
+            self.module.get_global(name).unwrap()
+        } else {
+            let global = self.module.add_global(type_var, None, "stderr");
+            global.set_linkage(inkwell::module::Linkage::External);
+            self.external_symbols_declared.insert(name);
+            global
         }
     }
 }
@@ -343,7 +380,7 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
             }*/
         },
         // the type should be checked before (TODO ?)
-        Pattern::ListDestructure(_, _) => compile_context.builder.build_int_compare(IntPredicate::NE, matched_val.into_pointer_value(), compile_context.context.ptr_type(AddressSpace::default()).const_null(), "cmp_destructure_empty").unwrap(),
+        Pattern::ListDestructure(_, _) => compile_context.builder.build_int_compare(IntPredicate::NE, matched_val.into_pointer_value(), compile_context.context.ptr_type(AddressSpace::default()).const_null(), "cmp_destructure_not_empty").unwrap(),
         // TODO
         p => panic!("unknown pattern {:?}", DebugWrapContext::new(p, compile_context.rustaml_context)),
         //_ => unreachable!()
@@ -623,7 +660,7 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
         var_types,
         var_vals: FxHashMap::default(),
         internal_functions,
-        external_functions_declared: FxHashSet::default()
+        external_symbols_declared: FxHashSet::default()
     };
 
     let top_level_nodes = match ast.get(&rustaml_context.ast_pool) {
@@ -639,8 +676,8 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
     compile_context.builder.position_at_end(last_main_bb);
     compile_context.builder.build_return(Some(&compile_context.context.i32_type().const_int(0, false))).unwrap();
 
-    
-
+    #[cfg(feature = "debug-llvm")]
+    compile_context.module.verify().or_else(|e| -> Result<_, LLVMString> { panic!("LLVM ERROR {}", e.to_string()) }).unwrap();
 
     let temp_path = if keep_temp {
         Path::new(".").to_owned() 

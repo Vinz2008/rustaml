@@ -28,6 +28,7 @@ debug = "full"
 
 [features]
 native = ["dep:inkwell", "dep:pathbuf"]
+debug-llvm = ["native"]
 repl = ["dep:rustyline"]
 human-panic = ["dep:human-panic"]
 gc-test-print = []
