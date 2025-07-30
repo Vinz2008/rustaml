@@ -17,13 +17,14 @@ inkwell = { version = "0.6.0", features = ["llvm18-1"], optional = true } # set 
 pathbuf = { version = "1.0.0", optional = true}
 human-panic = {version = "2.0.3", optional = true }
 rustyline = {version = "16.0.0", optional = true }
+stacker = { version = "0.1.21", optional = true }
 
 
 [profile.release]
 lto = "fat"
 panic = "abort"
-strip = "debuginfo"
-#debug = "full"
+#strip = "debuginfo"
+debug = "full"
 
 [features]
 native = ["dep:inkwell", "dep:pathbuf"]
@@ -31,3 +32,5 @@ repl = ["dep:rustyline"]
 human-panic = ["dep:human-panic"]
 gc-test-print = []
 gc-test-collect = []
+stack-expand = ["dep:stacker"]
+stack-expand-test-print = ["stack-expand"]

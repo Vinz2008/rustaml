@@ -4,3 +4,5 @@
 out
 *.dump
 tests/big_file.rml
+flamegraph.svg
+perf.data*

@@ -4,7 +4,8 @@
         "human-panic",
         "gc-test-collect",
         "gc-test-print",
-        "repl"
+        "repl",
+        "stack-expand"
     ],
     "files.associations": {
         "io": "llvm",

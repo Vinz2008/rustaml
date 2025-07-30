@@ -2,7 +2,7 @@ let big_list n =
   if n == 0 then []
   else n :: big_list (n - 1) ;;
 
-let l = big_list 6000 ;;
+let l = big_list 100000 ;;
 
 let len l = match l with
   | [] -> 0

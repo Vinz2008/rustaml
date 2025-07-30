@@ -7,6 +7,7 @@ use debug_with_context::DebugWithContext;
 use crate::ast::ASTRef;
 use crate::debug_println;
 use crate::gc::{try_gc_collect, Gc, GcContext};
+use crate::rustaml::ensure_stack;
 use crate::rustaml::RustamlContext;
 use crate::string_intern::StringRef;
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
@@ -201,6 +202,7 @@ impl List {
         ListIter { current: self, list_pool }
     }
 
+    // TH
     fn len(&self, list_pool : &ListPool) -> usize {
         let mut count = 0;
 
@@ -543,7 +545,8 @@ fn interpret_function_call(context: &mut InterpretContext, name : StringRef, arg
         context.vars.insert(*arg_name, arg_val.clone());
     }
 
-    let res_val = interpret_node(context, func_def.body);
+
+    let res_val = ensure_stack(|| interpret_node(context, func_def.body));
 
     for arg_name in &func_def.args {
         context.vars.remove(arg_name);
@@ -626,6 +629,7 @@ fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : 
             }
 
 
+            // TODO : this len is hot code (optimize it)
             if pattern_matched_nb == l.len() && pattern_matched_nb == matched_expr_list.get(list_pool).len(list_pool) {
                 return true;
             }

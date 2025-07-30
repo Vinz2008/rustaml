@@ -1,3 +1,4 @@
+use cfg_if::cfg_if;
 use rustc_hash::FxHashMap;
 
 use crate::{ast::{self, ASTPool, ASTRef, Type}, interpreter::ListPool, lexer, print_error, string_intern::{StrInterner, StringRef}, type_inference_debug::DumpInfer};
@@ -64,4 +65,37 @@ pub fn get_ast(filename : &Path, rustaml_context : &mut RustamlContext) -> Resul
     let content_chars = content.chars().collect::<Vec<_>>();
     
     get_ast_from_string(rustaml_context, content_chars, Some(content), filename)
+}
+
+
+cfg_if! {
+    if #[cfg(feature = "stack-expand")]{
+        const RED_ZONE : usize = 100 * 1024; // 100KB
+        const STACK_PER_RECURSION : usize = 1024 * 1024; // 1MB
+        #[inline]
+        pub fn ensure_stack<R>(f : impl FnOnce() -> R) -> R {
+
+            #[cfg(feature = "stack-expand-test-print")]
+            {
+                let enough_space = match stacker::remaining_stack() {
+                    Some(remaining) => remaining >= RED_ZONE,
+                    None => false,
+                };
+                if !enough_space {
+                    println!("STACK EXPAND");
+                }
+                
+            }
+            
+
+            
+            
+            stacker::maybe_grow(RED_ZONE, STACK_PER_RECURSION, f)
+        }
+    } else {
+        #[inline(always)]
+        pub fn ensure_stack<R>(f : impl FnOnce() -> R) -> R {
+            f()
+        }
+    }
 }
