@@ -54,7 +54,7 @@ impl StringRef {
         let lhs_str = str_interner.lookup(self);
         let rhs_str = str_interner.lookup(rhs);
         let new_str = lhs_str.to_owned() + rhs_str;
-        str_interner.intern(&new_str, true)
+        str_interner.intern_runtime(&new_str)
     }
 
     pub fn len(self, str_interner : &StrInterner) -> usize {
@@ -139,6 +139,7 @@ impl StrInterner {
         self.strs.len()
     }
 
+    #[cfg(feature = "gc-test-print")]
     pub fn runtime_nb(&self) -> usize {
         self.strs.iter().filter(|s| matches!(s, StrInterned::Runtime(Some(_)))).count()
     }
@@ -147,10 +148,12 @@ impl StrInterner {
         self.strs.iter().filter(|s| !s.is_runtime()).count()
     }
 
+    #[cfg(feature = "gc-test-print")]
     pub fn free_nb(&self) -> usize {
         self.strs.iter().filter(|s| matches!(s, StrInterned::Runtime(None))).count()
     }
 
+    #[cfg(feature = "gc-test-print")]
     pub fn capacity(&self) -> usize {
         self.strs.capacity()
     }
