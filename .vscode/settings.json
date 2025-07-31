@@ -18,6 +18,7 @@
         "source_location": "c",
         "stdlib.h": "c",
         "stdint.h": "c",
-        "stdbool.h": "c"
+        "stdbool.h": "c",
+        "inttypes.h": "c"
     }
 }

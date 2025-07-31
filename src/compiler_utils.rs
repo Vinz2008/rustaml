@@ -1,6 +1,10 @@
-use inkwell::{attributes::Attribute, builder::Builder, context::Context, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{AnyValueEnum, BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace};
+use inkwell::{builder::Builder, context::Context, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{AnyValueEnum, BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace};
 
 use crate::{ast::Type, compiler::CompileContext, string_intern::StringRef};
+
+pub fn encountered_any_type() -> ! {
+    panic!("Encountered Any when compiling")
+}
 
 pub fn get_type_tag(t : &Type) -> u8 {
     match t {
@@ -48,7 +52,7 @@ pub fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type 
         Type::List(_t) => llvm_context.ptr_type(AddressSpace::default()).into(), // TODO ?
         Type::Str => llvm_context.ptr_type(AddressSpace::default()).into(),
         Type::Unit => llvm_context.void_type().into(),
-        Type::Any => panic!("Encountered any when compiling"),
+        Type::Any => encountered_any_type(),
 
     }
 }
@@ -85,10 +89,17 @@ fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_,
 }
 
 pub fn create_var<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : AnyValueEnum<'llvm_ctx>, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
+    if alloca_type.is_void_type(){
+        return compile_context.context.ptr_type(AddressSpace::default()).const_null(); // to represent a var containing a void, if it is written to, it is a bug
+    }
     let var_alloca = create_entry_block_alloca(compile_context, name.get_str(&compile_context.rustaml_context.str_interner), alloca_type);
     compile_context.builder.build_store(var_alloca, TryInto::<BasicValueEnum>::try_into(val).unwrap()).unwrap();
     compile_context.var_vals.insert(name, var_alloca);
     var_alloca
+}
+
+pub fn create_string<'llvm_ctx>(builder: &Builder<'llvm_ctx>, str : &str) -> PointerValue<'llvm_ctx> {
+    builder.build_global_string_ptr(str, "str").unwrap().as_pointer_value()
 }
 
 pub fn codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, message : &str){
@@ -101,9 +112,9 @@ pub fn codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_,
 
     let stderr_global = compile_context.get_internal_global_var("stderr", ptr_type.as_basic_type_enum());
     
-    let message_str  = compile_context.builder.build_global_string_ptr(&format!("{}\n", message), "error_message").unwrap();
+    let message_str  = create_string(compile_context.builder, &format!("{}\n", message));
     let stderr_load = compile_context.builder.build_load(ptr_type, stderr_global.as_pointer_value(), "stderr_load").unwrap();
-    let fprintf_args: Vec<BasicMetadataValueEnum> = vec![stderr_load.into(), message_str.as_pointer_value().into()];
+    let fprintf_args: Vec<BasicMetadataValueEnum> = vec![stderr_load.into(), message_str.into()];
     compile_context.builder.build_call(fprintf_fun, &fprintf_args, "error_fprintf").unwrap();
 
     let exit_args = vec![compile_context.context.i32_type().const_int(1, false).into()];

@@ -87,9 +87,6 @@ cfg_if! {
                 
             }
             
-
-            
-            
             stacker::maybe_grow(RED_ZONE, STACK_PER_RECURSION, f)
         }
     } else {

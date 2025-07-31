@@ -1,1 +1,7 @@
 let a = print 2 ;;
+let b = print 3.0 ;;
+let c = print true ;;
+let d = print "test" ;;
+let e = print () ;;
+
+let l = print [1, 2, 3, 0-2] ;;

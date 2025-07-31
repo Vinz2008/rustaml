@@ -15,6 +15,8 @@ pub struct Arg {
     pub arg_type : Type,
 }
 
+// TODO : add imports
+
 // TODO : create a pattern pool ?
 
 // TODO : add a guard clauses (create struct with an enum and guard clauses)
@@ -119,11 +121,13 @@ pub enum ASTNode {
     FunctionCall {
         name : StringRef,
         args : Vec<ASTRef>,
-    }
+    },
+    Unit,
 }
 
 
-// TODO : add a type pool to remove boxes (test performance ?)
+// TODO : add a type pool to remove boxes (test performance ? normally should be useful for lowering the type size, it would become only 64 bit and we could make it Copy, but we wouldn't use it everywhere there is Type like for other types, just in refence in the type to other types to lower the size while only indexing in the vector when it is really needed)
+// THE PROBLEM : would need to make the type system only have functions with only one args, but could do it by returning type of function types, which could even help for currying
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Integer,
@@ -176,6 +180,7 @@ impl ASTNode {
             ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?,
             ASTNode::TopLevel { nodes: _ } => Type::Unit,
             ASTNode::FunctionDefinition { name: _, args: _, body: _, return_type: _ } => Type::Unit,
+            ASTNode::Unit => Type::Unit,
         };
 
         Ok(t)
@@ -675,10 +680,13 @@ fn parse_match(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
 // TODO : fix parsing parenthesis in parenthesis ex : (fib_list (i-1))
 fn parse_parenthesis(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
-    let expr = parse_node(parser)?;
+    let expr: ASTRef = parse_node(parser)?;
     debug_println!(parser.rustaml_context.is_debug_print, "expr = {:#?}", DebugWrapContext::new(&expr, parser.rustaml_context));
     //dbg_intern!(&expr, &parser.rustaml_context);
-    parser.eat_tok(Some(TokenDataTag::ParenClose))?;
+    debug_println!(parser.rustaml_context.is_debug_print, "PARENT CLOSE EATEN");
+    if let ASTNode::Unit = expr.get(&parser.rustaml_context.ast_pool){} else {
+        parser.eat_tok(Some(TokenDataTag::ParenClose))?;
+    }
     Ok(expr)
 }
 
@@ -701,6 +709,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         TokenData::True => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: true })),
         TokenData::False => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: false })),
         TokenData::ParenOpen => parse_parenthesis(parser), // TODO : move this to the start of parse_node and make it unreachable! ? (because each time there are parenthesis, parse_node -> parse_primary -> parse_node is added to the call stack) 
+        TokenData::ParenClose => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Unit)), // This is the unit
         TokenData::ArrayOpen => parse_static_list(parser),
         t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))
     };

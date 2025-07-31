@@ -23,8 +23,8 @@ stacker = { version = "0.1.21", optional = true }
 [profile.release]
 lto = "fat"
 panic = "abort"
-#strip = "debuginfo"
-debug = "full"
+strip = "debuginfo"
+#debug = "full"
 
 [features]
 native = ["dep:inkwell", "dep:pathbuf"]

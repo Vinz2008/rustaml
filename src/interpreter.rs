@@ -769,6 +769,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, *matched_expr, patterns.as_slice()),
         ASTNode::String { str } => Val::String(*str),
         ASTNode::List { list } => Val::List(List::new_from(context, list)),
+        ASTNode::Unit => Val::Unit,
         //n => panic!("unexpected ast node when interpreting : {:?}", n),
     }
 }

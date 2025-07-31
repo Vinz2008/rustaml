@@ -216,7 +216,7 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
         ParserErrData::NotFunctionTypeInAnnotationLet { function_name: name } => print_not_function_type_in_let(error_basic_infos, &name),
     };
 
-    assert!((error_print.note.is_some() && error_print.label.is_some()) || (error_print.note.is_none() && error_print.label.is_none()));
+    //assert!((error_print.note.is_some() && error_print.label.is_some()) || (error_print.note.is_none() && error_print.label.is_none()));
 
     print_error(error_print);
 }
