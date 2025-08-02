@@ -775,6 +775,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::String { str } => Val::String(*str),
         ASTNode::List { list } => Val::List(List::new_from(context, list)),
         ASTNode::Throw {  } => todo!(),
+        ASTNode::TryCatch { try_body, catch_body } => todo!(),
         ASTNode::Unit => Val::Unit,
         //n => panic!("unexpected ast node when interpreting : {:?}", n),
     }

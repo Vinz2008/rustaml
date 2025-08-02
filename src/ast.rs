@@ -1,4 +1,4 @@
-use std::{any::Any, ops::Range};
+use std::ops::Range;
 use std::fmt::Debug;
 
 use rustc_hash::FxHashMap;
@@ -125,6 +125,11 @@ pub enum ASTNode {
     Throw {
         // TODO
     },
+    TryCatch {
+        try_body : ASTRef,
+        // TODO : add specific catch bodies
+        catch_body : ASTRef,
+    },
     Unit,
 }
 
@@ -194,6 +199,15 @@ impl ASTNode {
             ASTNode::FunctionDefinition { name: _, args: _, body: _, return_type: _ } => Type::Unit,
             ASTNode::Unit => Type::Unit,
             ASTNode::Throw {} => Type::Never,
+            ASTNode::TryCatch { try_body, catch_body } => {
+                let try_type = try_body.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?;
+                let catch_type = catch_body.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?;
+                match (try_type, catch_type){
+                    (Type::Never, t) | (t, Type::Never) => t,
+                    (t, t2) if t.tag() == t2.tag() => t,
+                    (t, t2) => panic!("Typechecking error in if : if -> {:?}, else -> {:?}", t, t2), // TODO : return a type checking error instead that can coerce to a parserErr
+                } 
+            }
         };
 
         Ok(t)
@@ -719,6 +733,13 @@ fn parse_throw(parser : &mut Parser) -> ASTRef {
     parser.rustaml_context.ast_pool.push(ASTNode::Throw {})
 }
 
+fn parse_try_catch(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
+    let try_body = parse_node(parser)?;
+    parser.eat_tok(Some(TokenDataTag::Catch))?;
+    let catch_body = parse_node(parser)?;
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::TryCatch { try_body, catch_body }))
+}
+
 fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let tok = parser.eat_tok(None).unwrap();
     let node = match tok.tok_data {
@@ -734,6 +755,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         TokenData::ParenOpen => parse_parenthesis(parser), // TODO : move this to the start of parse_node and make it unreachable! ? (because each time there are parenthesis, parse_node -> parse_primary -> parse_node is added to the call stack) 
         TokenData::ArrayOpen => parse_static_list(parser),
         TokenData::Throw => Ok(parse_throw(parser)),
+        TokenData::Try => parse_try_catch(parser),
         t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))
     };
 

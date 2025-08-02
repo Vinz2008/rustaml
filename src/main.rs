@@ -167,7 +167,7 @@ fn main() -> ExitCode {
 
             debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&vars, &rustaml_context));
 
-            compile(ast, vars, &rustaml_context, &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, enable_gc);
+            compile(ast, vars, &mut rustaml_context, &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, enable_gc);
         },
 
         Commands::Check { filename, dump_inference, debug_print: _ } => {

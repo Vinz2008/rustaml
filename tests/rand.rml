@@ -1,4 +1,16 @@
-let _ = print rand () ;;
-let _ = print rand () ;;
-let _ = print rand () ;;
-let _ = print rand () ;;
+// let _ = print rand () ;;
+// let _ = print rand () ;;
+// let _ = print rand () ;;
+// let _ = print rand () ;;
+
+let rand_nb n : int -> list[int] = 
+  if n == 0 then [] else (rand ()) :: rand_nb (n - 1) ;;
+
+let r = rand_nb 1000 ;;
+
+let rand_print_f li : list[int] -> bool = 
+  match li with
+  | [] -> false
+  | e :: l -> (print e) == (rand_print_f l) ;;
+
+let r_p = rand_print_f r ;;

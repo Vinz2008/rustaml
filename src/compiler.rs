@@ -1,6 +1,6 @@
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, ExitCode, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val}, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{append_bb_just_after, codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current}, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -14,10 +14,13 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     pub module : &'refs Module<'llvm_ctx>,
     pub builder : &'refs Builder<'llvm_ctx>,
     functions : FxHashMap<StringRef, FunctionValue<'llvm_ctx>>,
+    functions_can_throw : FxHashMap<StringRef, bool>,
     main_function : FunctionValue<'llvm_ctx>,
     var_types : FxHashMap<StringRef, Type>,
     pub var_vals : FxHashMap<StringRef, PointerValue<'llvm_ctx>>,
     pub external_symbols_declared : FxHashSet<&'static str>,
+    pub is_in_try_catch : bool,
+    pub catch_bb : Option<BasicBlock<'llvm_ctx>>,
     // TODO : replace this with a hashmap ?
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>,
 }
@@ -199,29 +202,36 @@ fn compile_if<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>
     let else_bb = compile_context.context.append_basic_block(this_function, "else");
     let after_bb = compile_context.context.append_basic_block(this_function, "afterif");
 
-    
-    // TODO : create br
-
     let bool_val = compile_expr(compile_context, cond_expr);
 
     compile_context.builder.build_conditional_branch(TryInto::<IntValue>::try_into(bool_val).unwrap(), then_bb, else_bb).unwrap();
 
     compile_context.builder.position_at_end(then_bb);
 
+
     let if_val = compile_expr(compile_context, then_body);
     compile_context.builder.build_unconditional_branch(after_bb).unwrap();
+
+    let then_bb_last = compile_context.builder.get_insert_block().unwrap();
+
+    move_bb_after_current(compile_context, else_bb);
+
 
     compile_context.builder.position_at_end(else_bb);
 
     let else_val = compile_expr(compile_context, else_body);
     compile_context.builder.build_unconditional_branch(after_bb).unwrap();
 
+    let else_bb_last = compile_context.builder.get_insert_block().unwrap();
+
+
+    move_bb_after_current(compile_context, after_bb);
     compile_context.builder.position_at_end(after_bb);
 
     let phi_node = compile_context.builder.build_phi(TryInto::<BasicTypeEnum>::try_into(if_val.get_type()).unwrap(), "if_phi").unwrap();
     let if_val_basic = TryInto::<BasicValueEnum>::try_into(if_val).unwrap();
     let else_val_basic = TryInto::<BasicValueEnum>::try_into(else_val).unwrap();
-    phi_node.add_incoming(vec![(&if_val_basic as _, then_bb), (&else_val_basic as _, else_bb)].as_slice());
+    phi_node.add_incoming(vec![(&if_val_basic as _, then_bb_last), (&else_val_basic as _, else_bb_last)].as_slice());
     phi_node.as_any_value_enum()
 }
 
@@ -292,8 +302,21 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
         _ => {}
     }
     
-    let args_vals = args.iter().map(|&a| compile_expr(compile_context, a).try_into().unwrap()).collect::<Vec<BasicMetadataValueEnum>>();
-    let ret = compile_context.builder.build_call(*compile_context.functions.get(&name).unwrap(), args_vals.as_slice(), name.get_str(&compile_context.rustaml_context.str_interner)).unwrap().try_as_basic_value();
+    
+    let fun = *compile_context.functions.get(&name).unwrap();
+    let name_str = name.get_str(&compile_context.rustaml_context.str_interner);
+    let ret = if compile_context.is_in_try_catch && *compile_context.functions_can_throw.get(&name).unwrap() {
+        let args_vals = args.iter().map(|&a| compile_expr(compile_context, a).try_into().unwrap()).collect::<Vec<BasicValueEnum>>();
+        let function = get_current_function(compile_context.builder);
+        let then_bb = append_bb_just_after(compile_context, function, "then_invoke");
+        let ret_val = compile_context.builder.build_invoke(fun, args_vals.as_slice(), then_bb, compile_context.catch_bb.unwrap(), name_str).unwrap();
+        compile_context.builder.position_at_end(then_bb);
+        ret_val
+    } else {
+        let args_vals = args.iter().map(|&a| compile_expr(compile_context, a).try_into().unwrap()).collect::<Vec<BasicMetadataValueEnum>>();
+        compile_context.builder.build_call(fun, args_vals.as_slice(), name_str).unwrap()
+    }.try_as_basic_value();
+    
     match ret {
         Either::Left(l) => l.into(),
         Either::Right(_) => get_void_val(compile_context.context), // void, dummy value
@@ -336,6 +359,11 @@ fn compile_binop_float<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
 
 // TODO : replace most of AnyValueEnum with BasicValueEnum ?
 fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, operand_type : Type, name : &str) -> IntValue<'llvm_ctx>{
+
+    if let Type::Unit = operand_type {
+        // both types should be unit, so return true
+        return compile_context.context.bool_type().const_int(true as u64, false);
+    }
 
     match (lhs_val, rhs_val){
         (AnyValueEnum::IntValue(i),  AnyValueEnum::IntValue(i2)) => {
@@ -413,10 +441,13 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     let lhs_val = compile_expr(compile_context, lhs);
     let rhs_val = compile_expr(compile_context, rhs);
     // TODO : add better error handling to remove unwraps for get_type calls
+
+    let lhs_type = lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
+
     match op.get_type() {
         Type::Integer => compile_binop_int(compile_context, op, lhs_val, rhs_val, &name).into(),
         Type::Float => compile_binop_float(compile_context, op, lhs_val, rhs_val, &name).into(),
-        Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap(), &name).into(),
+        Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, lhs_type, &name).into(),
         Type::Str => compile_binop_str(compile_context, op, lhs_val, rhs_val, &name),
         // here do not trust the -e (it is Type::Any), use get_type on the head
         Type::List(_e) => compile_binop_list(compile_context, op, lhs_val, rhs_val, /*e.as_ref()*/ &lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap()),
@@ -646,12 +677,44 @@ fn compile_throw<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     get_void_val(compile_context.context)
 }
 
+fn compile_try_catch<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, try_body : ASTRef, catch_body : ASTRef) -> AnyValueEnum<'llvm_ctx>{
+    let function = get_current_function(compile_context.builder);
+    compile_context.is_in_try_catch = true;
+
+    let landing_pad = compile_context.context.append_basic_block(function, "landing_pad");
+    compile_context.catch_bb = Some(landing_pad);
+
+    let after_bb = compile_context.context.append_basic_block(function, "after_try_catch");
+
+    let try_val = compile_expr(compile_context, try_body);
+
+    let try_bb = compile_context.builder.get_insert_block().unwrap();
+    compile_context.builder.build_unconditional_branch(after_bb).unwrap();
+
+    compile_context.builder.position_at_end(landing_pad);
+
+    // TODO : add landing pad instrtuctions
+    let catch_val = compile_expr(compile_context, catch_body);
+    compile_context.builder.build_unconditional_branch(after_bb).unwrap();
+    
+    compile_context.catch_bb.take();
+    compile_context.is_in_try_catch = false;
+
+    compile_context.builder.position_at_end(after_bb);
+
+    let phi_node = compile_context.builder.build_phi(TryInto::<BasicTypeEnum>::try_into(try_val.get_type()).unwrap(), "try_catch_phi").unwrap();
+    let try_val_basic = TryInto::<BasicValueEnum>::try_into(try_val).unwrap();
+    let catch_val_basic = TryInto::<BasicValueEnum>::try_into(catch_val).unwrap();
+    phi_node.add_incoming(vec![(&try_val_basic as _, try_bb), (&catch_val_basic as _, landing_pad)].as_slice());
+    phi_node.as_any_value_enum()
+}
+
 // TODO : replace AnyValueEnum with BasicMetadataValueEnum in compile_expr and other functions ?
 fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef) -> AnyValueEnum<'llvm_ctx> {
     match ast_node.get(&compile_context.rustaml_context.ast_pool){
         ASTNode::Integer { nb } => create_int(compile_context, *nb).into(), // TODO : sign extend or not ?
         ASTNode::Float { nb } => compile_context.context.f64_type().const_float(*nb).into(),
-        ASTNode::Boolean { b } => compile_context.context.i8_type().const_int(*b as u64, false).into(),
+        ASTNode::Boolean { b } => compile_context.context.bool_type().const_int(*b as u64, false).into(),
         ASTNode::String { str } => compile_str(compile_context, *str).into(),
         ASTNode::VarDecl { name, val, body } => compile_var_decl(compile_context, *name, *val, *body, false),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => compile_if(compile_context, *cond_expr, *then_body, *else_body),
@@ -661,9 +724,41 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
         ASTNode::List { list } => compile_static_list(compile_context, list),
         ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, *matched_expr, patterns),
         ASTNode::Throw {  } => compile_throw(compile_context),
+        ASTNode::TryCatch { try_body, catch_body } => compile_try_catch(compile_context, *try_body, *catch_body),
         ASTNode::Unit => get_void_val(compile_context.context),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)), 
         //_ => todo!()
+    }
+}
+
+fn can_function_body_throw(compile_context: &CompileContext, body : ASTRef) -> bool {
+    match body.get(&compile_context.rustaml_context.ast_pool){
+        ASTNode::VarDecl { name, val, body } => {
+            let can_body_throw = if let Some(b) = body {
+                can_function_body_throw(compile_context, *b)
+            } else {
+                false
+            };
+            can_body_throw || can_function_body_throw(compile_context, *val)
+        },
+        ASTNode::IfExpr { cond_expr, then_body, else_body } => {
+            can_function_body_throw(compile_context, *cond_expr) || can_function_body_throw(compile_context, *then_body) || can_function_body_throw(compile_context, *else_body)
+        },
+        ASTNode::FunctionCall { name, args } => {
+            *compile_context.functions_can_throw.get(name).unwrap_or_else(|| panic!("Can't know if function {} can throw", name.get_str(&compile_context.rustaml_context.str_interner)))
+        },
+        ASTNode::BinaryOp { op, lhs, rhs } => {
+            can_function_body_throw(compile_context, *lhs) || can_function_body_throw(compile_context, *rhs)
+        }
+        ASTNode::MatchExpr { matched_expr, patterns } => {
+            let can_match_bodies_throw = patterns.iter().fold(false, |acc, e| acc || can_function_body_throw(compile_context, e.1));
+            can_function_body_throw(compile_context, *matched_expr) || can_match_bodies_throw
+        },
+        ASTNode::TryCatch { try_body, catch_body } => {
+            can_function_body_throw(compile_context, *try_body) || can_function_body_throw(compile_context, *catch_body)
+        }
+        ASTNode::Throw {  } => true,
+        _ => false,
     }
 }
 
@@ -690,6 +785,9 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
                 }
                 create_var(compile_context, arg.name, arg_val.as_any_value_enum(), arg_type);
             }
+
+            let can_throw = can_function_body_throw(compile_context, *body);
+            compile_context.functions_can_throw.insert(*name, can_throw);
 
             let ret = compile_expr(compile_context, *body);
 
@@ -780,7 +878,15 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
 }
 
-pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool, enable_gc : bool) {
+fn get_functions_can_throw_default(rustaml_context: &mut RustamlContext) -> FxHashMap<StringRef, bool> {
+    let mut i = |s| rustaml_context.str_interner.intern_compiler(s);
+    FxHashMap::from_iter([
+        (i("rand"), false),
+        (i("print"), false)
+    ])
+}
+
+pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool, enable_gc : bool) {
     let context = Context::create();
     let builder = context.create_builder();
 
@@ -819,6 +925,7 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
     let main_function = get_main_function(&context, &module);
 
     let internal_functions = get_internal_functions(&context);
+    let functions_can_throw = get_functions_can_throw_default(rustaml_context);
 
     let mut compile_context = CompileContext {
         rustaml_context,
@@ -830,6 +937,9 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
         var_types,
         var_vals: FxHashMap::default(),
         internal_functions,
+        functions_can_throw,
+        is_in_try_catch: false,
+        catch_bb: None,
         external_symbols_declared: FxHashSet::default()
     };
 

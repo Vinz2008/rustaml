@@ -1,4 +1,4 @@
-use inkwell::{builder::Builder, context::Context, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{AnyValueEnum, BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace};
+use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{AnyValueEnum, BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace};
 
 use crate::{ast::Type, compiler::CompileContext, string_intern::StringRef};
 
@@ -78,6 +78,18 @@ pub fn get_fn_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, llvm_type : Any
 
 pub fn get_current_function<'llvm_ctx>(builder: &Builder<'llvm_ctx>) -> FunctionValue<'llvm_ctx> {
     builder.get_insert_block().unwrap().get_parent().unwrap()
+}
+
+pub fn move_bb_after_current<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, bb : BasicBlock<'llvm_ctx>){
+    let current_bb = compile_context.builder.get_insert_block().unwrap();
+    bb.move_after(current_bb).unwrap();
+}
+
+pub fn append_bb_just_after<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, function : FunctionValue<'llvm_ctx>, name : &str) -> BasicBlock<'llvm_ctx> {
+    
+    let bb = compile_context.context.append_basic_block(function, name);
+    move_bb_after_current(compile_context, bb);
+    bb
 }
 
 fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : &str, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> 
