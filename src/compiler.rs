@@ -601,6 +601,8 @@ fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
     compile_context.builder.build_conditional_branch(bool_val, bb, else_bb).unwrap();
 }
 
+
+// TODO : test nested matchs for problem with bb placement (use move_bb_after_current ?)
 fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, match_node : ASTRef, matched_expr : ASTRef, patterns : &[(Pattern, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
     
     let matched_val = compile_expr(compile_context, matched_expr);
