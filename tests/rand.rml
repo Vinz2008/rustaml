@@ -1,0 +1,4 @@
+let _ = print rand () ;;
+let _ = print rand () ;;
+let _ = print rand () ;;
+let _ = print rand () ;;

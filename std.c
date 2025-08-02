@@ -181,7 +181,6 @@ static RandState rand_state = {false, 0, 0};
     #include <unistd.h>
 #endif
 
-// TODO : use as a fallback to this on x86 rdtsc on embedded ?
 void fallback_seed() {
 
 #ifdef _WIN32
@@ -231,10 +230,51 @@ static void seed_random(){
     }
 }
 
-#else 
+#elif __STDC__HOSTED__ == 0 && (defined(__x86_64__) || defined(__i386__))
+// freestanding
+#ifdef __i386
+extern __inline__ uint64_t rdtsc(void) {
+  uint64_t x;
+  __asm__ volatile ("rdtsc" : "=A" (x));
+  return x;
+}
+#elif defined __x86_64__
+extern __inline__ uint64_t rdtsc(void) {
+  uint64_t a, d;
+  __asm__ volatile ("rdtsc" : "=a" (a), "=d" (d));
+  return (d<<32) | a;
+}
+#endif
+// A simple mixing function to reduce correlation between consecutive rdtsc values
+static inline uint64_t mix(uint64_t x) {
+    x ^= x >> 33;
+    x *= 0xff51afd7ed558ccdULL;
+    x ^= x >> 33;
+    x *= 0xc4ceb9fe1a85ec53ULL;
+    x ^= x >> 33;
+    return x
+}
+
+static void seed_random(){
+    uint64_t r[8];
+    for (int i = 0; i < 8; i++) {
+        r[i] = mix(rdtsc());
+        // Insert small delay or dummy computation if needed to increase entropy
+        for (volatile int j = 0; j < 100; j++) {}  // crude busy wait
+    }
+
+    // Combine values to form two 128-bit numbers:
+    *(uint64_t*)(&rand_state.state + sizeof(uint64_t)) = r[0] ^ r[1];
+    *(uint64_t*)(&rand_state.state) = r[2] ^ r[3];
+    *(uint64_t*)(&rand_state.inc + sizeof(uint64_t)) = r[4] ^ r[5];
+    *(uint64_t*)(&rand_state.inc) = r[6] ^ r[7];
+}
+
+#else
 static void seed_random(){
     fallback_seed();
 }
+
 #endif
 
 #define PCG_INCREMENT ((__uint128_t)6364136223846793005ULL << 64 | (__uint128_t)1442695040888963407ULL)
