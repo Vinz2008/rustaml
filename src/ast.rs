@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{any::Any, ops::Range};
 use std::fmt::Debug;
 
 use rustc_hash::FxHashMap;
@@ -122,13 +122,16 @@ pub enum ASTNode {
         name : StringRef,
         args : Vec<ASTRef>,
     },
+    Throw {
+        // TODO
+    },
     Unit,
 }
 
 
 // TODO : add a type pool to remove boxes (test performance ? normally should be useful for lowering the type size, it would become only 64 bit and we could make it Copy, but we wouldn't use it everywhere there is Type like for other types, just in refence in the type to other types to lower the size while only indexing in the vector when it is really needed)
 // THE PROBLEM : would need to make the type system only have functions with only one args, but could do it by returning type of function types, which could even help for currying
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Tag)]
 pub enum Type {
     Integer,
     Float,
@@ -139,6 +142,7 @@ pub enum Type {
     // TODO : add a number to any (to have 'a, 'b, etc)
     Any, // equivalent to 'a
     Unit,
+    Never,
 }
 
 // TODO : replace with macro (add a flag to say that the type just implements debug)
@@ -176,11 +180,20 @@ impl ASTNode {
                 Some(t) => t.clone(),
                 None => return Err(ParserErr::new(ParserErrData::UnknownVar { name: name.get_str(&rustaml_context.str_interner).to_owned() }, 0..0)), // TODO
              },
-            ASTNode::IfExpr { cond_expr: _, then_body, else_body : _ } => then_body.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?, // no need for typechecking the two branches because it is done when constructing the IfExpr
+            ASTNode::IfExpr { cond_expr: _, then_body, else_body } => {
+                let then_type = then_body.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?;
+                let else_type = else_body.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?;
+                match (then_type, else_type){
+                    (Type::Never, t) | (t, Type::Never) => t,
+                    (t, t2) if t.tag() == t2.tag() => t,
+                    (t, t2) => panic!("Typechecking error in if : if -> {:?}, else -> {:?}", t, t2), // TODO : return a type checking error instead that can coerce to a parserErr
+                }
+            }, 
             ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?,
             ASTNode::TopLevel { nodes: _ } => Type::Unit,
             ASTNode::FunctionDefinition { name: _, args: _, body: _, return_type: _ } => Type::Unit,
             ASTNode::Unit => Type::Unit,
+            ASTNode::Throw {} => Type::Never,
         };
 
         Ok(t)
@@ -488,8 +501,10 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
             var_type = Some(val_node.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)?);
         }
 
-        parser.vars.insert(name, var_type.unwrap());
-
+        if name.get_str(&parser.rustaml_context.str_interner) != "_" {
+            parser.vars.insert(name, var_type.unwrap());
+        }
+        
         let body = match parser.current_tok_data() {
             Some(TokenData::In) => {
                 parser.eat_tok(Some(TokenDataTag::In))?;
@@ -526,7 +541,7 @@ fn parse_function_call(parser: &mut Parser, function_name : StringRef) -> Result
     let mut args = Vec::new();
 
     fn function_call_parse_continue(tok_data : Option<&TokenData>) -> bool {
-        !matches!(tok_data, Some(TokenData::EndOfExpr) | Some(TokenData::Op(_)) | Some(TokenData::Else) | Some(TokenData::In))
+        !matches!(tok_data, Some(TokenData::EndOfExpr) | Some(TokenData::Op(_)) | Some(TokenData::Else) | Some(TokenData::In) | Some(TokenData::ParenClose))
     }
 
     while parser.has_tokens_left() && function_call_parse_continue(parser.current_tok_data()) {
@@ -680,13 +695,17 @@ fn parse_match(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
 // TODO : fix parsing parenthesis in parenthesis ex : (fib_list (i-1))
 fn parse_parenthesis(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
+    if let Some(t) = parser.current_tok_data() && matches!(t, TokenData::ParenClose){
+        debug_println!(parser.rustaml_context.is_debug_print, "FOUND UNIT");
+        parser.eat_tok(Some(TokenDataTag::ParenClose))?;
+        return Ok(parser.rustaml_context.ast_pool.push(ASTNode::Unit));
+    }
+    debug_println!(parser.rustaml_context.is_debug_print, "START OF PARENTHESE");
     let expr: ASTRef = parse_node(parser)?;
     debug_println!(parser.rustaml_context.is_debug_print, "expr = {:#?}", DebugWrapContext::new(&expr, parser.rustaml_context));
     //dbg_intern!(&expr, &parser.rustaml_context);
-    debug_println!(parser.rustaml_context.is_debug_print, "PARENT CLOSE EATEN");
-    if let ASTNode::Unit = expr.get(&parser.rustaml_context.ast_pool){} else {
-        parser.eat_tok(Some(TokenDataTag::ParenClose))?;
-    }
+    parser.eat_tok(Some(TokenDataTag::ParenClose))?;
+    debug_println!(parser.rustaml_context.is_debug_print, "EAT END OF PARENTHESE");
     Ok(expr)
 }
 
@@ -694,6 +713,10 @@ fn parse_static_list(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let elems = parse_list_form(parser, parse_node)?;
     
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::List { list: elems }))
+}
+
+fn parse_throw(parser : &mut Parser) -> ASTRef {
+    parser.rustaml_context.ast_pool.push(ASTNode::Throw {})
 }
 
 fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
@@ -709,8 +732,8 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         TokenData::True => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: true })),
         TokenData::False => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: false })),
         TokenData::ParenOpen => parse_parenthesis(parser), // TODO : move this to the start of parse_node and make it unreachable! ? (because each time there are parenthesis, parse_node -> parse_primary -> parse_node is added to the call stack) 
-        TokenData::ParenClose => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Unit)), // This is the unit
         TokenData::ArrayOpen => parse_static_list(parser),
+        TokenData::Throw => Ok(parse_throw(parser)),
         t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))
     };
 
@@ -792,7 +815,9 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 fn init_std_functions(rustaml_context : &mut RustamlContext) -> FxHashMap<StringRef, Type> {
     let mut i = |s| rustaml_context.str_interner.intern_compiler(s);
     FxHashMap::from_iter([
-        (i("print"), Type::Function(vec![Type::Any], Box::new(Type::Unit)))
+        (i("print"), Type::Function(vec![Type::Any], Box::new(Type::Unit))),
+        (i("rand"), Type::Function(vec![Type::Unit], Box::new(Type::Integer)))
+        // TODO : add a rand_f ? or make the rand function generic with its return ?
     ])
 }
 

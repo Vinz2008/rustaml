@@ -3,9 +3,10 @@
 #![allow(clippy::let_and_return)]
 #![feature(debug_closure_helpers)]
 
-use std::{path::{Path, PathBuf}, process::ExitCode};
+use std::{env::var, path::{Path, PathBuf}, process::ExitCode};
 
 use clap::{Parser, Subcommand};
+use debug_with_context::DebugWrapContext;
 
 
 use crate::{rustaml::{get_ast, RustamlContext}};
@@ -81,8 +82,10 @@ enum Commands {
         #[arg(short = 'O', value_parser = clap::value_parser!(u8).range(0..=3), num_args(0..=1))]
         optimization_level : Option<u8>,
 
-        #[arg(long, default_value_t = false)]
+        #[arg(long, default_value_t = true)]
         enable_gc : bool,
+
+        // TODO : add a flag to build statically libgc
 
         #[arg(long, short = 'd', default_value_t = false)]
         debug_print : bool,
@@ -161,6 +164,8 @@ fn main() -> ExitCode {
                 Ok(a_v) => a_v,
                 Err(()) => return ExitCode::FAILURE,
             };
+
+            debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&vars, &rustaml_context));
 
             compile(ast, vars, &rustaml_context, &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, enable_gc);
         },

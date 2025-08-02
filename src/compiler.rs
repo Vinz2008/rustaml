@@ -1,6 +1,6 @@
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, ExitCode, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val}, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val}, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -53,7 +53,9 @@ fn new_attribute<'llvm_ctx>(llvm_context : &'llvm_ctx Context, name : &'static s
 fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<BuiltinFunction<'llvm_ctx>>{
     // TODO : make these 2 only one
     let ptr_type = llvm_context.ptr_type(AddressSpace::default()).into();
-    let ptr_type_ret = llvm_context.ptr_type(AddressSpace::default()).into();    
+    let ptr_type_ret = llvm_context.ptr_type(AddressSpace::default()).into();
+
+    let attr = |n| (AttributeLoc::Function, new_attribute(llvm_context, n));
     vec![
         BuiltinFunction {
             name: "__str_cmp",
@@ -75,7 +77,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
         },
         BuiltinFunction {
             name: "__list_print",
-            args: vec![ptr_type],
+            args: vec![ptr_type], // TODO : should be ptr or i64 ? (test for code generation by LLVM)
             ret: Some(llvm_context.void_type().into()),
             ..Default::default()
         },
@@ -83,6 +85,12 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             name: "__bool_to_str",
             args: vec![llvm_context.i8_type().into()],
             ret: Some(ptr_type_ret),
+            ..Default::default()
+        },
+        BuiltinFunction {
+            name: "__rand",
+            args: vec![],
+            ret: Some(llvm_context.i64_type().into()),
             ..Default::default()
         },
         BuiltinFunction {
@@ -103,7 +111,22 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             name: "exit",
             args: vec![llvm_context.i32_type().into()],
             ret: Some(llvm_context.void_type().into()),
-            attributes: vec![(AttributeLoc::Function, new_attribute(llvm_context, "noreturn"))],
+            attributes: vec![attr("noreturn")],
+            ..Default::default()
+        },
+        // The only exception supported is Itanium, no SEH (TODO ?)
+        BuiltinFunction {
+            name: "__cxa_allocate_exception",
+            args: vec![llvm_context.i64_type().into()],
+            ret: Some(ptr_type_ret),
+            attributes: vec![attr("nounwind")],
+            ..Default::default()
+        },
+        BuiltinFunction {
+            name: "__cxa_throw",
+            args: vec![ptr_type, ptr_type, ptr_type],
+            ret: Some(llvm_context.void_type().into()),
+            attributes: vec![attr("noreturn")],
             ..Default::default()
         }
     ]
@@ -126,7 +149,9 @@ impl<'context, 'refs, 'llvm_ctx> CompileContext<'context, 'refs, 'llvm_ctx> {
         }
     }
 
+
     // TODO : if this function become more used, make a list like the internal function for builtin_global_vars types
+    // or use an enum for name because it is static
     pub fn get_internal_global_var(&mut self, name : &'static str, type_var : BasicTypeEnum<'llvm_ctx>) -> GlobalValue<'llvm_ctx> {
         if self.external_symbols_declared.contains(name){
             self.module.get_global(name).unwrap()
@@ -142,23 +167,26 @@ impl<'context, 'refs, 'llvm_ctx> CompileContext<'context, 'refs, 'llvm_ctx> {
 // TODO : add a print function that returns unit for the compiler
 
 fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : ASTRef, body : Option<ASTRef>, is_global : bool) -> AnyValueEnum<'llvm_ctx> {
-    //dbg!(DebugWrapContext::new(&compile_context.var_types, compile_context.rustaml_context));
-    //dbg!(name.get_str(&compile_context.rustaml_context.str_interner));
-    let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("No type found for var {}", name.get_str(&compile_context.rustaml_context.str_interner)));
-    let alloca_type = get_llvm_type(compile_context.context, var_type);
+    let is_underscore = name.get_str(&compile_context.rustaml_context.str_interner) != "_";
+    
+    //println!("test vars types : {:#?}", DebugWrapContext::new(&compile_context.var_types, compile_context.rustaml_context));
+    
     
     // TODO : if is global and the val is const, just generate a global var
     let val = compile_expr(compile_context, val);
-    
-    create_var(compile_context, name, val, alloca_type);
 
-    
+    if is_underscore {
+        let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("No type found for var {}", name.get_str(&compile_context.rustaml_context.str_interner)));
+        let alloca_type = get_llvm_type(compile_context.context, var_type);
+        create_var(compile_context, name, val, alloca_type);
+    }
+        
     let ret = match body {
         Some(b) => compile_expr(compile_context, b),
         None => val,
     };
 
-    if !is_global {
+    if !is_global && !is_underscore {
         compile_context.var_vals.remove(&name);
     }
 
@@ -210,6 +238,7 @@ fn get_format_string(print_type : Type) -> &'static str {
         Type::List(_) => unreachable!(), // the format will not be used
         Type::Function(_, _) => panic!("Can't print functions"),
         Type::Unit => "%s\n",
+        Type::Never => "", // can't print it, normally if the function is really a never type, it should be never return, so the print should never be called 
         Type::Any => encountered_any_type(),
     }
 }
@@ -245,12 +274,22 @@ fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     get_void_val(compile_context.context)
 }
 
+fn compile_rand<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>) -> AnyValueEnum<'llvm_ctx>{
+    let rand_fun = compile_context.get_internal_function("__rand");
+    compile_context.builder.build_call(rand_fun, &vec![], "rand_internal_call").unwrap().as_any_value_enum()
+}
+
 fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, args: &[ASTRef]) -> AnyValueEnum<'llvm_ctx>{
-    
-    if name.get_str(&compile_context.rustaml_context.str_interner) == "print"{
-        let print_val_type = args[0].get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
-        let print_val = compile_expr(compile_context, args[0]);
-        return compile_print(compile_context, print_val, print_val_type);
+    match name.get_str(&compile_context.rustaml_context.str_interner) {
+        "print" => {
+            let print_val_type = args[0].get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
+            let print_val = compile_expr(compile_context, args[0]);
+            return compile_print(compile_context, print_val, print_val_type);
+        }
+        "rand" => {
+            return compile_rand(compile_context);
+        },
+        _ => {}
     }
     
     let args_vals = args.iter().map(|&a| compile_expr(compile_context, a).try_into().unwrap()).collect::<Vec<BasicMetadataValueEnum>>();
@@ -387,9 +426,9 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 
 fn compile_var_use<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef) -> AnyValueEnum<'llvm_ctx> {
     
-    for (v, v_t) in &compile_context.var_types {
+    /*for (v, v_t) in &compile_context.var_types {
         println!("{} = {:?}", v.get_str(&compile_context.rustaml_context.str_interner), v_t);
-    }
+    }*/
 
     let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("Unknown variable {:?}", name.get_str(&compile_context.rustaml_context.str_interner)));
     let load_type = get_llvm_type(compile_context.context, var_type);
@@ -589,10 +628,28 @@ fn compile_str<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx
     create_string(compile_context.builder, str.get_str(&compile_context.rustaml_context.str_interner))
 }
 
+fn compile_throw<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>) -> AnyValueEnum<'llvm_ctx> {
+    let cxa_allocate_fun = compile_context.get_internal_function("__cxa_allocate_exception");
+    let exception_size = 8; // TODO, for now pointer size to contain null, use LLVM datalayout to find the size of the type
+    let cxa_allocate_args = vec![create_int(compile_context, exception_size).into()];
+    let exception_alloc_ptr = compile_context.builder.build_call(cxa_allocate_fun, &cxa_allocate_args, "cxa_alloc_internal").unwrap().as_any_value_enum().into_pointer_value();
+    
+    let null = compile_context.context.ptr_type(AddressSpace::default()).const_null();
+    compile_context.builder.build_store(exception_alloc_ptr, null).unwrap();
+
+
+    let cxa_throw_fun = compile_context.get_internal_function("__cxa_throw");
+    let cxa_throw_args = vec![exception_alloc_ptr.into(), null.into(), null.into()];
+    compile_context.builder.build_call(cxa_throw_fun, &cxa_throw_args, "cxa_throw_internal").unwrap();
+
+
+    get_void_val(compile_context.context)
+}
+
 // TODO : replace AnyValueEnum with BasicMetadataValueEnum in compile_expr and other functions ?
 fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef) -> AnyValueEnum<'llvm_ctx> {
     match ast_node.get(&compile_context.rustaml_context.ast_pool){
-        ASTNode::Integer { nb } =>  compile_context.context.i64_type().const_int(*nb as u64, false).into(), // TODO : sign extend or not ?
+        ASTNode::Integer { nb } => create_int(compile_context, *nb).into(), // TODO : sign extend or not ?
         ASTNode::Float { nb } => compile_context.context.f64_type().const_float(*nb).into(),
         ASTNode::Boolean { b } => compile_context.context.i8_type().const_int(*b as u64, false).into(),
         ASTNode::String { str } => compile_str(compile_context, *str).into(),
@@ -603,6 +660,7 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
         ASTNode::VarUse { name } => compile_var_use(compile_context, *name),
         ASTNode::List { list } => compile_static_list(compile_context, list),
         ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, *matched_expr, patterns),
+        ASTNode::Throw {  } => compile_throw(compile_context),
         ASTNode::Unit => get_void_val(compile_context.context),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)), 
         //_ => todo!()
@@ -622,13 +680,15 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             let entry = compile_context.context.append_basic_block(function, "entry");
             compile_context.builder.position_at_end(entry);
 
+            let mut old_arg_name_type = Vec::new(); // to save the types that have the same of the args in the global vars 
+
             for (arg, arg_val) in args.iter().zip(function.get_param_iter()) {
                 let arg_type = get_llvm_type(compile_context.context, &arg.arg_type);
-                compile_context.var_types.insert(arg.name, arg.arg_type.clone());
+                match compile_context.var_types.insert(arg.name, arg.arg_type.clone()) {
+                    Some(old_type) => old_arg_name_type.push((arg.name, old_type)),
+                    None => {}
+                }
                 create_var(compile_context, arg.name, arg_val.as_any_value_enum(), arg_type);
-                /*let arg_alloca = create_entry_block_alloca(compile_context, arg.name.get_str(&compile_context.rustaml_context.str_interner), arg_type);
-                compile_context.var_vals.insert(arg.name, arg_alloca);
-                compile_context.builder.build_store(arg_alloca, arg_val).unwrap();*/
             }
 
             let ret = compile_expr(compile_context, *body);
@@ -647,7 +707,9 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
                 compile_context.var_types.remove(&arg.name);
             }
 
-            // TODO : add function.verify(true) and return an error if it doesn't work 
+            for (n, t) in old_arg_name_type {
+                compile_context.var_types.insert(n, t);
+            } 
         },
 
         ASTNode::VarDecl { name, val, body } => {
@@ -700,7 +762,9 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
     clang_std.stdin.as_mut().unwrap().write_all(STD_C_CONTENT.as_bytes()).unwrap();
     clang_std.wait().unwrap();
 
-    let mut link_cmd = Command::new("clang");
+    let mut link_cmd = Command::new("clang++"); // need this for exceptions
+
+    // TODO : add a -fno-exceptions if the compiler can guarantee that no functions will call throw
 
     if !matches!(opt_level, OptimizationLevel::None) {
         link_cmd.arg("-flto");
@@ -782,8 +846,13 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
     compile_context.builder.position_at_end(last_main_bb);
     compile_context.builder.build_return(Some(&compile_context.context.i32_type().const_int(0, false))).unwrap();
 
-    #[cfg(feature = "debug-llvm")]
-    compile_context.module.verify().or_else(|e| -> Result<_, LLVMString> { panic!("LLVM ERROR {}", e.to_string()) }).unwrap();
+    let filename_without_ext = filename.file_stem().unwrap().to_str().expect("not UTF-8 filename").to_owned();
+
+    #[cfg(feature = "debug-llvm")]{}
+    compile_context.module.verify().or_else(|e| -> Result<_, LLVMString> { 
+        compile_context.module.print_to_file(filename_without_ext.clone() + "_error.ll").unwrap();
+        panic!("LLVM ERROR {}", e.to_string()) 
+    }).unwrap();
 
     let temp_path = if keep_temp {
         Path::new(".").to_owned() 
@@ -791,10 +860,6 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
         std::env::temp_dir()
     };
 
-
-    let filename_without_ext = filename.file_stem().unwrap().to_str().expect("not UTF-8 filename").to_owned();
-
-    
     let filename_with_hash = if keep_temp {
         filename_without_ext
     } else {

@@ -19,6 +19,13 @@
         "stdlib.h": "c",
         "stdint.h": "c",
         "stdbool.h": "c",
-        "inttypes.h": "c"
+        "inttypes.h": "c",
+        "ranges": "c",
+        "unistd.h": "c",
+        "locale": "c",
+        "compare": "c",
+        "cstdint": "c",
+        "format": "c",
+        "fcntl.h": "c"
     }
 }

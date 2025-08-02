@@ -1,0 +1,5 @@
+let f a : int -> int = if (rand ()) > 2 then 3 else throw ;;
+
+let a = f 2 ;;
+
+let _ = print a ;;

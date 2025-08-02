@@ -14,7 +14,8 @@ pub fn get_type_tag(t : &Type) -> u8 {
         Type::Function(_, _) => 3,
         Type::Str => 4,
         Type::List(_) => 5,
-        Type::Any | Type::Unit => panic!("no type tag for this type {:?} !!", t),
+        // TODO : add a type tag for Unit ?
+        Type::Any | Type::Unit | Type::Never => panic!("no type tag for this type {:?} !!", t),
     }
 }
 
@@ -51,10 +52,14 @@ pub fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type 
         // }
         Type::List(_t) => llvm_context.ptr_type(AddressSpace::default()).into(), // TODO ?
         Type::Str => llvm_context.ptr_type(AddressSpace::default()).into(),
-        Type::Unit => llvm_context.void_type().into(),
+        Type::Unit | Type::Never => llvm_context.void_type().into(),
         Type::Any => encountered_any_type(),
 
     }
+}
+
+pub fn create_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, nb : i64) -> IntValue<'llvm_ctx> {
+    compile_context.context.i64_type().const_int(nb as u64, true)
 }
 
 pub fn get_fn_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, llvm_type : AnyTypeEnum<'llvm_ctx>,  param_types: &[BasicMetadataTypeEnum<'llvm_ctx>], is_var_args: bool) -> FunctionType<'llvm_ctx> {

@@ -4,6 +4,12 @@
 #include <stdbool.h>
 #include <string.h>
 #include <assert.h>
+#include <time.h>
+
+#if defined(__unix__) || defined(__unix) || \
+        (defined(__APPLE__) && defined(__MACH__))
+#define SYSTEM_UNIX
+#endif
 
 #if defined __has_include
 #if __has_include(<inttypes.h>)
@@ -156,6 +162,113 @@ const char* __bool_to_str(uint8_t b){
         return "false";
     }
 }
+
+// using PCG64
+typedef struct {
+    bool is_seeded;
+    __uint128_t state;
+    __uint128_t inc;
+} RandState;
+
+static RandState rand_state = {false, 0, 0};
+
+
+#ifdef _WIN32
+    #include <windows.h>
+    #include <sys/timeb.h>
+#else
+    #include <sys/time.h>
+    #include <unistd.h>
+#endif
+
+// TODO : use as a fallback to this on x86 rdtsc on embedded ?
+void fallback_seed() {
+
+#ifdef _WIN32
+    time_t t = time(NULL);
+    uint64_t time1 = (uint64_t)t;
+
+    // Millisecond-precision time
+    struct _timeb tb;
+    _ftime(&tb);
+    uint64_t time2 = ((uint64_t)tb.time << 16) ^ (uint64_t)tb.millitm;
+
+    // Use address entropy and Windows-specific performance counter
+    uint64_t entropy1 = (uintptr_t)&tb;
+    LARGE_INTEGER perf;
+    QueryPerformanceCounter(&perf);
+    uint64_t entropy2 = (uint64_t)perf.QuadPart;
+#else
+    time_t t = time(NULL);
+    uint64_t time1 = (uint64_t)t;
+
+    // Microsecond-precision time
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    uint64_t time2 = ((uint64_t)tv.tv_sec << 20) ^ tv.tv_usec;
+
+    // Address entropy and clock ticks
+    uint64_t entropy1 = (uintptr_t)&tv;
+    uint64_t entropy2 = (uint64_t)clock();
+#endif
+
+    rand_state.state = time1 ^ (entropy1 << 21) ^ (time2 << 7);
+    rand_state.inc = time2 ^ (entropy2 >> 3) ^ (entropy1 >> 11);
+
+}
+
+// if unix
+#ifdef SYSTEM_UNIX
+#include <fcntl.h>
+
+static void seed_random(){
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd >= 0) {
+        read(fd, &rand_state.state, sizeof(sizeof(uint64_t) * 2));
+        close(fd);
+    } else {
+        fallback_seed();
+    }
+}
+
+#else 
+static void seed_random(){
+    fallback_seed();
+}
+#endif
+
+#define PCG_INCREMENT ((__uint128_t)6364136223846793005ULL << 64 | (__uint128_t)1442695040888963407ULL)
+
+uint64_t pcg_random(){
+    /* cheap (half-width) multiplier */
+	const uint64_t mul = 15750249268501108917ULL;
+	/* linear congruential generator */
+	__uint128_t state = rand_state.state;
+	rand_state.state = state * mul + rand_state.inc;
+	/* DXSM (double xor shift multiply) permuted output */
+	uint64_t hi = (uint64_t)(state >> 64);
+	uint64_t lo = (uint64_t)(state | 1);
+	hi ^= hi >> 32;
+	hi *= mul;
+	hi ^= hi >> 48;
+	hi *= lo;
+    return hi;
+}
+
+int64_t __rand(){
+    if (!rand_state.is_seeded){
+        seed_random();
+        /* must ensure rng.inc is odd */
+        const __uint128_t inc = PCG_INCREMENT;
+        rand_state.inc = (rand_state.inc > 0) ? (rand_state.inc << 1) | 1 : inc;
+        rand_state.state += inc;
+        pcg_random();
+        rand_state.is_seeded = true;
+    }
+    uint64_t res = pcg_random();
+	return INTO_TYPE(int64_t, res);
+}
+
 
 static void list_print_no_new_line(struct ListNode* list);
 

@@ -171,6 +171,7 @@ pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<Strin
         ASTNode::String { str: _ } => None,
         ASTNode::Boolean { b: _ } => None,
         ASTNode::List { list: _ } => None,
+        ASTNode::Throw {} => None,
         ASTNode::Unit => None,
         ASTNode::BinaryOp { op, lhs, rhs } => {
             let is_left_var = match lhs .get(&rustaml_context.ast_pool) {

@@ -748,12 +748,17 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::Boolean { b } => Val::Bool(*b),
         ASTNode::VarDecl { name, val, body } => {
             let val_node = interpret_node(context, *val);
-            context.vars.insert(*name, val_node);
+            let is_underscore = name.get_str(&context.rustaml_context.str_interner) == "_";
+            if !is_underscore {
+                context.vars.insert(*name, val_node);
+            }
             try_gc_collect(context);
             match body {
                 Some(b) => {
                     let body_val = interpret_node(context, *b);
-                    context.vars.remove(name);
+                    if !is_underscore {
+                        context.vars.remove(name);
+                    }
                     body_val
                 },
                 None => {
@@ -769,6 +774,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, *matched_expr, patterns.as_slice()),
         ASTNode::String { str } => Val::String(*str),
         ASTNode::List { list } => Val::List(List::new_from(context, list)),
+        ASTNode::Throw {  } => todo!(),
         ASTNode::Unit => Val::Unit,
         //n => panic!("unexpected ast node when interpreting : {:?}", n),
     }
