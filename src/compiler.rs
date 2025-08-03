@@ -1,6 +1,6 @@
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, ExitCode, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{append_bb_just_after, codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current}, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{append_bb_just_after, codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current}, debug_println, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -733,31 +733,35 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
     }
 }
 
-fn can_function_body_throw(compile_context: &CompileContext, body : ASTRef) -> bool {
+fn can_function_body_throw(compile_context: &CompileContext, body : ASTRef, current_function_name : StringRef) -> bool {
     match body.get(&compile_context.rustaml_context.ast_pool){
         ASTNode::VarDecl { name, val, body } => {
             let can_body_throw = if let Some(b) = body {
-                can_function_body_throw(compile_context, *b)
+                can_function_body_throw(compile_context, *b, current_function_name)
             } else {
                 false
             };
-            can_body_throw || can_function_body_throw(compile_context, *val)
+            can_body_throw || can_function_body_throw(compile_context, *val, current_function_name)
         },
         ASTNode::IfExpr { cond_expr, then_body, else_body } => {
-            can_function_body_throw(compile_context, *cond_expr) || can_function_body_throw(compile_context, *then_body) || can_function_body_throw(compile_context, *else_body)
+            can_function_body_throw(compile_context, *cond_expr, current_function_name) || can_function_body_throw(compile_context, *then_body, current_function_name) || can_function_body_throw(compile_context, *else_body, current_function_name)
         },
         ASTNode::FunctionCall { name, args } => {
+            if *name == current_function_name {
+                return false;
+            }
+            debug_println!(compile_context.rustaml_context.is_debug_print, "functions_can_throw : {:#?}", DebugWrapContext::new(&compile_context.functions_can_throw, compile_context.rustaml_context));
             *compile_context.functions_can_throw.get(name).unwrap_or_else(|| panic!("Can't know if function {} can throw", name.get_str(&compile_context.rustaml_context.str_interner)))
         },
         ASTNode::BinaryOp { op, lhs, rhs } => {
-            can_function_body_throw(compile_context, *lhs) || can_function_body_throw(compile_context, *rhs)
+            can_function_body_throw(compile_context, *lhs, current_function_name) || can_function_body_throw(compile_context, *rhs, current_function_name)
         }
         ASTNode::MatchExpr { matched_expr, patterns } => {
-            let can_match_bodies_throw = patterns.iter().fold(false, |acc, e| acc || can_function_body_throw(compile_context, e.1));
-            can_function_body_throw(compile_context, *matched_expr) || can_match_bodies_throw
+            let can_match_bodies_throw = patterns.iter().fold(false, |acc, e| acc || can_function_body_throw(compile_context, e.1, current_function_name));
+            can_function_body_throw(compile_context, *matched_expr, current_function_name) || can_match_bodies_throw
         },
         ASTNode::TryCatch { try_body, catch_body } => {
-            can_function_body_throw(compile_context, *try_body) || can_function_body_throw(compile_context, *catch_body)
+            can_function_body_throw(compile_context, *try_body,current_function_name) || can_function_body_throw(compile_context, *catch_body, current_function_name)
         }
         ASTNode::Throw {  } => true,
         _ => false,
@@ -788,7 +792,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
                 create_var(compile_context, arg.name, arg_val.as_any_value_enum(), arg_type);
             }
 
-            let can_throw = can_function_body_throw(compile_context, *body);
+            let can_throw = can_function_body_throw(compile_context, *body, *name);
             compile_context.functions_can_throw.insert(*name, can_throw);
 
             let ret = compile_expr(compile_context, *body);

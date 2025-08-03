@@ -35,7 +35,7 @@ fn get_list_type<'llvm_ctx>(llvm_context: &'llvm_ctx Context) -> StructType<'llv
 pub fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type : &Type) -> AnyTypeEnum<'llvm_ctx> {
     match rustaml_type {
         Type::Integer => llvm_context.i64_type().into(),
-        Type::Bool => llvm_context.i8_type().into(),
+        Type::Bool => llvm_context.bool_type().into(),
         Type::Float => llvm_context.f64_type().into(),
         Type::Function(args, ret) => {
             let ret_llvm = get_llvm_type(llvm_context, ret);

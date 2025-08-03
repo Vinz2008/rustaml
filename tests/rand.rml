@@ -6,7 +6,7 @@
 let rand_nb n : int -> list[int] = 
   if n == 0 then [] else (rand ()) :: rand_nb (n - 1) ;;
 
-let r = rand_nb 1000 ;;
+let r = rand_nb 10000 ;;
 
 let rand_print_f li : list[int] -> bool = 
   match li with
