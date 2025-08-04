@@ -1,4 +1,4 @@
-let f a : int -> int = if (rand ()) > 2 then 3 else throw ;;
+let f a : int -> int = if (rand ()) > 2 then 4 else throw ;;
 
 let a = try (f 2) catch 3 ;;
 

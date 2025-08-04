@@ -119,6 +119,12 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
         },
         // The only exception supported is Itanium, no SEH (TODO ?)
         BuiltinFunction {
+            name: "__gxx_personality_v0",
+            args: vec![],
+            ret: Some(llvm_context.i64_type().into()),
+            ..Default::default()
+        },
+        BuiltinFunction {
             name: "__cxa_allocate_exception",
             args: vec![llvm_context.i64_type().into()],
             ret: Some(ptr_type_ret),
@@ -680,6 +686,7 @@ fn compile_throw<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 }
 
 fn compile_try_catch<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, try_body : ASTRef, catch_body : ASTRef) -> AnyValueEnum<'llvm_ctx>{
+    
     let function = get_current_function(compile_context.builder);
     compile_context.is_in_try_catch = true;
 
@@ -696,6 +703,14 @@ fn compile_try_catch<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     compile_context.builder.position_at_end(landing_pad);
 
     // TODO : add landing pad instrtuctions
+ 
+    let cpp_personnality_fun = compile_context.get_internal_function("__gxx_personality_v0");
+    let ptr_type = compile_context.context.ptr_type(AddressSpace::default());
+    // cpp exception type
+    let exception_type = compile_context.context.struct_type(&[ptr_type.into(), compile_context.context.i32_type().into()], false);
+    let clauses_any_exc = &[ptr_type.const_null().into()];
+    compile_context.builder.build_landing_pad(exception_type, cpp_personnality_fun, clauses_any_exc, false, "landing_pad").unwrap();
+
     let catch_val = compile_expr(compile_context, catch_body);
     compile_context.builder.build_unconditional_branch(after_bb).unwrap();
     

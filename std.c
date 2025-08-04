@@ -5,6 +5,7 @@
 #include <string.h>
 #include <assert.h>
 #include <time.h>
+#include <unwind.h>
 
 #if defined(__unix__) || defined(__unix) || \
         (defined(__APPLE__) && defined(__MACH__))
@@ -26,6 +27,7 @@
 #ifdef _GC_
 #include <gc.h>
 #define MALLOC(size) GC_malloc(size)
+#define FREE(ptr) GC_free(ptr)
 
 void __gc_init(){
     GC_INIT();
@@ -33,6 +35,7 @@ void __gc_init(){
 
 #else
 #define MALLOC(size) malloc(size)
+#define FREE(ptr) free(ptr)
 #endif
 
 enum TypeTag {
@@ -351,3 +354,76 @@ void __list_print(struct ListNode* list){
 
 
 // TODO : maybe add function to print values with the type tag
+
+
+// TODO : custom unwinding
+// https://github.com/gcc-mirror/gcc/blob/trunk/libgcc/unwind-c.c
+// https://github.com/gcc-mirror/gcc/blob/master/libstdc++-v3/libsupc++/eh_personality.cc
+// https://github.com/rust-lang/rust/blob/master/library/std/src/sys/personality/gcc.rs
+
+#define RUSTAML_EXCEPTION_CLASS 0x52555354414D4C // RUSTAML in ASCII
+// 0x52 : R
+// 0x55 : U
+// 0x53 : S
+// 0x54 : T
+// 0x41 : A
+// 0x4D : M
+// 0x4C : L
+
+
+struct Exception {
+    struct _Unwind_Exception unwind_header;  // Must be first!
+    const char* message; // for now can throw only strings
+};
+
+
+static void exception_cleanup(_Unwind_Reason_Code reason, struct _Unwind_Exception* unwind_exception){
+    struct Exception* exc = (struct Exception*)unwind_exception;
+    FREE(exc);
+}
+
+// TODO : create a struct type for any type, including future custom types
+static struct Exception* allocate_exception(const char* message){
+
+    struct Exception* exc = MALLOC(sizeof(struct Exception));
+    exc->unwind_header.exception_class = RUSTAML_EXCEPTION_CLASS;
+    exc->unwind_header.exception_cleanup = &exception_cleanup;
+    exc->message = message;
+
+    return exc;
+}
+
+void __throw_exception(const char* message){
+    struct Exception* exc = allocate_exception(message);
+    _Unwind_Reason_Code code = _Unwind_RaiseException(&exc->unwind_header);
+    // TODO : replace the fprintf erroring with a macro that can do this or abort on freestanding
+    fprintf(stderr, "UNCAUGHT EXCEPTION\n");
+    exit(1);
+}
+
+_Unwind_Reason_Code __rustaml_personality(int version, _Unwind_Action actions, uint64_t exception_class, struct _Unwind_Exception *exception_object, struct _Unwind_Context *context){
+    if (version != 1){
+        return _URC_FATAL_PHASE1_ERROR;
+    }
+
+    const uint8_t *lsda = (const uint8_t *)_Unwind_GetLanguageSpecificData(context);
+
+    if (exception_class != RUSTAML_EXCEPTION_CLASS){
+        return _URC_CONTINUE_UNWIND;
+    }
+
+    if (actions & _UA_SEARCH_PHASE){
+        // Always say we can catch it
+        return _URC_HANDLER_FOUND;
+    }
+
+    if (actions & _UA_CLEANUP_PHASE){
+        // Install the handler
+        _Unwind_SetGR(context, __builtin_eh_return_data_regno(0), (uintptr_t)exception_object);
+        _Unwind_Word landing_pad_address; // TODO
+        _Unwind_SetIP(context, landing_pad_address);  // Address of handler
+        return _URC_INSTALL_CONTEXT;
+    }
+    
+    return _URC_CONTINUE_UNWIND;
+}
