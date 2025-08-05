@@ -1,5 +1,0 @@
-let f a : int -> int = if (rand ()) > 2 then 4 else throw ;;
-
-let a = try (f 2) catch 3 ;;
-
-let _ = print a ;;

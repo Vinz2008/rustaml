@@ -5,7 +5,7 @@ use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, bu
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
-// TODO : add exceptions and then detect function that can throw an exception, and find recursively which function can call an exception
+// TODO : add generic enums to have results for error handling
 // TODO : add a C FFI
 
 pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
@@ -14,13 +14,10 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     pub module : &'refs Module<'llvm_ctx>,
     pub builder : &'refs Builder<'llvm_ctx>,
     functions : FxHashMap<StringRef, FunctionValue<'llvm_ctx>>,
-    functions_can_throw : FxHashMap<StringRef, bool>,
     main_function : FunctionValue<'llvm_ctx>,
     var_types : FxHashMap<StringRef, Type>,
     pub var_vals : FxHashMap<StringRef, PointerValue<'llvm_ctx>>,
     pub external_symbols_declared : FxHashSet<&'static str>,
-    pub is_in_try_catch : bool,
-    pub catch_bb : Option<BasicBlock<'llvm_ctx>>,
     // TODO : replace this with a hashmap ?
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>,
 }
@@ -117,27 +114,6 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             attributes: vec![attr("noreturn")],
             ..Default::default()
         },
-        // The only exception supported is Itanium, no SEH (TODO ?)
-        BuiltinFunction {
-            name: "__gxx_personality_v0",
-            args: vec![],
-            ret: Some(llvm_context.i64_type().into()),
-            ..Default::default()
-        },
-        BuiltinFunction {
-            name: "__cxa_allocate_exception",
-            args: vec![llvm_context.i64_type().into()],
-            ret: Some(ptr_type_ret),
-            attributes: vec![attr("nounwind")],
-            ..Default::default()
-        },
-        BuiltinFunction {
-            name: "__cxa_throw",
-            args: vec![ptr_type, ptr_type, ptr_type],
-            ret: Some(llvm_context.void_type().into()),
-            attributes: vec![attr("noreturn")],
-            ..Default::default()
-        }
     ]
 }
 
@@ -311,18 +287,8 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
     
     let fun = *compile_context.functions.get(&name).unwrap();
     let name_str = name.get_str(&compile_context.rustaml_context.str_interner);
-    let ret = if compile_context.is_in_try_catch && *compile_context.functions_can_throw.get(&name).unwrap() {
-        let args_vals = args.iter().map(|&a| compile_expr(compile_context, a).try_into().unwrap()).collect::<Vec<BasicValueEnum>>();
-        let function = get_current_function(compile_context.builder);
-        let then_bb = append_bb_just_after(compile_context, function, "then_invoke");
-        let ret_val = compile_context.builder.build_invoke(fun, args_vals.as_slice(), then_bb, compile_context.catch_bb.unwrap(), name_str).unwrap();
-        compile_context.builder.position_at_end(then_bb);
-        ret_val
-    } else {
-        let args_vals = args.iter().map(|&a| compile_expr(compile_context, a).try_into().unwrap()).collect::<Vec<BasicMetadataValueEnum>>();
-        compile_context.builder.build_call(fun, args_vals.as_slice(), name_str).unwrap()
-    }.try_as_basic_value();
-    
+    let args_vals = args.iter().map(|&a| compile_expr(compile_context, a).try_into().unwrap()).collect::<Vec<BasicMetadataValueEnum>>();
+    let ret = compile_context.builder.build_call(fun, args_vals.as_slice(), name_str).unwrap().try_as_basic_value();
     match ret {
         Either::Left(l) => l.into(),
         Either::Right(_) => get_void_val(compile_context.context), // void, dummy value
@@ -667,65 +633,6 @@ fn compile_str<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx
     create_string(compile_context.builder, str.get_str(&compile_context.rustaml_context.str_interner))
 }
 
-fn compile_throw<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>) -> AnyValueEnum<'llvm_ctx> {
-    let cxa_allocate_fun = compile_context.get_internal_function("__cxa_allocate_exception");
-    let exception_size = 8; // TODO, for now pointer size to contain null, use LLVM datalayout to find the size of the type
-    let cxa_allocate_args = vec![create_int(compile_context, exception_size).into()];
-    let exception_alloc_ptr = compile_context.builder.build_call(cxa_allocate_fun, &cxa_allocate_args, "cxa_alloc_internal").unwrap().as_any_value_enum().into_pointer_value();
-    
-    let null = compile_context.context.ptr_type(AddressSpace::default()).const_null();
-    compile_context.builder.build_store(exception_alloc_ptr, null).unwrap();
-
-
-    let cxa_throw_fun = compile_context.get_internal_function("__cxa_throw");
-    let cxa_throw_args = vec![exception_alloc_ptr.into(), null.into(), null.into()];
-    compile_context.builder.build_call(cxa_throw_fun, &cxa_throw_args, "cxa_throw_internal").unwrap();
-
-
-    get_void_val(compile_context.context)
-}
-
-fn compile_try_catch<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, try_body : ASTRef, catch_body : ASTRef) -> AnyValueEnum<'llvm_ctx>{
-    
-    let function = get_current_function(compile_context.builder);
-    compile_context.is_in_try_catch = true;
-
-    let landing_pad = compile_context.context.append_basic_block(function, "landing_pad");
-    compile_context.catch_bb = Some(landing_pad);
-
-    let after_bb = compile_context.context.append_basic_block(function, "after_try_catch");
-
-    let try_val = compile_expr(compile_context, try_body);
-
-    let try_bb = compile_context.builder.get_insert_block().unwrap();
-    compile_context.builder.build_unconditional_branch(after_bb).unwrap();
-
-    compile_context.builder.position_at_end(landing_pad);
-
-    // TODO : add landing pad instrtuctions
- 
-    let cpp_personnality_fun = compile_context.get_internal_function("__gxx_personality_v0");
-    let ptr_type = compile_context.context.ptr_type(AddressSpace::default());
-    // cpp exception type
-    let exception_type = compile_context.context.struct_type(&[ptr_type.into(), compile_context.context.i32_type().into()], false);
-    let clauses_any_exc = &[ptr_type.const_null().into()];
-    compile_context.builder.build_landing_pad(exception_type, cpp_personnality_fun, clauses_any_exc, false, "landing_pad").unwrap();
-
-    let catch_val = compile_expr(compile_context, catch_body);
-    compile_context.builder.build_unconditional_branch(after_bb).unwrap();
-    
-    compile_context.catch_bb.take();
-    compile_context.is_in_try_catch = false;
-
-    compile_context.builder.position_at_end(after_bb);
-
-    let phi_node = compile_context.builder.build_phi(TryInto::<BasicTypeEnum>::try_into(try_val.get_type()).unwrap(), "try_catch_phi").unwrap();
-    let try_val_basic = TryInto::<BasicValueEnum>::try_into(try_val).unwrap();
-    let catch_val_basic = TryInto::<BasicValueEnum>::try_into(catch_val).unwrap();
-    phi_node.add_incoming(vec![(&try_val_basic as _, try_bb), (&catch_val_basic as _, landing_pad)].as_slice());
-    phi_node.as_any_value_enum()
-}
-
 // TODO : replace AnyValueEnum with BasicMetadataValueEnum in compile_expr and other functions ?
 fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef) -> AnyValueEnum<'llvm_ctx> {
     match ast_node.get(&compile_context.rustaml_context.ast_pool){
@@ -740,46 +647,9 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
         ASTNode::VarUse { name } => compile_var_use(compile_context, *name),
         ASTNode::List { list } => compile_static_list(compile_context, list),
         ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, *matched_expr, patterns),
-        ASTNode::Throw {  } => compile_throw(compile_context),
-        ASTNode::TryCatch { try_body, catch_body } => compile_try_catch(compile_context, *try_body, *catch_body),
         ASTNode::Unit => get_void_val(compile_context.context),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)), 
         //_ => todo!()
-    }
-}
-
-fn can_function_body_throw(compile_context: &CompileContext, body : ASTRef, current_function_name : StringRef) -> bool {
-    match body.get(&compile_context.rustaml_context.ast_pool){
-        ASTNode::VarDecl { name, val, body } => {
-            let can_body_throw = if let Some(b) = body {
-                can_function_body_throw(compile_context, *b, current_function_name)
-            } else {
-                false
-            };
-            can_body_throw || can_function_body_throw(compile_context, *val, current_function_name)
-        },
-        ASTNode::IfExpr { cond_expr, then_body, else_body } => {
-            can_function_body_throw(compile_context, *cond_expr, current_function_name) || can_function_body_throw(compile_context, *then_body, current_function_name) || can_function_body_throw(compile_context, *else_body, current_function_name)
-        },
-        ASTNode::FunctionCall { name, args } => {
-            if *name == current_function_name {
-                return false;
-            }
-            debug_println!(compile_context.rustaml_context.is_debug_print, "functions_can_throw : {:#?}", DebugWrapContext::new(&compile_context.functions_can_throw, compile_context.rustaml_context));
-            *compile_context.functions_can_throw.get(name).unwrap_or_else(|| panic!("Can't know if function {} can throw", name.get_str(&compile_context.rustaml_context.str_interner)))
-        },
-        ASTNode::BinaryOp { op, lhs, rhs } => {
-            can_function_body_throw(compile_context, *lhs, current_function_name) || can_function_body_throw(compile_context, *rhs, current_function_name)
-        }
-        ASTNode::MatchExpr { matched_expr, patterns } => {
-            let can_match_bodies_throw = patterns.iter().fold(false, |acc, e| acc || can_function_body_throw(compile_context, e.1, current_function_name));
-            can_function_body_throw(compile_context, *matched_expr, current_function_name) || can_match_bodies_throw
-        },
-        ASTNode::TryCatch { try_body, catch_body } => {
-            can_function_body_throw(compile_context, *try_body,current_function_name) || can_function_body_throw(compile_context, *catch_body, current_function_name)
-        }
-        ASTNode::Throw {  } => true,
-        _ => false,
     }
 }
 
@@ -806,9 +676,6 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
                 }
                 create_var(compile_context, arg.name, arg_val.as_any_value_enum(), arg_type);
             }
-
-            let can_throw = can_function_body_throw(compile_context, *body, *name);
-            compile_context.functions_can_throw.insert(*name, can_throw);
 
             let ret = compile_expr(compile_context, *body);
 
@@ -881,9 +748,7 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
     clang_std.stdin.as_mut().unwrap().write_all(STD_C_CONTENT.as_bytes()).unwrap();
     clang_std.wait().unwrap();
 
-    let mut link_cmd = Command::new("clang++"); // need this for exceptions
-
-    // TODO : add a -fno-exceptions if the compiler can guarantee that no functions will call throw
+    let mut link_cmd = Command::new("clang");
 
     if !matches!(opt_level, OptimizationLevel::None) {
         link_cmd.arg("-flto");
@@ -897,14 +762,6 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
         return;
     }
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
-}
-
-fn get_functions_can_throw_default(rustaml_context: &mut RustamlContext) -> FxHashMap<StringRef, bool> {
-    let mut i = |s| rustaml_context.str_interner.intern_compiler(s);
-    FxHashMap::from_iter([
-        (i("rand"), false),
-        (i("print"), false)
-    ])
 }
 
 pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool, enable_gc : bool) {
@@ -946,7 +803,6 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
     let main_function = get_main_function(&context, &module);
 
     let internal_functions = get_internal_functions(&context);
-    let functions_can_throw = get_functions_can_throw_default(rustaml_context);
 
     let mut compile_context = CompileContext {
         rustaml_context,
@@ -958,9 +814,6 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
         var_types,
         var_vals: FxHashMap::default(),
         internal_functions,
-        functions_can_throw,
-        is_in_try_catch: false,
-        catch_bb: None,
         external_symbols_declared: FxHashSet::default()
     };
 

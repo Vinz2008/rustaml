@@ -129,11 +129,6 @@ pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<Strin
             let else_type_inferred = _infer_var_type(rustaml_context, vars, var_name, *else_body, range);
             merge_types!(cond_type_inferred, then_type_inferred, else_type_inferred)
         },
-        ASTNode::TryCatch { try_body, catch_body } => {
-            let try_type_inferred = _infer_var_type(rustaml_context, vars, var_name, *try_body, range);
-            let catch_type_inferred = _infer_var_type(rustaml_context, vars, var_name, *catch_body, range);
-            merge_types!(try_type_inferred, catch_type_inferred)
-        },
         ASTNode::MatchExpr { matched_expr, patterns } => {
             let matched_expr_type_inferred = _infer_var_type(rustaml_context, vars, var_name, *matched_expr, range);
             let mut pattern_type_inferred = None;
@@ -158,7 +153,6 @@ pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<Strin
         ASTNode::String { str: _ } => None,
         ASTNode::Boolean { b: _ } => None,
         ASTNode::List { list: _ } => None,
-        ASTNode::Throw {} => None,
         ASTNode::Unit => None,
         ASTNode::BinaryOp { op, lhs, rhs } => {
             let is_left_var = match lhs .get(&rustaml_context.ast_pool) {
