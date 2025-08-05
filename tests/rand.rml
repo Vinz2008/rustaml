@@ -10,7 +10,7 @@ let r = rand_nb 10000 ;;
 
 let rand_print_f li : list[int] -> bool = 
   match li with
-  | [] -> false
-  | e :: l -> (print e) == (rand_print_f l) ;;
+  | [] -> true
+  | e :: l -> (print e) == (if (rand_print_f l) then () else ()) ;;
 
 let r_p = rand_print_f r ;;

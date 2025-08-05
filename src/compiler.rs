@@ -597,6 +597,8 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 
     let mut pattern_vals = Vec::new();
 
+    let mut match_phi_bbs = Vec::new();
+
     for (pattern, pattern_bbs) in patterns.iter().zip(&match_bbs) {
         let (pattern, pattern_body) = pattern;
         let (pattern_bb, pattern_else_bb) = pattern_bbs;
@@ -605,6 +607,7 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
         compile_pattern_match_prologue(compile_context, pattern, matched_val, &matched_val_type);
         let pattern_body_val = compile_expr(compile_context, *pattern_body);
         compile_pattern_match_epilogue(compile_context, pattern);
+        match_phi_bbs.push(compile_context.builder.get_insert_block().unwrap());
         compile_context.builder.build_unconditional_branch(after_match).unwrap();
         pattern_vals.push(pattern_body_val);
         compile_context.builder.position_at_end(*pattern_else_bb);
@@ -617,7 +620,7 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     compile_context.builder.position_at_end(after_match);
     let phi_node = compile_context.builder.build_phi(TryInto::<BasicTypeEnum>::try_into(match_type_llvm).unwrap(), "match_phi").unwrap();
     let mut incoming_phi = Vec::new();
-    for (val, (bb, _else_bb)) in pattern_vals.iter().zip(&match_bbs) {
+    for (val, bb) in pattern_vals.iter().zip(&match_phi_bbs) {
         let basic_val = TryInto::<BasicValueEnum>::try_into(*val).unwrap();
         incoming_phi.push((basic_val, *bb));
     }

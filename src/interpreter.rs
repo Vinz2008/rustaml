@@ -3,6 +3,7 @@ use std::cmp::max;
 use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
 use debug_with_context::DebugWithContext;
+use rand::prelude::*;
 
 use crate::ast::ASTRef;
 use crate::debug_println;
@@ -344,6 +345,8 @@ pub struct InterpretContext<'context> {
     pub vars: FxHashMap<StringRef, Val>,
     pub rustaml_context : &'context mut RustamlContext,
     pub gc_context : GcContext,
+    rng : ThreadRng
+
 }
 
 
@@ -505,7 +508,8 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
 }
 
 const STD_FUNCTIONS : &[&str] = &[
-    "print"
+    "print",
+    "rand",
 ];
 
 fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args_val : Vec<Val>) -> Val {
@@ -515,7 +519,13 @@ fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args
             assert_eq!(args_val.len(), 1);
             println!("{}", args_val[0].display(context.rustaml_context));
             Val::Unit
-        }
+        },
+        "rand" => {
+            assert_eq!(args_val.len(), 1);
+            assert!(matches!(args_val[0], Val::Unit));
+            let rand_nb = context.rng.random::<i64>();
+            Val::Integer(rand_nb)
+        },
         _ => unreachable!()
     }
 }
@@ -785,6 +795,7 @@ pub fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlContext) -> 
         functions: FxHashMap::default(),
         rustaml_context,
         gc_context: GcContext::new(),
+        rng: rand::rng(),
     };
 
     let v = interpret_node(&mut context, ast);
