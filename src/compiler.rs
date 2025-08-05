@@ -603,6 +603,7 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
         let (pattern, pattern_body) = pattern;
         let (pattern_bb, pattern_else_bb) = pattern_bbs;
         compile_pattern_match(compile_context, pattern, matched_val, *pattern_bb, *pattern_else_bb);
+        move_bb_after_current(compile_context, *pattern_bb);
         compile_context.builder.position_at_end(*pattern_bb);
         compile_pattern_match_prologue(compile_context, pattern, matched_val, &matched_val_type);
         let pattern_body_val = compile_expr(compile_context, *pattern_body);
@@ -610,6 +611,7 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
         match_phi_bbs.push(compile_context.builder.get_insert_block().unwrap());
         compile_context.builder.build_unconditional_branch(after_match).unwrap();
         pattern_vals.push(pattern_body_val);
+        move_bb_after_current(compile_context, *pattern_else_bb);
         compile_context.builder.position_at_end(*pattern_else_bb);
     }
 
@@ -617,6 +619,7 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     // TODO : add line number ? 
     codegen_runtime_error(compile_context, "no match branch was found");
 
+    move_bb_after_current(compile_context, after_match);
     compile_context.builder.position_at_end(after_match);
     let phi_node = compile_context.builder.build_phi(TryInto::<BasicTypeEnum>::try_into(match_type_llvm).unwrap(), "match_phi").unwrap();
     let mut incoming_phi = Vec::new();
