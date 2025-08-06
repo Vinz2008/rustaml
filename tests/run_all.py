@@ -13,7 +13,7 @@ root_project_dir = os.getcwd()
 if "Cargo.toml" not in os.listdir(root_project_dir):
     root_project_dir = os.path.join(os.getcwd(), os.pardir)
 
-# TODO : add debug mode support ?
+# TODO : add release mode support ?
 exe_path = os.path.join(root_project_dir, "target", "debug", "rustaml")
 
 excluded_files = [
