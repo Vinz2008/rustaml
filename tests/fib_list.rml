@@ -10,4 +10,7 @@ let list_fib i =
   else
     fib i :: list_fib ( i - 1 ) ;;
 
-let l_fib = list_fib 35 ;;
+// this one for benchmarking
+// let l_fib = list_fib 35 ;;
+
+let l_fib = list_fib 21 ;;

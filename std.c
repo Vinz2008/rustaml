@@ -158,7 +158,7 @@ uint8_t __list_cmp(struct ListNode* list1, struct ListNode* list2){
     return list1 == list2; // both are NULL
 }
 
-const char* __bool_to_str(uint8_t b){
+const char* __bool_to_str(bool b){
     if (b) {
         return "true";
     } else {

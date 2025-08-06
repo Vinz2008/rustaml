@@ -4,4 +4,7 @@ let fib i : int -> int =
   else
     fib (i - 1) + fib (i - 2) ;;
 
-let big_fib = fib 35 ;;
+
+// this one for benchmarking
+// let big_fib = fib 35 ;;
+let big_fib = fib 23 ;;
