@@ -1,5 +1,8 @@
 use std::collections::VecDeque;
-use debug_with_context::{DebugWithContext, DebugWrapContext};
+use debug_with_context::DebugWithContext;
+
+#[cfg(feature = "gc-test-print")]
+use debug_with_context::DebugWrapContext;
 
 use crate::{interpreter::{InterpretContext, List, ListPool, ListRef, Val}, rustaml::RustamlContext, string_intern::{StrInterned, StrInterner, StringRef}};
 
@@ -190,7 +193,7 @@ fn mark_and_sweep_strings(context : &mut InterpretContext){
 
     // mark
     for var_val in context.vars.values() {
-        if let Val::String(s) = var_val {
+        if let Val::String(s) = var_val && !s.is_compiler(&context.rustaml_context.str_interner) {
             mark_str_ref(&mut context.rustaml_context.str_interner, *s);
         }
     }

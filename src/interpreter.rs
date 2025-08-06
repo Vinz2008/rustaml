@@ -393,6 +393,7 @@ fn interpret_binop_int(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
 }
 
 fn interpret_binop_float(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+    //println!("got {:?} for lhs", DebugWrapContext::new(&lhs_val, rustaml_context));
     let lhs_nb = match lhs_val {
         Val::Float(nb) => nb,
         _ => panic!("Expected float in left-side of binary operation"),

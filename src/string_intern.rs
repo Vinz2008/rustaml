@@ -49,6 +49,10 @@ impl StringRef {
         str_interner.lookup_gc_mut(self)
     }
 
+    pub fn is_compiler(self, str_interner : &StrInterner) -> bool {
+        str_interner.is_str_compiler(self)
+    }
+
     // create a new string
     pub fn add(self, rhs : StringRef, str_interner : &mut StrInterner) -> StringRef {
         let lhs_str = str_interner.lookup(self);
@@ -133,6 +137,10 @@ impl StrInterner {
             }
             StrInterned::Compiler(_) => unreachable!(),
         }
+    }
+
+    pub fn is_str_compiler(&self, idx : StringRef) -> bool {
+        matches!(self.lookup_interned(idx), StrInterned::Compiler(_))
     }
 
     pub fn len(&self) -> usize {

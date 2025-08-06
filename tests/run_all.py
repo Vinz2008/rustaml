@@ -3,6 +3,8 @@ import subprocess
 import sys
 from colorama import Fore, Style
 from tabulate import tabulate
+from yaspin import yaspin
+from yaspin.spinners import Spinners
 
 
 scripts_dir = os.path.dirname(os.path.realpath(__file__))
@@ -11,7 +13,7 @@ root_project_dir = os.getcwd()
 if "Cargo.toml" not in os.listdir(root_project_dir):
     root_project_dir = os.path.join(os.getcwd(), os.pardir)
 
-# TODO : add release mode support ?
+# TODO : add debug mode support ?
 exe_path = os.path.join(root_project_dir, "target", "debug", "rustaml")
 
 excluded_files = [
@@ -26,6 +28,8 @@ def get_error_message(return_code : int, filename : str) -> str:
     match return_code:
         case 1:
             return "the compiler failed with an error"
+        case 134:
+            return "the compiler panicked"
         case 101:
             filename_without_ex, _ = os.path.splitext(filename)
             error_filename = filename_without_ex + "_error.ll"
@@ -85,9 +89,16 @@ def test_all_files(is_compiling : bool):
     print(f"{Fore.BLUE}END TESTING {"COMPILED" if is_compiling else "INTERPRETED"}{Style.RESET_ALL}")
 
 def ensure_compiler_built():
-    print("BUILDING RUSTAML...")
-    pipe = subprocess.Popen("cargo build -F native -F stack-expand", shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    _, _ = pipe.communicate()
+    with yaspin(Spinners.dots, text="BUILDING RUSTAML...") as spinner:
+        print("BUILDING RUSTAML... ", end='')
+        pipe = subprocess.Popen("cargo build -F native -F stack-expand -F gc-test-collect", shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        
+        
+        out, _ = pipe.communicate()
+
+        if is_error(pipe.returncode):
+            sys.exit(f"failed when building the compiler :\n {out.decode("utf-8", errors="replace")}")
+        
 
 class COMMAND:
     ALL = 1
@@ -130,8 +141,8 @@ if __name__ == '__main__':
     ensure_compiler_built()
     match command:
         case COMMAND.ALL:
-            test_all_files(True)
             test_all_files(False)
+            test_all_files(True)
         case COMMAND.INTERPRET:
             test_all_files(False)
         case COMMAND.COMPILE:

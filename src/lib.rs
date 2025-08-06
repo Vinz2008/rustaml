@@ -3,7 +3,10 @@
 #![allow(clippy::let_and_return)]
 #![feature(debug_closure_helpers)]
 
-use std::{path::Path, process::ExitCode};
+use std::path::Path;
+
+#[cfg(feature = "native")]
+use std::process::ExitCode;
 
 use cfg_if::cfg_if;
 

@@ -1,7 +1,7 @@
 use std::{ops::Range, path::Path};
 use levenshtein::levenshtein;
 
-use crate::{ast::{ParserErr, ParserErrData}, lexer::{LexerErr, Operator, TokenData, TokenDataTag}};
+use crate::{ast::{ParserErr, ParserErrData, Type}, lexer::{LexerErr, Operator, TokenData, TokenDataTag}};
 use crate::lexer::LexerErrData;
 
 use ariadne::{Color, ColorGenerator, Label, Report, ReportKind, Source};
@@ -187,6 +187,24 @@ fn print_unknown_var<'a>(error_basic_infos : ErrorBasicInfos<'a>, name: &str) ->
     }
 }
 
+fn print_wrong_number_of_args<'a>(error_basic_infos : ErrorBasicInfos<'a>, function_name : &str, expected_nb : usize, got_nb : usize) -> ErrorPrint<'a>{
+    ErrorPrint { 
+        error_basic_infos, 
+        message:  format!("Wrong number of args in call to {}, expected {} but got {}", function_name, expected_nb, got_nb),
+        label: Some("Fix the number of args here"),
+        ..Default::default()
+    }
+}
+
+fn print_wrong_arg_type<'a>(error_basic_infos : ErrorBasicInfos<'a>, function_name : &str, expected_type : Type, got_type : Type) -> ErrorPrint<'a> {
+    ErrorPrint { 
+        error_basic_infos,
+        message: format!("Wrong type of arg in call to {}, expected {:?} but got {:?}", function_name, expected_type, got_type),
+        label: Some("Fix the type of this arg"),
+        ..Default::default()
+    }
+}
+
 pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : &str) {
     
     // println!("Parsing error : {:?}", parser_error);
@@ -212,8 +230,10 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
         ParserErrData::UnexpectedTok {tok } => print_unexpected_tok_error(error_basic_infos, tok),
         ParserErrData::UnknownVar { name } => print_unknown_var(error_basic_infos, &name),
         ParserErrData::TypeInferenceErr { arg_name } => print_type_inference_error(error_basic_infos, &arg_name),
-        ParserErrData::UnknownTypeAnnotation { type_str } => print_unknown_type_annotation(error_basic_infos, &type_str), // TODO
+        ParserErrData::UnknownTypeAnnotation { type_str } => print_unknown_type_annotation(error_basic_infos, &type_str),
         ParserErrData::NotFunctionTypeInAnnotationLet { function_name: name } => print_not_function_type_in_let(error_basic_infos, &name),
+        ParserErrData::WrongNumberOfArgs { function_name, expected_nb, got_nb } => print_wrong_number_of_args(error_basic_infos, &function_name, expected_nb, got_nb),
+        ParserErrData::WrongArgType { function_name, expected_type, got_type } => print_wrong_arg_type(error_basic_infos, &function_name, expected_type, got_type),
     };
 
     //assert!((error_print.note.is_some() && error_print.label.is_some()) || (error_print.note.is_none() && error_print.label.is_none()));

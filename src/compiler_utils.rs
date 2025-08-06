@@ -11,7 +11,7 @@ pub fn get_type_tag(t : &Type) -> u8 {
         Type::Integer => 0,
         Type::Float => 1,
         Type::Bool => 2,
-        Type::Function(_, _) => 3,
+        Type::Function(_, _, _) => 3,
         Type::Str => 4,
         Type::List(_) => 5,
         // TODO : add a type tag for Unit ?
@@ -37,11 +37,11 @@ pub fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type 
         Type::Integer => llvm_context.i64_type().into(),
         Type::Bool => llvm_context.bool_type().into(),
         Type::Float => llvm_context.f64_type().into(),
-        Type::Function(args, ret) => {
+        Type::Function(args, ret, is_variadic) => {
             let ret_llvm = get_llvm_type(llvm_context, ret);
             // TODO for expect : create a function that would be get_basic_metatadata_type which will transform the function pointers into pointers ?
             let param_types = args.iter().map(|t| get_llvm_type(llvm_context, t).try_into().expect("arg is not a basic metadata type")).collect::<Vec<BasicMetadataTypeEnum>>();
-            get_fn_type(llvm_context, ret_llvm, &param_types, false).into()
+            get_fn_type(llvm_context, ret_llvm, &param_types, *is_variadic).into()
         },
 
         // layout of list

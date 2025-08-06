@@ -196,7 +196,7 @@ pub fn _infer_var_type(rustaml_context : &RustamlContext, vars: &FxHashMap<Strin
         },
         ASTNode::FunctionCall { name: function_name, args } => {
             match vars.get(function_name) {
-                Some(Type::Function(a, _)) => {
+                Some(Type::Function(a, _, _)) => {
                     for (arg, arg_type) in args.iter().zip(a) {
                         match arg.get(&rustaml_context.ast_pool) {
                             ASTNode::VarUse { name } if *name == var_name => {

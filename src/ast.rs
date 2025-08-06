@@ -133,7 +133,7 @@ pub enum Type {
     Integer,
     Float,
     Bool,
-    Function(Vec<Type>, Box<Type>),
+    Function(Vec<Type>, Box<Type>, bool), // the bool is if the function is variadic
     Str,
     List(Box<Type>),
     // TODO : add a number to any (to have 'a, 'b, etc)
@@ -169,7 +169,7 @@ impl ASTNode {
             ASTNode::FunctionCall { name, args: _ } => { 
                 let func_type = vars.get(name).unwrap();
                 match func_type {
-                    Type::Function(_args, ret) => ret.as_ref().clone(),
+                    Type::Function(_, ret, _) => ret.as_ref().clone(),
                     _ => panic!("Trying to call something that is not a function"),
                 } 
             },
@@ -258,7 +258,18 @@ pub enum ParserErrData {
     },
     NotFunctionTypeInAnnotationLet {
         function_name: String
-    }
+    },
+    WrongNumberOfArgs {
+        function_name : String,
+        expected_nb : usize,
+        got_nb : usize,
+    },
+    WrongArgType {
+        function_name: String,
+        // TODO : add an arg name ?
+        expected_type: Type,
+        got_type: Type,
+    },
 }
 
 
@@ -294,8 +305,8 @@ impl Parser<'_> {
 
     fn eat_tok(&mut self, token_type: Option<TokenDataTag>) -> Result<Token, ParserErr> {
         if self.pos >= self.tokens.len() {
-            let pos = self.tokens.len()-1;
-            return Err(ParserErr::new(ParserErrData::UnexpectedEOF, pos..pos));
+            let last_token_range_end = self.tokens.last().unwrap().range.end;
+            return Err(ParserErr::new(ParserErrData::UnexpectedEOF, last_token_range_end..last_token_range_end));
         }
 
         if let Some(tok_type) = token_type && self.tokens[self.pos].tok_data.tag() != tok_type {
@@ -386,7 +397,7 @@ fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
                 _ => panic!("ERROR : missing type in function type annotation, found return type of {:?} and args of {:?}", return_type, function_type_parts), // TODO : better error handling
             };
 
-            Type::Function(function_type_parts, Box::new(return_type))
+            Type::Function(function_type_parts, Box::new(return_type), false)
         },
         _ => simple_type,
     };
@@ -423,20 +434,20 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         let function_type: Type = match parser.current_tok_data() {
             Some(TokenData::Colon) => parse_type_annotation(parser)?,
             Some(_) | None => {
-                Type::Function(vec![Type::Any; arg_names.len()], Box::new(Type::Any))
+                Type::Function(vec![Type::Any; arg_names.len()], Box::new(Type::Any), false)
             }
         };
 
         let function_type_range_end = parser.current_tok().unwrap().range.start - 1;  // TODO ? (verify if good)
 
         let function_type_range = function_type_range_start..function_type_range_end;
-        let (arg_types, mut return_type) = match function_type {
-            Type::Function(a, r) => (a, r),
+        let (arg_types, mut return_type, is_variadic) = match function_type {
+            Type::Function(a, r, v) => (a, r, v),
             _ => return Err(ParserErr::new(ParserErrData::NotFunctionTypeInAnnotationLet { function_name: name.get_str(&parser.rustaml_context.str_interner).to_owned() }, function_type_range)), 
         };
 
     
-        parser.vars.insert(name,  Type::Function(arg_types.clone(), return_type.clone()));
+        parser.vars.insert(name,  Type::Function(arg_types.clone(), return_type.clone(), is_variadic));
 
         let mut args = arg_names.into_iter().zip(arg_types.clone()).map(|x| Arg { name: parser.rustaml_context.str_interner.intern_compiler(&x.0), arg_type: x.1 }).collect::<Vec<Arg>>();
 
@@ -471,7 +482,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         }
 
 
-        parser.vars.insert(name,  Type::Function(arg_types.clone(), return_type.clone())); // reinsertion with real types
+        parser.vars.insert(name,  Type::Function(arg_types.clone(), return_type.clone(), false)); // reinsertion with real types
         
         ASTNode::FunctionDefinition { 
             name, 
@@ -533,17 +544,45 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
 
 
-fn parse_function_call(parser: &mut Parser, function_name : StringRef) -> Result<ASTRef, ParserErr> {
+fn parse_function_call(parser: &mut Parser, function_name : StringRef, first_tok_start: usize) -> Result<ASTRef, ParserErr> {
     let mut args = Vec::new();
 
     fn function_call_parse_continue(tok_data : Option<&TokenData>) -> bool {
         !matches!(tok_data, Some(TokenData::EndOfExpr) | Some(TokenData::Op(_)) | Some(TokenData::Else) | Some(TokenData::In) | Some(TokenData::ParenClose))
     }
-
+    //let mut end_last_arg = first_tok_start;
+    let mut arg_ranges=  Vec::new();
     while parser.has_tokens_left() && function_call_parse_continue(parser.current_tok_data()) {
+        let arg_range_start = parser.current_tok().unwrap().range.start;
         let arg = parse_primary(parser)?; // TODO : replace with parse_node ? (fix problems with stack overflow -> less recursion ? implement tail call optimization ?)
+        let arg_range_end = parser.current_tok().unwrap().range.end-1;
+        //end_last_arg = parser.current_tok().unwrap().range.end-1;
+        arg_ranges.push(arg_range_start..arg_range_end);
         args.push(arg);
     }
+
+    let (args_type, is_variadic)  = match parser.vars.get(&function_name).unwrap() {
+        Type::Function(args_type, _, is_variadic) => (args_type, *is_variadic),
+        _ => unreachable!(),
+    };
+
+    let function_call_range = first_tok_start..arg_ranges.last().unwrap().end;
+
+    if !is_variadic && args.len() != args_type.len(){
+        let function_name = function_name.get_str(&parser.rustaml_context.str_interner).to_owned();
+        return Err(ParserErr::new(ParserErrData::WrongNumberOfArgs { function_name, expected_nb: args_type.len(), got_nb: args.len() }, function_call_range))
+    }
+
+    // TODO add an error for when the function is variadic but args.len() < args_type.len() 
+
+    for (idx, arg_type) in args_type.iter().enumerate(){
+        let arg_given_type = args[idx].get(&parser.rustaml_context.ast_pool).get_type(&parser.rustaml_context, &parser.vars)?;
+        if !matches!(arg_given_type, Type::Any) && !matches!(arg_type, Type::Any) && &arg_given_type != arg_type {
+            let function_name = function_name.get_str(&parser.rustaml_context.str_interner).to_owned();
+            return Err(ParserErr::new(ParserErrData::WrongArgType { function_name, expected_type: arg_type.clone(), got_type: arg_given_type } , arg_ranges[idx].clone()))
+        }
+    }
+
     //dbg!(&args);
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::FunctionCall { 
         name: function_name, 
@@ -551,15 +590,15 @@ fn parse_function_call(parser: &mut Parser, function_name : StringRef) -> Result
     }))
 }
 
-fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>) -> Result<ASTRef, ParserErr> {
+fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>, first_tok_start: usize) -> Result<ASTRef, ParserErr> {
     let identifier = parser.rustaml_context.str_interner.intern_compiler(&identifier_buf.iter().collect::<String>());
     let is_function = match parser.vars.get(&identifier) {
-        Some(t) => matches!(t, Type::Function(_, _)),
+        Some(t) => matches!(t, Type::Function(_, _, _)),
         None => false, // no error because there are variables that are created in match that are not accounted for in vars (TODO !!!)
         //None => panic!("ERROR : unknown identifier {}", identifier.get_str(&mut parser.rustaml_context.str_interner)),
     };
     if is_function {
-        parse_function_call(parser, identifier)
+        parse_function_call(parser, identifier, first_tok_start)
     } else {
         // var use
         Ok(parser.rustaml_context.ast_pool.push(ASTNode::VarUse { name: identifier }))
@@ -610,6 +649,37 @@ where F: Fn(&mut Parser) -> Result<T, ParserErr>
 
     Ok(elems)
 }
+
+
+// TODO : handle old values of these vars
+fn add_vars_from_pattern(parser : &mut Parser, pattern : &Pattern, val_type : &Type){
+    match pattern {
+        Pattern::VarName(name) => { parser.vars.insert(*name, val_type.clone()); },
+        Pattern::ListDestructure(e, l) => {
+            let element_type = match &val_type {
+                Type::List(e_type) => e_type.as_ref(),
+                Type::Any => &Type::Any, // only a workaround, use the inference (TODO ?) 
+                _ => panic!("Expected a list type"),
+            };
+            parser.vars.insert(*e, element_type.clone());
+            add_vars_from_pattern(parser, l.as_ref(), val_type);
+        },
+        _ => {} 
+    }
+}
+
+fn remove_vars_from_pattern(parser : &mut Parser, pattern : &Pattern){
+    match pattern {
+        Pattern::VarName(name) => { parser.vars.remove(name); },
+        Pattern::ListDestructure(e, l) => {
+            parser.vars.remove(e);
+            remove_vars_from_pattern(parser, l.as_ref());
+        },
+        _ => {} 
+    }
+}
+
+
 
 fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
     let pattern_tok = parser.eat_tok(None)?;
@@ -672,13 +742,18 @@ fn parse_match(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         return Err(err)
     }
 
+    // TODO : maybe infer this type ?
+    let val_type = matched_expr.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)?;
+
     while parser.current_tok().is_some() && matches!(parser.current_tok_data().unwrap(), TokenData::Pipe) {
         parser.eat_tok(Some(TokenDataTag::Pipe))?;
         let pattern = parse_pattern(parser)?;
         //dbg!(&pattern);
         parser.eat_tok(Some(TokenDataTag::Arrow))?;
         // TODO : add vars from match pattern ? (will need a function that from a pattern and the type of the matched pattern will return the names and the types of the vars)
+        add_vars_from_pattern(parser, &pattern, &val_type);
         let pattern_expr = parse_node(parser)?;
+        remove_vars_from_pattern(parser, &pattern);
         patterns.push((pattern, pattern_expr));
     }
 
@@ -713,6 +788,7 @@ fn parse_static_list(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
 fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let tok = parser.eat_tok(None).unwrap();
+    let first_tok_start = tok.range.start;
     let node = match tok.tok_data {
         TokenData::Let => parse_let(parser),
         TokenData::If => parse_if(parser),
@@ -720,7 +796,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         TokenData::Integer(nb) => Ok(parse_integer(parser, nb)),
         TokenData::Float(nb) => Ok(parse_float(parser, nb)),
         TokenData::String(buf) => Ok(parse_string(parser, buf)),
-        TokenData::Identifier(buf) => parse_identifier_expr(parser, buf),
+        TokenData::Identifier(buf) => parse_identifier_expr(parser, buf, first_tok_start),
         TokenData::True => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: true })),
         TokenData::False => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: false })),
         TokenData::ParenOpen => parse_parenthesis(parser), // TODO : move this to the start of parse_node and make it unreachable! ? (because each time there are parenthesis, parse_node -> parse_primary -> parse_node is added to the call stack) 
@@ -806,8 +882,8 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 fn init_std_functions(rustaml_context : &mut RustamlContext) -> FxHashMap<StringRef, Type> {
     let mut i = |s| rustaml_context.str_interner.intern_compiler(s);
     FxHashMap::from_iter([
-        (i("print"), Type::Function(vec![Type::Any], Box::new(Type::Unit))),
-        (i("rand"), Type::Function(vec![Type::Unit], Box::new(Type::Integer)))
+        (i("print"), Type::Function(vec![Type::Any], Box::new(Type::Unit), false)),
+        (i("rand"), Type::Function(vec![Type::Unit], Box::new(Type::Integer), false))
         // TODO : add a rand_f ? or make the rand function generic with its return ?
     ])
 }

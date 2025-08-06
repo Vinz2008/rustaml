@@ -228,7 +228,7 @@ fn get_format_string(print_type : Type) -> &'static str {
         Type::Float => "%f\n",
         Type::Str | Type::Bool => "%s\n", // TODO : add a better printing solution
         Type::List(_) => unreachable!(), // the format will not be used
-        Type::Function(_, _) => panic!("Can't print functions"),
+        Type::Function(_, _, _) => panic!("Can't print functions"),
         Type::Unit => "%s\n",
         Type::Never => "", // can't print it, normally if the function is really a never type, it should be never return, so the print should never be called 
         Type::Any => encountered_any_type(),
