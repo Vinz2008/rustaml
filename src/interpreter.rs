@@ -288,8 +288,38 @@ impl PartialOrd for Val {
 }
 
 pub struct ValWrapDisplay<'a> {
-    val : Val,
+    val : &'a Val,
     rustaml_context: &'a RustamlContext,
+}
+
+fn _display_list(l : ListRef, rustaml_context: &RustamlContext, f: &mut fmt::Formatter<'_>, is_first : bool) -> fmt::Result {
+    match l.get(&rustaml_context.list_node_pool){
+        List::Node(e, l) => {
+            if !is_first {
+                write!(f, ", ")?;
+            }
+            let e_wrap = ValWrapDisplay {
+                val: e,
+                rustaml_context,
+            };
+
+            write!(f, "{}", e_wrap)?;
+
+            _display_list(*l, rustaml_context, f, false)
+        },
+        List::None => fmt::Result::Ok(()),
+    }
+}
+
+fn display_list(l : ListRef, rustaml_context: &RustamlContext, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match l.get(&rustaml_context.list_node_pool){
+        List::None => write!(f, "[]"),
+        _ => {
+            write!(f, "[")?;
+            _display_list(l, rustaml_context, f, true)?;
+            write!(f, "]")
+        },
+    }
 }
 
 impl Display for ValWrapDisplay<'_> {
@@ -299,16 +329,16 @@ impl Display for ValWrapDisplay<'_> {
             Val::Float(fl) => write!(f, "{}", fl),
             Val::Bool(b) => write!(f, "{}", b),
             Val::String(s) => write!(f, "{}", s.get_str(&self.rustaml_context.str_interner)),
-            Val::List(_l) => todo!(), // TODO : pretty print lists
+            Val::List(l) => display_list(*l, &self.rustaml_context, f), // TODO : pretty print lists
             Val::Unit => Ok(()),
         }
     }
 }
 
 impl Val {
-    pub fn display<'a>(&self, rustaml_context: &'a RustamlContext) -> ValWrapDisplay<'a> {
+    pub fn display<'a>(&'a self, rustaml_context: &'a RustamlContext) -> ValWrapDisplay<'a> {
         ValWrapDisplay { 
-            val: self.clone(), 
+            val: self, 
             rustaml_context  
         }
     }
