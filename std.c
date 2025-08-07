@@ -413,7 +413,7 @@ static void int_to_string_impl(char* buf, int64_t integer, int digit_number){
     // could also do floor(log10(d)) in a function but would use more CPU
 
 // TODO : implement ryu or grisu implementation (or both with grisu with ryu as fallback ?)
-static int double_to_string_impl(char* buf, double d, int max_char_nb){
+static size_t double_to_string_impl(char* buf, double d, int max_char_nb){
     if (d != d){
         // NAN
         buf[0] = 'n';
@@ -437,7 +437,7 @@ static int double_to_string_impl(char* buf, double d, int max_char_nb){
         return 4;
     }
 
-    int pos = 0;
+    size_t pos = 0;
 
     if (d < 0){
         buf[pos] = '-';
@@ -465,11 +465,67 @@ static int double_to_string_impl(char* buf, double d, int max_char_nb){
             frac_part -= digit;
         }
     }
-
-    
-
     return pos;
 }
+
+static void list_format(char** buf, struct ListNode* list, size_t* current_len, size_t* current_capacity);
+static void ensure_size_string(char** s, size_t* current_capacity, size_t size);
+
+// TODO : deduplicate this code with the normal format
+static void list_node_format(char** buf, uint8_t tag, Val val, size_t* current_len, size_t* current_capacity){
+    if (tag == INT_TYPE) {
+        int64_t i = INTO_TYPE(int64_t, val);
+        int digit_number = digit_nb(i);
+        size_t buf_size = (i < 0) ? digit_number + 1 : digit_number;
+        ensure_size_string(buf, current_capacity, *current_len + buf_size);
+        int_to_string_impl(*buf + *current_len, i, digit_number);
+        *current_len += buf_size;
+    } else if (tag == FLOAT_TYPE){
+        double d = INTO_TYPE(double, val);
+        ensure_size_string(buf, current_capacity, *current_len + MAX_DIGIT_POSSIBLE_DOUBLE);
+        *current_len += double_to_string_impl(*buf + *current_len, d, MAX_DIGIT_POSSIBLE_DOUBLE);
+    } else if (tag == BOOL_TYPE){
+        bool b = INTO_TYPE(bool, val);
+        const char* bool_str = __bool_to_str(b);
+        size_t bool_str_len = strlen(bool_str);
+        ensure_size_string(buf, current_capacity, *current_len + bool_str_len);
+        memcpy(*buf, bool_str, bool_str_len);
+        *current_len += bool_str_len;
+    } else if (tag == STR_TYPE){
+        char* s = INTO_TYPE(char*, val);
+        size_t len_s = strlen(s);
+        ensure_size_string(buf, current_capacity, *current_len + len_s);
+        memcpy(*buf, s, len_s);
+        *current_len += len_s;
+    } else if (tag == LIST_TYPE){
+        list_format(buf, INTO_TYPE(struct ListNode*, val), current_len, current_capacity);
+    } else {
+        fprintf(stderr, "ERROR : WRONG TAGS IN LIST IN FORMAT (%d) (BUG IN COMPILER  \?\?)\n", tag);
+        exit(1);
+    }
+}
+
+static void list_format(char** buf, struct ListNode* list, size_t* current_len, size_t* current_capacity){
+    bool first = true;
+    (*buf)[*current_len] = '[';
+    (*current_len)++;
+    
+    while (list != NULL){
+        if (!first){
+            (*buf)[*current_len] = ',';
+            (*current_len)++;
+            (*buf)[*current_len] = ' ';
+            (*current_len)++;
+        } 
+        list_node_format(buf, list->type_tag, list->val, current_len, current_capacity);
+        list = list->next;
+        first = false;
+    }
+
+    (*buf)[*current_len] = ']';
+    (*current_len)++;
+}
+
 
 static void ensure_size_string(char** s, size_t* current_capacity, size_t size){
     if (size >= *current_capacity){
@@ -479,15 +535,16 @@ static void ensure_size_string(char** s, size_t* current_capacity, size_t size){
 }
 
 static char* vformat_string(char* format, va_list va){
-    // TODO
-    char* str = MALLOC(sizeof(char) * 5);
-    size_t current_capacity = 3;
+    size_t current_capacity = 5;
     size_t current_len = 0;
+    char* str = MALLOC(sizeof(char) * current_capacity);
     int digit_number;
     size_t buf_size;
     int64_t i;
     double d;
-    char double_output[50];
+    char* s;
+    struct ListNode* l;
+    size_t written_amount;
     while (*format != '\0'){
         switch (*format) {
             case '%':
@@ -506,8 +563,19 @@ static char* vformat_string(char* format, va_list va){
                         // TODO : create custom function for this
                         buf_size = MAX_DIGIT_POSSIBLE_DOUBLE;
                         ensure_size_string(&str, &current_capacity, current_len + buf_size);
-                        int written_amount = double_to_string_impl(str + current_len, d, buf_size);
+                        written_amount = double_to_string_impl(str + current_len, d, buf_size);
                         current_len += written_amount;
+                        break;
+                    case 's':
+                        s = va_arg(va, char*);
+                        size_t str_len = strlen(s);
+                        ensure_size_string(&str, &current_capacity, current_len + str_len);
+                        memcpy(str + current_len, s, str_len);
+                        current_len += str_len;
+                        break;
+                    case 'l':
+                        l = va_arg(va, struct ListNode*);
+                        list_format(&str, l, &current_len, &current_capacity);
                         break;
                     default:
                         fprintf(stderr, "ERROR : Unknown format\n");

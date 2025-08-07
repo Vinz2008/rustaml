@@ -1,3 +1,4 @@
+use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, ExitCode, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{append_bb_just_after, codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current}, debug_println, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
@@ -300,6 +301,8 @@ fn get_format_string_format(format_str : &str, arg_types : Vec<Type>) -> String 
                         let arg_format_str = match arg_type {
                             Type::Integer => "%d",
                             Type::Float => "%f",
+                            Type::Str => "%s",
+                            Type::List(_) => "%l",
                             _ => panic!("Can't format type {:?}", arg_type),
                         };
                         format_string_ret.push_str(arg_format_str);
@@ -805,7 +808,7 @@ fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : O
 // TODO : instead install file in filesystem ?
 const STD_C_CONTENT: &str = include_str!("../std.c");
 
-fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : OptimizationLevel, enable_gc : bool){
+fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : OptimizationLevel, disable_gc : bool, enable_sanitizer : bool){
     // use cc ?
     // TODO : use lld (https://github.com/mun-lang/lld-rs) for linking instead ?
     // TODO : use libclang ? (clang-rs ? https://github.com/llvm/llvm-project/blob/main/clang/tools/driver/cc1_main.cpp#L85 ?)
@@ -818,14 +821,15 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
     let mut clang_std = Command::new("clang");
     clang_std.arg("-x").arg("c").arg("-emit-llvm").arg("-O3").arg("-c");
 
-    if enable_gc {
+    if !disable_gc {
         clang_std.arg("-D_GC_");
     }
-    
     
     let mut clang_std = clang_std.arg("-").arg("-o").arg(out_std_path_str).stdin(Stdio::piped()).spawn().expect("compiling std failed");
     clang_std.stdin.as_mut().unwrap().write_all(STD_C_CONTENT.as_bytes()).unwrap();
     clang_std.wait().unwrap();
+
+    
 
     let mut link_cmd = Command::new("clang");
 
@@ -833,8 +837,12 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
         link_cmd.arg("-flto");
     }
 
-    if enable_gc {
+    if !disable_gc {
         link_cmd.arg("-lgc");
+    }
+
+    if enable_sanitizer {
+        link_cmd.arg("-fsanitize=address");
     }
 
     if !link_cmd.arg("-lm").arg("-o").arg(filename_out).arg(out_std_path_str).arg(bitcode_file).spawn().expect("linker failed").wait().unwrap().success() {
@@ -843,7 +851,7 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
 }
 
-pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool, enable_gc : bool) {
+pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool) {
     let context = Context::create();
     let builder = context.create_builder();
 
@@ -956,7 +964,7 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
 
 
     if let Some(f_out) = filename_out {
-        link_exe(f_out,  &temp_path_bitcode, optimization_level, enable_gc);
+        link_exe(f_out,  &temp_path_bitcode, optimization_level, disable_gc, enable_sanitizer);
         if !keep_temp {
             std::fs::remove_file(temp_path_bitcode).expect("Couldn't delete bitcode file");
         }

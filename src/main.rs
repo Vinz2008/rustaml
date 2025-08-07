@@ -83,8 +83,11 @@ enum Commands {
         optimization_level : Option<u8>,
 
         // TODO : make this work 
-        #[arg(long, default_value_t = true)]
-        enable_gc : bool,
+        #[arg(long, default_value_t = false)]
+        disable_gc : bool,
+
+        #[arg(long, default_value_t = false)]
+        enable_sanitizer : bool,
 
         // TODO : add a flag to build statically libgc
 
@@ -116,7 +119,7 @@ struct Args {
 }
 
 #[cfg(not(feature = "native"))]
-pub fn compile(_ast : ASTRef, _vars: FxHashMap<StringRef, Type>, _rustaml_context: &RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool, _enable_gc : bool) {
+pub fn compile(_ast : ASTRef, _vars: FxHashMap<StringRef, Type>, _rustaml_context: &RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer: bool) {
     panic!("the compiler feature was not enabled");
 }
 
@@ -135,7 +138,7 @@ fn main() -> ExitCode {
 
     let (dump_inference, debug_print) = match args.command {
         Some(Commands::Check { filename: _, dump_inference, debug_print }) => (dump_inference, debug_print),
-        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, enable_gc: _, debug_print }) => {
+        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, disable_gc: _, enable_sanitizer: _, debug_print }) => {
             (false, debug_print)
         },
         Some(Commands::Interpret { filename: _, debug_print }) => {
@@ -159,7 +162,7 @@ fn main() -> ExitCode {
 
             interpreter::interpret(ast, &mut rustaml_context);
         }
-        Commands::Compile { filename, filename_out, keep_temp, optimization_level, enable_gc, debug_print: _ } => {
+        Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _ } => {
             let ast_and_vars = get_ast(&filename, &mut rustaml_context);
             let (ast, vars) = match ast_and_vars {
                 Ok(a_v) => a_v,
@@ -168,7 +171,7 @@ fn main() -> ExitCode {
 
             debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&vars, &rustaml_context));
 
-            compile(ast, vars, &mut rustaml_context, &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, enable_gc);
+            compile(ast, vars, &mut rustaml_context, &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, disable_gc, enable_sanitizer);
         },
 
         Commands::Check { filename, dump_inference, debug_print: _ } => {
