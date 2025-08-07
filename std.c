@@ -60,6 +60,8 @@ typedef uint64_t Val;
         _dst; \
     }) \
 
+
+// TODO : optimize by putting the type_tag in a List struct which will have the tag and just the head of the list (so the tag is only stored one time -> 24 to 16 bytes for each node)
 struct ListNode {
     uint8_t type_tag;
     Val val; // can be a i64, a ptr or a f64 depending on type_tag
