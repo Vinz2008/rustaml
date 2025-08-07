@@ -5,7 +5,7 @@
 #include <string.h>
 #include <assert.h>
 #include <time.h>
-#include <unwind.h>
+#include <stdarg.h>
 
 #if defined(__unix__) || defined(__unix) || \
         (defined(__APPLE__) && defined(__MACH__))
@@ -27,6 +27,7 @@
 #ifdef _GC_
 #include <gc.h>
 #define MALLOC(size) GC_malloc(size)
+#define REALLOC(ptr, new_size) GC_realloc(ptr, new_size)
 #define FREE(ptr) GC_free(ptr)
 
 void __gc_init(){
@@ -36,6 +37,7 @@ void __gc_init(){
 #else
 #define MALLOC(size) malloc(size)
 #define FREE(ptr) free(ptr)
+#define REALLOC(ptr, new_size) realloc(ptr, new_size)
 #endif
 
 enum TypeTag {
@@ -351,6 +353,104 @@ void __list_print(struct ListNode* list){
     list_print_no_new_line(list);
     printf("\n");
 }
+
+static void str_append_with_realloc(char** s, size_t* current_len, size_t* current_capacity, char c){
+    if (*current_len + 1 >= *current_capacity){
+        *current_capacity = *current_capacity * 1.5;
+        *s = REALLOC(*s, *current_capacity);
+    }
+    //printf("current_len : %d, current_capacity : %d\n", *current_len, *current_capacity);
+    (*s)[*current_len] = c;
+    *current_len += 1;
+}
+
+// TODO : optimize this
+static int digit_nb(int64_t i){
+    if (i < 0){
+        i = -i;
+    }
+
+    if (i < 10){
+        return 1;
+    }
+    return 1 + digit_nb(i/10);
+}
+
+// TODO : optimize this
+static void int_to_string_impl(char* buf, int64_t integer, int digit_number){
+    for (int i = 0; i < digit_number; i++){
+        int digit = integer % 10;
+        buf[digit_number - i - 1] = digit + '0';
+        integer = integer/10;
+    }
+}
+
+
+static void ensure_size_string(char** s, size_t* current_capacity, size_t size){
+    if (size >= *current_capacity){
+        *current_capacity = size * 1.5; // do I need this factor here (TODO ?)
+        *s = REALLOC(*s, *current_capacity);
+    }
+}
+
+static char* vformat_string(char* format, va_list va){
+    // TODO
+    char* str = MALLOC(sizeof(char) * 5);
+    size_t current_capacity = 3;
+    size_t current_len = 0;
+    int digit_number;
+    int64_t i;
+    double d;
+    char double_output[50];
+    while (*format != '\0'){
+        switch (*format) {
+            case '%':
+                format++;
+                switch (*format){
+                    case 'd':
+                        i = va_arg(va, int64_t);
+                        digit_number = digit_nb(i);
+                        ensure_size_string(&str, &current_capacity, current_len + digit_number);
+                        int_to_string_impl(str + current_len, i, digit_number);
+                        current_len += digit_number;
+                        break;
+                    case 'f':
+                        d = va_arg(va, double);
+                        // TODO : create custom function for this
+                        digit_number = snprintf(double_output, 50, "%f", d);
+                        ensure_size_string(&str, &current_capacity, current_len + digit_number);
+                        memcpy(str + current_len, double_output, digit_number);
+                        current_len += digit_number;
+                        break;
+                    default:
+                        fprintf(stderr, "ERROR : Unknown format\n");
+                        exit(1);
+                }
+                break;
+            default:
+                str_append_with_realloc(&str, &current_len, &current_capacity, *format);
+                break;
+        }
+        format++;
+    }
+    ensure_size_string(&str, &current_capacity, current_len + 1);
+    str[current_len] = '\0';
+    return str;
+}
+
+char* __format_string(char* format, ...){
+    va_list va;
+    va_start(va, format);
+    char* s = vformat_string(format, va);
+    va_end(va);
+    return s;
+}
+
+/*int main(){
+    char* s = __format_string("test before %d test after", 123);
+    puts(s);
+    FREE(s);
+}*/
 
 
 // TODO : maybe add function to print values with the type tag

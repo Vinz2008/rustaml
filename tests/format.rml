@@ -1,1 +1,4 @@
-let a = format "{}" 1 ;;
+let a = format "format an int : {}" 123 ;;
+let _ = print a ;;
+let b = format "format a float : {}" 3.667765 ;;
+let _ = print b ;;

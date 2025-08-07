@@ -94,6 +94,13 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             ..Default::default()
         },
         BuiltinFunction {
+            name: "__format_string",
+            is_variadic: true,
+            args: vec![ptr_type],
+            ret: Some(ptr_type_ret),
+            ..Default::default()
+        },
+        BuiltinFunction {
             name: "fprintf",
             is_variadic: true,
             args: vec![ptr_type, ptr_type],
@@ -271,6 +278,61 @@ fn compile_rand<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
     compile_context.builder.build_call(rand_fun, &vec![], "rand_internal_call").unwrap().as_any_value_enum()
 }
 
+fn get_format_string_format(format_str : &str, arg_types : Vec<Type>) -> String {
+    let mut format_string_ret = "".to_string();
+    format_string_ret.reserve(format_str.len());
+    let format_str_chars = format_str.chars().collect::<Vec<_>>();
+    let mut arg_idx = 0;
+    let mut i = 0;
+    while i < format_str.len() {
+        let c = format_str_chars[i];
+        match c {
+            '{' => {
+                i += 1;
+                let c = format_str_chars[i];
+                match c {
+                    '}' => {
+                        let arg_type = arg_types.get(arg_idx);
+                        let arg_type = match arg_type {
+                            Some(a) => a,
+                            None => panic!("ERROR: missing {{}} for the arg number {}", arg_idx),
+                        };
+                        let arg_format_str = match arg_type {
+                            Type::Integer => "%d",
+                            Type::Float => "%f",
+                            _ => panic!("Can't format type {:?}", arg_type),
+                        };
+                        format_string_ret.push_str(arg_format_str);
+
+                        arg_idx += 1;
+                    },
+                    '{' => format_string_ret.push_str("{{"),
+                    _ => panic!("ERROR : wrong char in format string : {}", c),
+                }
+            },
+            _ => format_string_ret.push(c),
+        }
+        i += 1;
+    }
+
+    if arg_idx != arg_types.len() {
+        panic!("mismatched number of {{}} and args in format ({{}} : {}, args : {})", i, arg_types.len());
+    }
+
+    //println!("REAL FORMAT STRING : {}", &format_string_ret);
+    format_string_ret
+}
+
+fn compile_format<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, format_str : StringRef, mut args_val : Vec<AnyValueEnum<'llvm_ctx>>, arg_types : Vec<Type>) -> AnyValueEnum<'llvm_ctx>{
+    let format_fun = compile_context.get_internal_function("__format_string");
+    let format_str = format_str.get_str(&compile_context.rustaml_context.str_interner);
+    let format_str = get_format_string_format(format_str, arg_types);
+    let mut args= vec![create_string(compile_context.builder, &format_str).into()];
+    args.append(&mut args_val);
+    let args = args.into_iter().map(|e| e.try_into().unwrap()).collect::<Vec<_>>();
+    compile_context.builder.build_call(format_fun, &args, "format_string_internal_call").unwrap().as_any_value_enum()
+}
+
 fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, args: &[ASTRef]) -> AnyValueEnum<'llvm_ctx>{
     match name.get_str(&compile_context.rustaml_context.str_interner) {
         "print" => {
@@ -281,6 +343,17 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
         "rand" => {
             return compile_rand(compile_context);
         },
+        "format" => {
+            let (format_ast, args_ast) = args.split_first().unwrap();
+            let format_str = match format_ast.get(&compile_context.rustaml_context.ast_pool) {
+                ASTNode::String { str } => *str,
+                _ => unreachable!(),
+            };
+            let args_types = args_ast.iter().map(|&a| a.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap()).collect::<Vec<_>>();
+            let args_val = args_ast.iter().map(|&a| compile_expr(compile_context, a)).collect::<Vec<_>>();
+            
+            return compile_format(compile_context, format_str, args_val, args_types);
+        }
         _ => {}
     }
     

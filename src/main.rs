@@ -82,6 +82,7 @@ enum Commands {
         #[arg(short = 'O', value_parser = clap::value_parser!(u8).range(0..=3), num_args(0..=1))]
         optimization_level : Option<u8>,
 
+        // TODO : make this work 
         #[arg(long, default_value_t = true)]
         enable_gc : bool,
 

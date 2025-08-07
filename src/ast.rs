@@ -883,8 +883,9 @@ fn init_std_functions(rustaml_context : &mut RustamlContext) -> FxHashMap<String
     let mut i = |s| rustaml_context.str_interner.intern_compiler(s);
     FxHashMap::from_iter([
         (i("print"), Type::Function(vec![Type::Any], Box::new(Type::Unit), false)),
-        (i("rand"), Type::Function(vec![Type::Unit], Box::new(Type::Integer), false))
+        (i("rand"), Type::Function(vec![Type::Unit], Box::new(Type::Integer), false)),
         // TODO : add a rand_f ? or make the rand function generic with its return ?
+        (i("format"), Type::Function(vec![Type::Str], Box::new(Type::Str), true)),
     ])
 }
 
