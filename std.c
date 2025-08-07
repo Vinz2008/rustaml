@@ -507,9 +507,6 @@ static char* vformat_string(char* format, va_list va){
                         buf_size = MAX_DIGIT_POSSIBLE_DOUBLE;
                         ensure_size_string(&str, &current_capacity, current_len + buf_size);
                         int written_amount = double_to_string_impl(str + current_len, d, buf_size);
-                        /*digit_number = snprintf(double_output, 50, "%f", d);
-                        ensure_size_string(&str, &current_capacity, current_len + digit_number);
-                        memcpy(str + current_len, double_output, digit_number);*/
                         current_len += written_amount;
                         break;
                     default:
