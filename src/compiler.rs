@@ -837,7 +837,7 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
         link_cmd.arg("-lgc");
     }
 
-    if !link_cmd.arg("-o").arg(filename_out).arg(out_std_path_str).arg(bitcode_file).spawn().expect("linker failed").wait().unwrap().success() {
+    if !link_cmd.arg("-lm").arg("-o").arg(filename_out).arg(out_std_path_str).arg(bitcode_file).spawn().expect("linker failed").wait().unwrap().success() {
         return;
     }
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");

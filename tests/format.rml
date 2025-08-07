@@ -1,4 +1,8 @@
 let a = format "format an int : {}" 123 ;;
 let _ = print a ;;
-let b = format "format a float : {}" 3.667765 ;;
+let a2 = format "format a negative int : {}" (0-789) ;;
+let _ = print a2 ;;
+let b = format "format a float : {}" 33.667765 ;;
 let _ = print b ;;
+let b2 = format "format a float with no dec part : {}" 67.0 ;;
+let _ = print b2 ;;

@@ -6,6 +6,7 @@
 #include <assert.h>
 #include <time.h>
 #include <stdarg.h>
+#include <math.h>
 
 #if defined(__unix__) || defined(__unix) || \
         (defined(__APPLE__) && defined(__MACH__))
@@ -364,27 +365,111 @@ static void str_append_with_realloc(char** s, size_t* current_len, size_t* curre
     *current_len += 1;
 }
 
-// TODO : optimize this
-static int digit_nb(int64_t i){
+static uint64_t absolute(int64_t i){
+    uint64_t u = (uint64_t)i;
     if (i < 0){
-        i = -i;
+        return ~u + 1; // equivalent to doing  ((uint64_t)(i + 1)) + 1 to hande INT_MIN where the - would do an overflow
+    } else {
+        return u;
     }
+}
 
-    if (i < 10){
+static int digit_nb_unsigned(uint64_t u){
+    if (u == 0){
         return 1;
     }
-    return 1 + digit_nb(i/10);
+    int d_nb = (int)log10((double)u);
+    if (d_nb < 0) d_nb = 0; // clamp value to help LLVM optimizations (wrong range from LLVM in not inlined function) 
+    return d_nb + 1;
+}
+
+// TODO : optimize this
+static int digit_nb(int64_t i){
+    uint64_t u = absolute(i);
+    return digit_nb_unsigned(u);
 }
 
 // TODO : optimize this
 static void int_to_string_impl(char* buf, int64_t integer, int digit_number){
+    int start = 0;
+    if (integer < 0){
+        buf[0] = '-';
+        start = 1;
+    }
+    uint64_t u = absolute(integer);
     for (int i = 0; i < digit_number; i++){
-        int digit = integer % 10;
-        buf[digit_number - i - 1] = digit + '0';
-        integer = integer/10;
+        int digit = u % 10;
+        buf[start + digit_number - i - 1] = digit + '0';
+        u = u/10;
     }
 }
 
+/*static int max_double_digit_nb(){
+    return 32; // 24 would be safe, but use 32 because it will be cheaper on bdwgc
+    // could also do floor(log10(d)) but would use more CPU
+}*/
+
+#define MAX_DIGIT_POSSIBLE_DOUBLE 32 // 24 would be safe, but use 32 because it will be cheaper on bdwgc
+    // could also do floor(log10(d)) in a function but would use more CPU
+
+// TODO : implement ryu or grisu implementation (or both with grisu with ryu as fallback ?)
+static int double_to_string_impl(char* buf, double d, int max_char_nb){
+    if (d != d){
+        // NAN
+        buf[0] = 'n';
+        buf[1] = 'a';
+        buf[2] = 'n';
+        return 3;
+    }
+
+    if (d == INFINITY){
+        buf[0] = 'i';
+        buf[1] = 'n';
+        buf[2] = 'f';
+        return 3;
+    }
+
+    if (d == -INFINITY){
+        buf[0] = '-';
+        buf[1] = 'i';
+        buf[2] = 'n';
+        buf[3] = 'f';
+        return 4;
+    }
+
+    int pos = 0;
+
+    if (d < 0){
+        buf[pos] = '-';
+        pos++;
+        d = -d;
+    }
+
+
+    uint64_t int_part = (uint64_t)d;
+    int int_part_digit_nb = digit_nb_unsigned(int_part);
+    double frac_part = d - (double)int_part;
+
+    int_to_string_impl(buf + pos, (int64_t)int_part, int_part_digit_nb);
+    pos += int_part_digit_nb;
+
+    if (frac_part > 0.0){
+        buf[pos] = '.';
+        pos++;
+
+        while (pos < max_char_nb) {
+            frac_part *= 10;
+            int digit = (int)frac_part;
+            buf[pos] = '0' + digit;
+            pos++;
+            frac_part -= digit;
+        }
+    }
+
+    
+
+    return pos;
+}
 
 static void ensure_size_string(char** s, size_t* current_capacity, size_t size){
     if (size >= *current_capacity){
@@ -399,6 +484,7 @@ static char* vformat_string(char* format, va_list va){
     size_t current_capacity = 3;
     size_t current_len = 0;
     int digit_number;
+    size_t buf_size;
     int64_t i;
     double d;
     char double_output[50];
@@ -410,17 +496,21 @@ static char* vformat_string(char* format, va_list va){
                     case 'd':
                         i = va_arg(va, int64_t);
                         digit_number = digit_nb(i);
-                        ensure_size_string(&str, &current_capacity, current_len + digit_number);
+                        buf_size = (i < 0) ? digit_number + 1 : digit_number;
+                        ensure_size_string(&str, &current_capacity, current_len + buf_size);
                         int_to_string_impl(str + current_len, i, digit_number);
-                        current_len += digit_number;
+                        current_len += buf_size;
                         break;
                     case 'f':
                         d = va_arg(va, double);
                         // TODO : create custom function for this
-                        digit_number = snprintf(double_output, 50, "%f", d);
+                        buf_size = MAX_DIGIT_POSSIBLE_DOUBLE;
+                        ensure_size_string(&str, &current_capacity, current_len + buf_size);
+                        int written_amount = double_to_string_impl(str + current_len, d, buf_size);
+                        /*digit_number = snprintf(double_output, 50, "%f", d);
                         ensure_size_string(&str, &current_capacity, current_len + digit_number);
-                        memcpy(str + current_len, double_output, digit_number);
-                        current_len += digit_number;
+                        memcpy(str + current_len, double_output, digit_number);*/
+                        current_len += written_amount;
                         break;
                     default:
                         fprintf(stderr, "ERROR : Unknown format\n");
@@ -451,6 +541,8 @@ char* __format_string(char* format, ...){
     puts(s);
     FREE(s);
 }*/
+
+
 
 
 // TODO : maybe add function to print values with the type tag
