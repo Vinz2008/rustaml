@@ -15,3 +15,8 @@ let _ = print c ;;
 let l = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] ;;
 let d = format "format a list : {}" l ;;
 let _ = print d ;; 
+
+let f_bool a : int -> bool = a < 6 ;; 
+
+let e = format "format a bool : {}" (f_bool rand ()) ;;
+let _ = print e ;;

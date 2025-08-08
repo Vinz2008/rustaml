@@ -50,6 +50,7 @@
         "unordered_set": "c",
         "vector": "c",
         "gc.h": "c",
-        "charconv": "c"
+        "charconv": "c",
+        "__bit_reference": "c"
     }
 }

@@ -1,4 +1,4 @@
-use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{AnyValueEnum, BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace};
+use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace};
 
 use crate::{ast::Type, compiler::CompileContext, string_intern::StringRef};
 
@@ -156,4 +156,11 @@ pub fn load_list_tail<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
     let list_type = get_list_type(compile_context.context);
     let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 2, "load_list_tail_gep").unwrap();
     compile_context.builder.build_load(compile_context.context.ptr_type(AddressSpace::default()), gep_ptr, "load_tail_gep").unwrap().into_pointer_value()
+}
+
+pub fn promote_val_var_arg<'llvm_ctx>(compile_context: &CompileContext<'_, '_, 'llvm_ctx>, val_type : Type, val : AnyValueEnum<'llvm_ctx>) -> AnyValueEnum<'llvm_ctx>{
+    match val_type {
+        Type::Bool => compile_context.builder.build_int_z_extend(val.into_int_value(), compile_context.context.i32_type(), "zext_va_arg").unwrap().as_any_value_enum(),
+        _ => val,
+    }
 }

@@ -451,8 +451,14 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
         let mut args = arg_names.into_iter().zip(arg_types.clone()).map(|x| Arg { name: parser.rustaml_context.str_interner.intern_compiler(&x.0), arg_type: x.1 }).collect::<Vec<Arg>>();
 
+
+        let mut old_arg_types = Vec::new();
+
         for Arg { name, arg_type} in &args {
-            parser.vars.insert(*name, arg_type.clone());
+            let old_type = parser.vars.insert(*name, arg_type.clone());
+            if let Some(t) = old_type {
+                old_arg_types.push((*name, t));
+            }
         }
 
         let equal_tok = parser.eat_tok(Some(TokenDataTag::Op));
@@ -479,6 +485,10 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
         for Arg {name, arg_type: _} in &args {
             parser.vars.remove(name);
+        }
+
+        for (name, t) in old_arg_types {
+            parser.vars.insert(name, t);
         }
 
 

@@ -68,6 +68,8 @@ struct ListNode {
     struct ListNode* next; // if empty null 
 };
 
+// TODO : add a (weak ?) memcpy for freestanding ?
+
 uint8_t __str_cmp(const char* s1, const char* s2){
     while (*s1 != '\0' && *s1 == *s2){
         s1++;
@@ -357,14 +359,20 @@ void __list_print(struct ListNode* list){
     printf("\n");
 }
 
-static void str_append_with_realloc(char** s, size_t* current_len, size_t* current_capacity, char c){
-    if (*current_len + 1 >= *current_capacity){
-        *current_capacity = *current_capacity * 1.5;
-        *s = REALLOC(*s, *current_capacity);
+struct str {
+    char* buf;
+    size_t capacity;
+    size_t len;
+};
+
+static void str_append_with_realloc(struct str* str, char c){
+    if (str->len + 1 >= str->capacity){
+        str->capacity = str->capacity * 1.5;
+        str->buf = REALLOC(str->buf, str->capacity);
     }
-    //printf("current_len : %d, current_capacity : %d\n", *current_len, *current_capacity);
-    (*s)[*current_len] = c;
-    *current_len += 1;
+    //printf("current_len : %d, current_capacity : %d\n", str->len, str->capacity);
+    str->buf[str->len] = c;
+    str->len += 1;
 }
 
 static uint64_t absolute(int64_t i){
@@ -470,114 +478,114 @@ static size_t double_to_string_impl(char* buf, double d, int max_char_nb){
     return pos;
 }
 
-static void list_format(char** buf, struct ListNode* list, size_t* current_len, size_t* current_capacity);
-static void ensure_size_string(char** s, size_t* current_capacity, size_t size);
+static void list_format(struct str* str, struct ListNode* list);
+static void ensure_size_string(struct str* s, size_t size);
+
+static void format_int(struct str* str, int64_t i){
+    int digit_number = digit_nb(i);
+    size_t buf_size = (i < 0) ? digit_number + 1 : digit_number;
+    ensure_size_string(str, str->len + buf_size);
+    int_to_string_impl(str->buf + str->len, i, digit_number);
+    str->len += buf_size;
+}
+
+static void format_float(struct str* str, double d){
+    ensure_size_string(str, str->len + MAX_DIGIT_POSSIBLE_DOUBLE);
+    str->len += double_to_string_impl(str->buf + str->len, d, MAX_DIGIT_POSSIBLE_DOUBLE);
+}
+
+static void format_bool(struct str* str, bool b){
+    const char* bool_str = __bool_to_str(b);
+    size_t bool_str_len = strlen(bool_str);
+    ensure_size_string(str, str->len + bool_str_len);
+    memcpy(str->buf + str->len, bool_str, bool_str_len);
+    str->len += bool_str_len;
+}
+
+static void format_str(struct str* str, char* s){
+    size_t len_s = strlen(s);
+    ensure_size_string(str, str->len + len_s);
+    memcpy(str->buf + str->len, s, len_s);
+    str->len += len_s;
+}
 
 // TODO : deduplicate this code with the normal format
-static void list_node_format(char** buf, uint8_t tag, Val val, size_t* current_len, size_t* current_capacity){
+static void list_node_format(struct str* str, uint8_t tag, Val val){
     if (tag == INT_TYPE) {
-        int64_t i = INTO_TYPE(int64_t, val);
-        int digit_number = digit_nb(i);
-        size_t buf_size = (i < 0) ? digit_number + 1 : digit_number;
-        ensure_size_string(buf, current_capacity, *current_len + buf_size);
-        int_to_string_impl(*buf + *current_len, i, digit_number);
-        *current_len += buf_size;
+        format_int(str, INTO_TYPE(int64_t, val));
     } else if (tag == FLOAT_TYPE){
-        double d = INTO_TYPE(double, val);
-        ensure_size_string(buf, current_capacity, *current_len + MAX_DIGIT_POSSIBLE_DOUBLE);
-        *current_len += double_to_string_impl(*buf + *current_len, d, MAX_DIGIT_POSSIBLE_DOUBLE);
+        format_float(str, INTO_TYPE(double, val));
     } else if (tag == BOOL_TYPE){
-        bool b = INTO_TYPE(bool, val);
-        const char* bool_str = __bool_to_str(b);
-        size_t bool_str_len = strlen(bool_str);
-        ensure_size_string(buf, current_capacity, *current_len + bool_str_len);
-        memcpy(*buf, bool_str, bool_str_len);
-        *current_len += bool_str_len;
+        format_bool(str, INTO_TYPE(bool, val));
     } else if (tag == STR_TYPE){
-        char* s = INTO_TYPE(char*, val);
-        size_t len_s = strlen(s);
-        ensure_size_string(buf, current_capacity, *current_len + len_s);
-        memcpy(*buf, s, len_s);
-        *current_len += len_s;
+        format_str(str, INTO_TYPE(char*, val));
     } else if (tag == LIST_TYPE){
-        list_format(buf, INTO_TYPE(struct ListNode*, val), current_len, current_capacity);
+        list_format(str, INTO_TYPE(struct ListNode*, val));
     } else {
         fprintf(stderr, "ERROR : WRONG TAGS IN LIST IN FORMAT (%d) (BUG IN COMPILER  \?\?)\n", tag);
         exit(1);
     }
 }
 
-static void list_format(char** buf, struct ListNode* list, size_t* current_len, size_t* current_capacity){
+static void list_format(struct str* str, struct ListNode* list){
     bool first = true;
-    (*buf)[*current_len] = '[';
-    (*current_len)++;
+    str->buf[str->len] = '[';
+    str->len++;
     
     while (list != NULL){
         if (!first){
-            (*buf)[*current_len] = ',';
-            (*current_len)++;
-            (*buf)[*current_len] = ' ';
-            (*current_len)++;
+            str->buf[str->len] = ',';
+            str->len++;
+            str->buf[str->len] = ' ';
+            str->len++;
         } 
-        list_node_format(buf, list->type_tag, list->val, current_len, current_capacity);
+        list_node_format(str, list->type_tag, list->val);
         list = list->next;
         first = false;
     }
 
-    (*buf)[*current_len] = ']';
-    (*current_len)++;
+    str->buf[str->len] = ']';
+    str->len++;
 }
 
 
-static void ensure_size_string(char** s, size_t* current_capacity, size_t size){
-    if (size >= *current_capacity){
-        *current_capacity = size * 1.5; // do I need this factor here (TODO ?)
-        *s = REALLOC(*s, *current_capacity);
+static void ensure_size_string(struct str* s, size_t size){
+    if (size >= s->capacity){
+        s->capacity = size * 1.5; // do I need this factor here (TODO ?)
+        s->buf = REALLOC(s->buf, s->capacity);
     }
 }
 
+static struct str str_init(size_t default_capacity) {
+    return (struct str){
+        .buf = MALLOC(sizeof(char) * default_capacity),
+        .capacity = default_capacity,
+        .len = 0,
+    };
+}
+
 static char* vformat_string(char* format, va_list va){
-    size_t current_capacity = 5;
-    size_t current_len = 0;
-    char* str = MALLOC(sizeof(char) * current_capacity);
-    int digit_number;
-    size_t buf_size;
-    int64_t i;
-    double d;
-    char* s;
-    struct ListNode* l;
-    size_t written_amount;
+    struct str str = str_init(5);
+
     while (*format != '\0'){
         switch (*format) {
             case '%':
                 format++;
                 switch (*format){
                     case 'd':
-                        i = va_arg(va, int64_t);
-                        digit_number = digit_nb(i);
-                        buf_size = (i < 0) ? digit_number + 1 : digit_number;
-                        ensure_size_string(&str, &current_capacity, current_len + buf_size);
-                        int_to_string_impl(str + current_len, i, digit_number);
-                        current_len += buf_size;
+                        format_int(&str, va_arg(va, int64_t));
                         break;
                     case 'f':
-                        d = va_arg(va, double);
-                        // TODO : create custom function for this
-                        buf_size = MAX_DIGIT_POSSIBLE_DOUBLE;
-                        ensure_size_string(&str, &current_capacity, current_len + buf_size);
-                        written_amount = double_to_string_impl(str + current_len, d, buf_size);
-                        current_len += written_amount;
+                        format_float(&str, va_arg(va, double));
                         break;
                     case 's':
-                        s = va_arg(va, char*);
-                        size_t str_len = strlen(s);
-                        ensure_size_string(&str, &current_capacity, current_len + str_len);
-                        memcpy(str + current_len, s, str_len);
-                        current_len += str_len;
+                        format_str(&str, va_arg(va, char*));
+                        break;
+                    case 'b':
+                        format_bool(&str, (bool)va_arg(va, int));
                         break;
                     case 'l':
-                        l = va_arg(va, struct ListNode*);
-                        list_format(&str, l, &current_len, &current_capacity);
+                        list_format(&str, va_arg(va, struct ListNode*));
                         break;
                     default:
                         fprintf(stderr, "ERROR : Unknown format\n");
@@ -585,14 +593,14 @@ static char* vformat_string(char* format, va_list va){
                 }
                 break;
             default:
-                str_append_with_realloc(&str, &current_len, &current_capacity, *format);
+                str_append_with_realloc(&str, *format);
                 break;
         }
         format++;
     }
-    ensure_size_string(&str, &current_capacity, current_len + 1);
-    str[current_len] = '\0';
-    return str;
+    ensure_size_string(&str, str.len + 1);
+    str.buf[str.len] = '\0';
+    return str.buf;
 }
 
 char* __format_string(char* format, ...){

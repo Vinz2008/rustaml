@@ -1,8 +1,8 @@
 use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, ExitCode, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{append_bb_just_after, codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current}, debug_println, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
-use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{append_bb_just_after, codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
+use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FloatType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
@@ -84,7 +84,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
         },
         BuiltinFunction {
             name: "__bool_to_str",
-            args: vec![llvm_context.i8_type().into()],
+            args: vec![llvm_context.bool_type().into()],
             ret: Some(ptr_type_ret),
             ..Default::default()
         },
@@ -160,7 +160,7 @@ impl<'context, 'refs, 'llvm_ctx> CompileContext<'context, 'refs, 'llvm_ctx> {
 // TODO : add a print function that returns unit for the compiler
 
 fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : ASTRef, body : Option<ASTRef>, is_global : bool) -> AnyValueEnum<'llvm_ctx> {
-    let is_underscore = name.get_str(&compile_context.rustaml_context.str_interner) != "_";
+    let is_underscore = name.get_str(&compile_context.rustaml_context.str_interner) == "_";
     
     //println!("test vars types : {:#?}", DebugWrapContext::new(&compile_context.var_types, compile_context.rustaml_context));
     
@@ -168,7 +168,7 @@ fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
     // TODO : if is global and the val is const, just generate a global var
     let val = compile_expr(compile_context, val);
 
-    if is_underscore {
+    if !is_underscore {
         let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("No type found for var {}", name.get_str(&compile_context.rustaml_context.str_interner)));
         let alloca_type = get_llvm_type(compile_context.context, var_type);
         create_var(compile_context, name, val, alloca_type);
@@ -269,7 +269,7 @@ fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
         }
         _ => {}
     }
-    let printf_args = vec![format_str.into(), TryInto::<BasicMetadataValueEnum>::try_into(print_val).unwrap()];
+    let printf_args = vec![format_str.into(), print_val];
     compile_context.builder.build_call(printf_fun, &printf_args, "print_internal_call").unwrap();
     get_void_val(compile_context.context)
 }
@@ -279,7 +279,7 @@ fn compile_rand<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
     compile_context.builder.build_call(rand_fun, &vec![], "rand_internal_call").unwrap().as_any_value_enum()
 }
 
-fn get_format_string_format(format_str : &str, arg_types : Vec<Type>) -> String {
+fn get_format_string_format(format_str : &str, arg_types : &[Type]) -> String {
     let mut format_string_ret = "".to_string();
     format_string_ret.reserve(format_str.len());
     let format_str_chars = format_str.chars().collect::<Vec<_>>();
@@ -301,6 +301,7 @@ fn get_format_string_format(format_str : &str, arg_types : Vec<Type>) -> String 
                         let arg_format_str = match arg_type {
                             Type::Integer => "%d",
                             Type::Float => "%f",
+                            Type::Bool => "%b",
                             Type::Str => "%s",
                             Type::List(_) => "%l",
                             _ => panic!("Can't format type {:?}", arg_type),
@@ -326,11 +327,12 @@ fn get_format_string_format(format_str : &str, arg_types : Vec<Type>) -> String 
     format_string_ret
 }
 
-fn compile_format<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, format_str : StringRef, mut args_val : Vec<AnyValueEnum<'llvm_ctx>>, arg_types : Vec<Type>) -> AnyValueEnum<'llvm_ctx>{
+fn compile_format<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, format_str : StringRef, args_val : Vec<AnyValueEnum<'llvm_ctx>>, arg_types : Vec<Type>) -> AnyValueEnum<'llvm_ctx>{
     let format_fun = compile_context.get_internal_function("__format_string");
     let format_str = format_str.get_str(&compile_context.rustaml_context.str_interner);
-    let format_str = get_format_string_format(format_str, arg_types);
+    let format_str = get_format_string_format(format_str, arg_types.as_slice());
     let mut args= vec![create_string(compile_context.builder, &format_str).into()];
+    let mut args_val = args_val.into_iter().zip(arg_types).map(|(e, t)| promote_val_var_arg(compile_context, t, e)).collect::<Vec<_>>();
     args.append(&mut args_val);
     let args = args.into_iter().map(|e| e.try_into().unwrap()).collect::<Vec<_>>();
     compile_context.builder.build_call(format_fun, &args, "format_string_internal_call").unwrap().as_any_value_enum()
