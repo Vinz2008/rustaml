@@ -386,7 +386,7 @@ fn compile_binop_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
                 _ => unreachable!(),
             }
         }
-        _ => panic!("Invalid type for integer op {:?}", op),
+        _ => panic!("Invalid type for integer op {:?} (lhs : {:?}, rhs : {:?})", op, lhs_val, rhs_val),
     }
     
 }
@@ -525,6 +525,13 @@ fn create_list_append_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '
     compile_context.builder.build_call(function, args, "list_append").unwrap().as_any_value_enum().into_pointer_value()
 }
 
+fn to_std_c_val<'llvm_ctx>(compile_context: &CompileContext<'_, '_, 'llvm_ctx>, val: AnyValueEnum<'llvm_ctx>, val_type : &Type) -> AnyValueEnum<'llvm_ctx> {
+    match val_type {
+        Type::Float | Type::Bool | Type::List(_) | Type::Str | Type::Never => compile_context.builder.build_bit_cast(TryInto::<BasicValueEnum>::try_into(val).unwrap(), compile_context.context.i64_type(), "bitcast_to_uint64_t").unwrap().as_any_value_enum(),
+        _ => val,  
+    }
+}
+
 fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : &[ASTRef]) -> AnyValueEnum<'llvm_ctx> {
     let mut current_node = compile_context.context.ptr_type(AddressSpace::default()).const_null();
     
@@ -544,8 +551,10 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
 
     let type_tag_val = get_type_tag_val(compile_context.context, &list_element_type);
 
+
     for &e in list {
         let val = compile_expr(compile_context, e);
+        let val = to_std_c_val(compile_context, val, &list_element_type);
         let node_val = create_list_append_call(compile_context, current_node, type_tag_val, val);
 
         current_node = node_val;

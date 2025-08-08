@@ -68,6 +68,7 @@ impl DebugWithContext<RustamlContext> for ASTRef {
 }
 
 
+// TODO : add a range for astNodes to simplify error messages later
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 pub enum ASTNode {
@@ -270,6 +271,11 @@ pub enum ParserErrData {
         expected_type: Type,
         got_type: Type,
     },
+    MismatchedBinOpType {
+        op : String,
+        expected_type: Type,
+        got_type: Type,
+    }
 }
 
 
@@ -817,8 +823,34 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     return node;
 }
 
+fn ensure_type_is_binop(op : Operator, t : Type, is_type : Type, range : Range<usize>) -> Result<(), ParserErr>{
+    if t == is_type {
+        Ok(())
+    } else {
+        Err(ParserErr::new(ParserErrData::MismatchedBinOpType 
+            { op: format!("{:?}", op), expected_type: is_type, got_type: t }, range))
+    }
+    
+}
+
+// TODO : move this after having created the whole AST to resolve types ?
+fn typecheck_binop(op : Operator, lhs_type : Type, rhs_type : Type, lhs_range : Range<usize>, rhs_range : Range<usize>) -> Result<(), ParserErr>{
+    let op_type = op.get_type();
+    match &op_type {
+        Type::Float | Type::Integer => {
+            ensure_type_is_binop(op, lhs_type, op_type.clone(), lhs_range)?;
+            ensure_type_is_binop(op, rhs_type, op_type, rhs_range)?;
+        },
+        _ => {
+            // TODO : for more complicated like like lists, etc
+        }
+    }
+    Ok(())
+}
+
 fn parse_binary_rec(parser: &mut Parser, lhs: ASTRef, min_precedence: i32) -> Result<ASTRef, ParserErr> {
     let mut lhs = lhs;
+
 
     while parser.has_tokens_left() {
         let current_tok_data = parser.current_tok_data();
@@ -853,6 +885,9 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTRef, min_precedence: i32) -> Re
             rhs = parse_binary_rec(parser, rhs, new_precedence)?;
         }
 
+        let lhs_type = lhs.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)?;
+        let rhs_type = rhs.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)?;
+        //typecheck_binop(operator, lhs_type, rhs_type, 0..0, 0..0)?; // TODO
         lhs = parser.rustaml_context.ast_pool.push(ASTNode::BinaryOp {
             op: operator,
             lhs,

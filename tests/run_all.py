@@ -76,7 +76,7 @@ def test_all_files(is_compiling : bool):
         if extension == ".rml" and file not in excluded_files:
             print(f"{file} ", end='', flush=True)
             summary_filenames.append(file)
-            output_print, error_message, out = test_file(file, False)
+            output_print, error_message, out = test_file(file, is_compiling)
             if is_compiling:
                 summary_compiler.append(output_print)
             else:

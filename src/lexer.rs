@@ -44,7 +44,7 @@ impl Operator {
 
     pub fn get_operand_type(&self, is_left : bool, other_operand_type : &Type) -> Type {
         match self {
-            Self::IsEqual | Self::IsNotEqual => other_operand_type.clone(),
+            Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => other_operand_type.clone(),
             Self::StrAppend => Type::Str,
             Self::ListAppend => if is_left { 
                 Type::Any
@@ -52,7 +52,8 @@ impl Operator {
                 Type::List(Box::new(other_operand_type.clone()))
             },
             Self::Equal => unreachable!(),
-            _ => Type::Integer,
+            Self::PlusFloat | Self::MinusFloat | Self::MultFloat | Self::DivFloat => Type::Float,
+            Self::Plus | Self::Minus | Self::Mult | Self::Div => Type::Integer,
         }
     }
 
