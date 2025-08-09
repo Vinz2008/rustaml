@@ -34,19 +34,37 @@ pub enum Pattern {
     Underscore,
 }
 
-pub struct ASTPool(Vec<ASTNode>);
+pub struct ASTPool(Vec<ASTNode>, pub Vec<Type>);
 
 impl ASTPool {
     pub fn new() -> ASTPool {
-        ASTPool(Vec::new())
+        ASTPool(Vec::new(), Vec::new())
     }
     pub fn get(&self, expr : ASTRef) -> &ASTNode {
         &self.0[expr.0 as usize]
     }
 
+    pub fn get_mut(&mut self, expr : ASTRef) -> &mut ASTNode {
+        &mut self.0[expr.0 as usize]
+    }
+
+    pub fn get_type(&self, expr : ASTRef) -> &Type {
+        &self.1[expr.0 as usize]
+    }
+
+    pub fn set_type(&mut self, expr : ASTRef, t: Type) {
+        self.1[expr.0 as usize] = t;
+    }
+
     pub fn push(&mut self, node : ASTNode) -> ASTRef {
+        self.push_with_type(node, Type::Any)
+    }
+
+    #[inline]
+    pub fn push_with_type(&mut self, node: ASTNode, t : Type) -> ASTRef {
         let idx = self.0.len();
         self.0.push(node);
+        self.1.push(t);
         ASTRef(idx.try_into().expect("too many ast nodes in the pool"))
     }
 }
@@ -58,6 +76,18 @@ pub struct ASTRef(u32);
 impl ASTRef {
     pub fn get(self, ast_pool : &ASTPool) -> &ASTNode {
         ast_pool.get(self)
+    }
+
+    pub fn get_mut(self, ast_pool : &mut ASTPool) -> &mut ASTNode {
+        ast_pool.get_mut(self)
+    }
+
+    pub fn get_type(self, ast_pool : &ASTPool) -> &Type {
+        ast_pool.get_type(self)
+    }
+
+    pub fn set_type(self, ast_pool : &mut ASTPool, t: Type){
+        ast_pool.set_type(self, t);
     }
 }
 
@@ -75,6 +105,7 @@ pub enum ASTNode {
     TopLevel {
         nodes: Vec<ASTRef>,
     },
+    // TODO : replace with just a type with the function type ?
     FunctionDefinition {
         name : StringRef,
         args : Vec<Arg>,
@@ -85,6 +116,7 @@ pub enum ASTNode {
         name: StringRef,
         val: ASTRef,
         body : Option<ASTRef>,
+        var_type : Option<Type>,
     },
     VarUse {
         name : StringRef,
@@ -165,8 +197,15 @@ impl ASTNode {
                 };
                 Type::List(Box::new(elem_type)) 
             },
-            ASTNode::BinaryOp { op, lhs: _, rhs: _ } => op.get_type(),
-            ASTNode::VarDecl { name: _, val: _, body: _ } => Type::Unit, // TODO
+            ASTNode::BinaryOp { op, lhs: _, rhs: _ } => op.get_type(None),
+            ASTNode::VarDecl { name: _, val: _, body, var_type: _ } => {
+                if let Some(b) = body {
+                    b.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?
+                } else {
+                    Type::Unit
+                }
+                
+            },
             ASTNode::FunctionCall { name, args: _ } => { 
                 let func_type = vars.get(name).unwrap();
                 match func_type {
@@ -233,7 +272,7 @@ pub struct Parser<'context> {
     tokens: Vec<Token>,
     pos: usize,
     // TODO : replace vars with global vars, and add in each function, a local var table
-    pub vars : FxHashMap<StringRef, Type>, // include functions (which are just vars with function types)
+    // pub vars : FxHashMap<StringRef, Type>, // include functions (which are just vars with function types)
     precedences : FxHashMap<Operator, (i32, Associativity)>,
     pub rustaml_context : &'context mut RustamlContext,
 }
@@ -447,25 +486,26 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         let function_type_range_end = parser.current_tok().unwrap().range.start - 1;  // TODO ? (verify if good)
 
         let function_type_range = function_type_range_start..function_type_range_end;
-        let (arg_types, mut return_type, is_variadic) = match function_type {
+        
+        let (arg_types, return_type, _) = match function_type {
             Type::Function(a, r, v) => (a, r, v),
             _ => return Err(ParserErr::new(ParserErrData::NotFunctionTypeInAnnotationLet { function_name: name.get_str(&parser.rustaml_context.str_interner).to_owned() }, function_type_range)), 
         };
 
     
-        parser.vars.insert(name,  Type::Function(arg_types.clone(), return_type.clone(), is_variadic));
+        //parser.vars.insert(name,  Type::Function(arg_types.clone(), return_type.clone(), is_variadic));
 
-        let mut args = arg_names.into_iter().zip(arg_types.clone()).map(|x| Arg { name: parser.rustaml_context.str_interner.intern_compiler(&x.0), arg_type: x.1 }).collect::<Vec<Arg>>();
+        let args = arg_names.into_iter().zip(arg_types.clone()).map(|x| Arg { name: parser.rustaml_context.str_interner.intern_compiler(&x.0), arg_type: x.1 }).collect::<Vec<Arg>>();
 
 
-        let mut old_arg_types = Vec::new();
+        //let mut old_arg_types = Vec::new();
 
-        for Arg { name, arg_type} in &args {
+        /*for Arg { name, arg_type} in &args {
             let old_type = parser.vars.insert(*name, arg_type.clone());
             if let Some(t) = old_type {
                 old_arg_types.push((*name, t));
             }
-        }
+        }*/
 
         let equal_tok = parser.eat_tok(Some(TokenDataTag::Op));
 
@@ -477,7 +517,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
         let body = parse_node(parser)?;
 
-        if matches!(return_type.as_ref(), Type::Any){
+        /*if matches!(return_type.as_ref(), Type::Any){
             let body_type = body.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)?;
             return_type = Box::new(body_type);
         }
@@ -485,11 +525,11 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         for (arg, arg_range) in args.iter_mut().zip(arg_ranges) {
             if matches!(arg.arg_type, Type::Any){
                 arg.arg_type = infer_var_type(parser.rustaml_context,  &parser.vars, arg.name, body, &arg_range)?;
-                parser.vars.insert(arg.name, arg.arg_type.clone());
+                //parser.vars.insert(arg.name, arg.arg_type.clone());
             }
-        }
+        }*/
 
-        for Arg {name, arg_type: _} in &args {
+        /*for Arg {name, arg_type: _} in &args {
             parser.vars.remove(name);
         }
 
@@ -498,7 +538,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         }
 
 
-        parser.vars.insert(name,  Type::Function(arg_types.clone(), return_type.clone(), false)); // reinsertion with real types
+        parser.vars.insert(name,  Type::Function(arg_types.clone(), return_type.clone(), false)); // reinsertion with real types*/
         
         ASTNode::FunctionDefinition { 
             name, 
@@ -507,7 +547,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
             return_type: *return_type,
         }
     } else {
-        let mut var_type = match parser.current_tok_data() {
+        let var_type = match parser.current_tok_data() {
             Some(TokenData::Colon) => Some(parse_type_annotation(parser)?),
             Some(_) | None => None,
         };
@@ -520,13 +560,13 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         };
 
         let val_node = parse_node(parser)?;
-        if var_type.is_none() {
+        /*if var_type.is_none() {
             var_type = Some(val_node.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)?);
-        }
+        }*/
 
-        if name.get_str(&parser.rustaml_context.str_interner) != "_" {
+        /*if name.get_str(&parser.rustaml_context.str_interner) != "_" {
             parser.vars.insert(name, var_type.unwrap());
-        }
+        }*/
         
         let body = match parser.current_tok_data() {
             Some(TokenData::In) => {
@@ -536,14 +576,15 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
             _ => None,
         };
 
-        if body.is_some() {
+        /*if body.is_some() {
             // if has body, is a local variable
             parser.vars.remove(&name);
-        }
+        }*/
 
         ASTNode::VarDecl {
             name,
             val: val_node,
+            var_type: var_type,
             body,
         }
     };
@@ -558,46 +599,49 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
 // for parsing operators https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
 
-
+fn is_start_of_expr(tok_data : Option<&TokenData>) -> bool {
+    let is_end_of_expr = match tok_data {
+        Some(t) => matches!(t, TokenData::EndOfExpr | TokenData::Op(_) | TokenData::Else | TokenData::In | TokenData::ParenClose | TokenData::With),
+        None => false,
+    } ;
+    !is_end_of_expr
+}
 
 fn parse_function_call(parser: &mut Parser, function_name : StringRef, first_tok_start: usize) -> Result<ASTRef, ParserErr> {
     let mut args = Vec::new();
 
-    fn function_call_parse_continue(tok_data : Option<&TokenData>) -> bool {
-        !matches!(tok_data, Some(TokenData::EndOfExpr) | Some(TokenData::Op(_)) | Some(TokenData::Else) | Some(TokenData::In) | Some(TokenData::ParenClose))
-    }
     //let mut end_last_arg = first_tok_start;
-    let mut arg_ranges=  Vec::new();
-    while parser.has_tokens_left() && function_call_parse_continue(parser.current_tok_data()) {
-        let arg_range_start = parser.current_tok().unwrap().range.start;
+    //let mut arg_ranges=  Vec::new();
+    while parser.has_tokens_left() && is_start_of_expr(parser.current_tok_data()) {
+        //let arg_range_start = parser.current_tok().unwrap().range.start;
         let arg = parse_primary(parser)?; // TODO : replace with parse_node ? (fix problems with stack overflow -> less recursion ? implement tail call optimization ?)
-        let arg_range_end = parser.current_tok().unwrap().range.end-1;
+        //let arg_range_end = parser.current_tok().unwrap().range.end-1;
         //end_last_arg = parser.current_tok().unwrap().range.end-1;
-        arg_ranges.push(arg_range_start..arg_range_end);
+        //arg_ranges.push(arg_range_start..arg_range_end);
         args.push(arg);
     }
 
-    let (args_type, is_variadic)  = match parser.vars.get(&function_name).unwrap() {
+    /*let (args_type, is_variadic)  = match parser.vars.get(&function_name).unwrap() {
         Type::Function(args_type, _, is_variadic) => (args_type, *is_variadic),
         _ => unreachable!(),
-    };
+    };*/
 
-    let function_call_range = first_tok_start..arg_ranges.last().unwrap().end;
+    //let function_call_range = first_tok_start..arg_ranges.last().unwrap().end;
 
-    if !is_variadic && args.len() != args_type.len(){
+    /*if !is_variadic && args.len() != args_type.len(){
         let function_name = function_name.get_str(&parser.rustaml_context.str_interner).to_owned();
         return Err(ParserErr::new(ParserErrData::WrongNumberOfArgs { function_name, expected_nb: args_type.len(), got_nb: args.len() }, function_call_range))
-    }
+    }*/
 
     // TODO add an error for when the function is variadic but args.len() < args_type.len() 
 
-    for (idx, arg_type) in args_type.iter().enumerate(){
+    /*for (idx, arg_type) in args_type.iter().enumerate(){
         let arg_given_type = args[idx].get(&parser.rustaml_context.ast_pool).get_type(&parser.rustaml_context, &parser.vars)?;
         if !matches!(arg_given_type, Type::Any) && !matches!(arg_type, Type::Any) && &arg_given_type != arg_type {
             let function_name = function_name.get_str(&parser.rustaml_context.str_interner).to_owned();
             return Err(ParserErr::new(ParserErrData::WrongArgType { function_name, expected_type: arg_type.clone(), got_type: arg_given_type } , arg_ranges[idx].clone()))
         }
-    }
+    }*/
 
     //dbg!(&args);
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::FunctionCall { 
@@ -608,11 +652,13 @@ fn parse_function_call(parser: &mut Parser, function_name : StringRef, first_tok
 
 fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>, first_tok_start: usize) -> Result<ASTRef, ParserErr> {
     let identifier = parser.rustaml_context.str_interner.intern_compiler(&identifier_buf.iter().collect::<String>());
-    let is_function = match parser.vars.get(&identifier) {
+    /*let is_function = match parser.vars.get(&identifier) {
         Some(t) => matches!(t, Type::Function(_, _, _)),
         None => false, // no error because there are variables that are created in match that are not accounted for in vars (TODO !!!)
         //None => panic!("ERROR : unknown identifier {}", identifier.get_str(&mut parser.rustaml_context.str_interner)),
-    };
+    };*/
+
+    let is_function = is_start_of_expr(parser.current_tok_data());
     if is_function {
         parse_function_call(parser, identifier, first_tok_start)
     } else {
@@ -625,10 +671,10 @@ fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>, first_
 fn parse_if(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let cond_expr = parse_node(parser)?;
 
-    match cond_expr.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)? {
+    /*match cond_expr.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)? {
         Type::Bool => {},
         t => panic!("Error in type checking : {:?} type passed in if expr", t), // TODO : return a result instead
-    }
+    }*/
 
     parser.eat_tok(Some(TokenDataTag::Then))?;
 
@@ -668,7 +714,7 @@ where F: Fn(&mut Parser) -> Result<T, ParserErr>
 
 
 // TODO : handle old values of these vars
-fn add_vars_from_pattern(parser : &mut Parser, pattern : &Pattern, val_type : &Type){
+/*fn add_vars_from_pattern(parser : &mut Parser, pattern : &Pattern, val_type : &Type){
     match pattern {
         Pattern::VarName(name) => { parser.vars.insert(*name, val_type.clone()); },
         Pattern::ListDestructure(e, l) => {
@@ -682,9 +728,9 @@ fn add_vars_from_pattern(parser : &mut Parser, pattern : &Pattern, val_type : &T
         },
         _ => {} 
     }
-}
+}*/
 
-fn remove_vars_from_pattern(parser : &mut Parser, pattern : &Pattern){
+/*fn remove_vars_from_pattern(parser : &mut Parser, pattern : &Pattern){
     match pattern {
         Pattern::VarName(name) => { parser.vars.remove(name); },
         Pattern::ListDestructure(e, l) => {
@@ -693,7 +739,7 @@ fn remove_vars_from_pattern(parser : &mut Parser, pattern : &Pattern){
         },
         _ => {} 
     }
-}
+}*/
 
 
 
@@ -759,7 +805,7 @@ fn parse_match(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     }
 
     // TODO : maybe infer this type ?
-    let val_type = matched_expr.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)?;
+    //let val_type = matched_expr.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)?;
 
     while parser.current_tok().is_some() && matches!(parser.current_tok_data().unwrap(), TokenData::Pipe) {
         parser.eat_tok(Some(TokenDataTag::Pipe))?;
@@ -767,9 +813,9 @@ fn parse_match(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         //dbg!(&pattern);
         parser.eat_tok(Some(TokenDataTag::Arrow))?;
         // TODO : add vars from match pattern ? (will need a function that from a pattern and the type of the matched pattern will return the names and the types of the vars)
-        add_vars_from_pattern(parser, &pattern, &val_type);
+        //add_vars_from_pattern(parser, &pattern, &val_type);
         let pattern_expr = parse_node(parser)?;
-        remove_vars_from_pattern(parser, &pattern);
+        //remove_vars_from_pattern(parser, &pattern);
         patterns.push((pattern, pattern_expr));
     }
 
@@ -835,7 +881,7 @@ fn ensure_type_is_binop(op : Operator, t : Type, is_type : Type, range : Range<u
 
 // TODO : move this after having created the whole AST to resolve types ?
 fn typecheck_binop(op : Operator, lhs_type : Type, rhs_type : Type, lhs_range : Range<usize>, rhs_range : Range<usize>) -> Result<(), ParserErr>{
-    let op_type = op.get_type();
+    let op_type = op.get_type(None);
     match &op_type {
         Type::Float | Type::Integer => {
             ensure_type_is_binop(op, lhs_type, op_type.clone(), lhs_range)?;
@@ -885,8 +931,8 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTRef, min_precedence: i32) -> Re
             rhs = parse_binary_rec(parser, rhs, new_precedence)?;
         }
 
-        let lhs_type = lhs.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)?;
-        let rhs_type = rhs.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)?;
+        //let lhs_type = lhs.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)?;
+        //let rhs_type = rhs.get(&parser.rustaml_context.ast_pool).get_type(parser.rustaml_context, &parser.vars)?;
         //typecheck_binop(operator, lhs_type, rhs_type, 0..0, 0..0)?; // TODO
         lhs = parser.rustaml_context.ast_pool.push(ASTNode::BinaryOp {
             op: operator,
@@ -924,6 +970,7 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::TopLevel { nodes }))
 }
 
+// TODO : remove this
 fn init_std_functions(rustaml_context : &mut RustamlContext) -> FxHashMap<StringRef, Type> {
     let mut i = |s| rustaml_context.str_interner.intern_compiler(s);
     FxHashMap::from_iter([
@@ -934,22 +981,24 @@ fn init_std_functions(rustaml_context : &mut RustamlContext) -> FxHashMap<String
     ])
 }
 
-pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext) -> Result<(ASTRef, FxHashMap<StringRef, Type>), ParserErr> {
-    let (root_node, vars) = { 
-        let vars = init_std_functions(rustaml_context);
+pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext) -> Result<ASTRef, ParserErr> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ParserErr>*/ {
+    let /*(root_node, vars)*/ root_node = { 
+        //let vars = init_std_functions(rustaml_context);
         let mut parser = Parser { 
             tokens, 
             pos: 0,
-            vars,
+            //vars,
             precedences: init_precedences(),
             rustaml_context,
         };
         let root_node = parse_top_level_node(&mut parser)?;
-        (root_node, parser.vars)
+        //(root_node, parser.vars)
+        root_node
     };
 
     debug_println!(rustaml_context.is_debug_print, "root_node = {:#?}", DebugWrapContext::new(&root_node, rustaml_context));
-    Ok((root_node, vars))
+    //Ok((root_node, vars))
+    Ok(root_node)
 }
 
 

@@ -22,7 +22,8 @@ pub mod string_intern;
 pub mod print_error;
 pub mod debug;
 pub mod gc;
-
+pub mod types;
+pub mod types_debug;
 
 cfg_if! {
     if #[cfg(feature = "native")] {
@@ -45,13 +46,22 @@ pub fn interpret_code(code : &str, filename : &Path, is_debug_print  : bool) -> 
         },
     };
 
-    let ast_and_vars = ast::parse(tokens, &mut rustaml_context);
+    /*let ast_and_vars = ast::parse(tokens, &mut rustaml_context);
     let (ast, _vars) = match ast_and_vars {
         Ok(a_v) => a_v,
         Err(e) => {
             print_error::print_parser_error(e, filename, code);
             return Err(());
         },
+    };*/
+
+    let ast = ast::parse(tokens, &mut rustaml_context);
+    let ast = match ast {
+        Ok(a) => a,
+        Err(e) => {
+            print_error::print_parser_error(e, filename, code);
+            return Err(());
+        }
     };
     interpreter::interpret(ast, &mut rustaml_context);
     Ok(())

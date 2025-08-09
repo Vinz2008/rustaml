@@ -31,13 +31,13 @@ pub enum Operator {
 
 impl Operator {
     pub const OPERATORS: &'static [&'static str] = &["+", "-", "*", "/", "=", "==", ">=", "<="];
-    pub fn get_type(&self) -> Type {
+    pub fn get_type(&self, element_type : Option<Type>) -> Type {
         match self {
             Self::Plus | Self::Minus | Self::Mult | Self::Div => Type::Integer,
             Self::PlusFloat | Self::MinusFloat | Self::MultFloat | Self::DivFloat => Type::Float,
             Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => Type::Bool,
             Self::StrAppend => Type::Str,
-            Self::ListAppend => Type::List(Box::new(Type::Any)),
+            Self::ListAppend => Type::List(Box::new(element_type.unwrap_or(Type::Any))),
             Self::Equal => unreachable!()
         }
     }

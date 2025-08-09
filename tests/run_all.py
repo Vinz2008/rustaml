@@ -24,10 +24,10 @@ excluded_files = [
 def is_error(return_code : int) -> bool:
     return return_code != 0
 
-def get_error_message(return_code : int, filename : str) -> str:
+def get_error_message(is_compiling : bool, return_code : int, filename : str) -> str:
     match return_code:
         case 1:
-            return "the compiler failed with an error"
+            return f"the {"compiler" if is_compiling else "interpreter"} failed with an error"
         case 134:
             return "the compiler panicked"
         case 101:
@@ -36,7 +36,7 @@ def get_error_message(return_code : int, filename : str) -> str:
             if os.path.exists(error_filename):
                 return f"LLVM ERROR (check the {error_filename}) file for more details)"
             else:
-                return get_error_message(1, filename)
+                return get_error_message(is_compiling, 1, filename)
         case _:
             sys.exit(f"Unknown error return code {return_code}")
 
@@ -56,7 +56,7 @@ def test_file(filename : str, is_compiling: bool):
 
 
     if is_error(return_code):
-        error_message = get_error_message(return_code, filename)
+        error_message = get_error_message(is_compiling, return_code, filename)
         return "❌", error_message, out
         
     return "✅", "", out

@@ -8,9 +8,9 @@ use std::{path::{Path, PathBuf}, process::ExitCode};
 use clap::{Parser, Subcommand};
 use debug_with_context::DebugWrapContext;
 
-
+use crate::types::resolve_and_typecheck;
 use crate::{rustaml::{get_ast, RustamlContext}};
-
+use crate::types_debug::dump_typed_ast;
 
 
 #[cfg(feature = "human-panic")]
@@ -26,6 +26,8 @@ mod print_error;
 mod rustaml;
 mod debug;
 mod gc;
+mod types;
+mod types_debug;
 
 use cfg_if::cfg_if;
 
@@ -119,7 +121,7 @@ struct Args {
 }
 
 #[cfg(not(feature = "native"))]
-pub fn compile(_ast : ASTRef, _vars: FxHashMap<StringRef, Type>, _rustaml_context: &RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer: bool) {
+pub fn compile(_ast : ASTRef, _rustaml_context: &RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer: bool) {
     panic!("the compiler feature was not enabled");
 }
 
@@ -154,35 +156,60 @@ fn main() -> ExitCode {
 
     match args.command.expect("No subcommand specified!") {
         Commands::Interpret { filename, debug_print: _ } => {
-            let ast_and_vars = get_ast(&filename, &mut rustaml_context);
+            /*let ast_and_vars = get_ast(&filename, &mut rustaml_context);
             let (ast, _vars) = match ast_and_vars {
                 Ok(a_v) => a_v,
                 Err(()) => return ExitCode::FAILURE,
+            };*/
+
+            let ast = get_ast(&filename, &mut rustaml_context);
+            let ast = match ast {
+                Ok(a) => a,
+                Err(()) => return ExitCode::FAILURE,
             };
+
+            let vars = resolve_and_typecheck(&mut rustaml_context, ast);
+            let _ = vars.unwrap_or_else(|e| panic!("error in types : {:?}", e));
+
+            // after removing this, remove pub at the ast_pool.1
+            debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&rustaml_context.ast_pool.1, &rustaml_context));
 
             interpreter::interpret(ast, &mut rustaml_context);
         }
         Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _ } => {
-            let ast_and_vars = get_ast(&filename, &mut rustaml_context);
+            /*let ast_and_vars = get_ast(&filename, &mut rustaml_context);
             let (ast, vars) = match ast_and_vars {
                 Ok(a_v) => a_v,
                 Err(()) => return ExitCode::FAILURE,
-            };
+            };*/
 
-            debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&vars, &rustaml_context));
-
-            compile(ast, vars, &mut rustaml_context, &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, disable_gc, enable_sanitizer);
-        },
-
-        Commands::Check { filename, dump_inference, debug_print: _ } => {
-            let ast_and_vars = get_ast(&filename, &mut rustaml_context);
-            let _ast_v = match ast_and_vars {
-                Ok(a_v) => a_v,
+            // create a frontend fonction instead of get_ast ?
+            let ast = get_ast(&filename, &mut rustaml_context);
+            let ast = match ast {
+                Ok(a) => a,
                 Err(()) => return ExitCode::FAILURE,
             };
 
+            // TODO : proper error printing
+            let typeinfos = resolve_and_typecheck(&mut rustaml_context, ast).unwrap_or_else(|e| panic!("error in types : {:?}", e));
+            todo!(); // TODO : pass typeinfos to compile
+            //debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&vars, &rustaml_context));
+
+            compile(ast, &mut rustaml_context, &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, disable_gc, enable_sanitizer);
+        },
+
+        Commands::Check { filename, dump_inference, debug_print: _ } => {
+            let ast = get_ast(&filename, &mut rustaml_context);
+            let ast = match ast {
+                Ok(a) => a,
+                Err(()) => return ExitCode::FAILURE,
+            };
+
+            let typeinfos = resolve_and_typecheck(&mut rustaml_context, ast).unwrap_or_else(|e| panic!("error in types : {:?}", e));
+
             if dump_inference {
                 rustaml_context.dump_inference.borrow().dump(Path::new("infer.dump"), &rustaml_context).unwrap();
+                dump_typed_ast(&rustaml_context, ast).unwrap();
             }
 
             

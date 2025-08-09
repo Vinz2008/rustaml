@@ -330,7 +330,7 @@ impl Display for ValWrapDisplay<'_> {
             Val::Bool(b) => write!(f, "{}", b),
             Val::String(s) => write!(f, "{}", s.get_str(&self.rustaml_context.str_interner)),
             Val::List(l) => display_list(*l, &self.rustaml_context, f), // TODO : pretty print lists
-            Val::Unit => Ok(()),
+            Val::Unit => write!(f, "()"),
         }
     }
 }
@@ -527,7 +527,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
     let lhs_val = interpret_node(context, lhs);
     let rhs_val = interpret_node(context, rhs);
 
-    match op.get_type() {
+    match op.get_type(None) {
         Type::Integer => interpret_binop_int(op, lhs_val, rhs_val),
         Type::Float => interpret_binop_float(op, lhs_val, rhs_val),
         Type::Bool => interpret_binop_bool(&context.rustaml_context.list_node_pool, op, lhs_val, rhs_val),
@@ -787,7 +787,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::Float { nb } => Val::Float(*nb),
         ASTNode::Integer { nb } => Val::Integer(*nb),
         ASTNode::Boolean { b } => Val::Bool(*b),
-        ASTNode::VarDecl { name, val, body } => {
+        ASTNode::VarDecl { name, val, body, var_type: _ } => {
             let val_node = interpret_node(context, *val);
             let is_underscore = name.get_str(&context.rustaml_context.str_interner) == "_";
             if !is_underscore {

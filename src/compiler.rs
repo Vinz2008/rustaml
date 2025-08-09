@@ -16,7 +16,6 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     pub builder : &'refs Builder<'llvm_ctx>,
     functions : FxHashMap<StringRef, FunctionValue<'llvm_ctx>>,
     main_function : FunctionValue<'llvm_ctx>,
-    var_types : FxHashMap<StringRef, Type>,
     pub var_vals : FxHashMap<StringRef, PointerValue<'llvm_ctx>>,
     pub external_symbols_declared : FxHashSet<&'static str>,
     // TODO : replace this with a hashmap ?
@@ -158,8 +157,8 @@ impl<'context, 'refs, 'llvm_ctx> CompileContext<'context, 'refs, 'llvm_ctx> {
 }
 
 // TODO : add a print function that returns unit for the compiler
-
-fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : ASTRef, body : Option<ASTRef>, is_global : bool) -> AnyValueEnum<'llvm_ctx> {
+// the var_type should be resolved at this point : TODO
+fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : ASTRef, var_type : &Type, body : Option<ASTRef>, is_global : bool) -> AnyValueEnum<'llvm_ctx> {
     let is_underscore = name.get_str(&compile_context.rustaml_context.str_interner) == "_";
     
     //println!("test vars types : {:#?}", DebugWrapContext::new(&compile_context.var_types, compile_context.rustaml_context));
@@ -169,7 +168,8 @@ fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
     let val = compile_expr(compile_context, val);
 
     if !is_underscore {
-        let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("No type found for var {}", name.get_str(&compile_context.rustaml_context.str_interner)));
+        //let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("No type found for var {}", name.get_str(&compile_context.rustaml_context.str_interner)));
+        let var_type = todo!();
         let alloca_type = get_llvm_type(compile_context.context, var_type);
         create_var(compile_context, name, val, alloca_type);
     }
@@ -733,7 +733,7 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
         ASTNode::Float { nb } => compile_context.context.f64_type().const_float(*nb).into(),
         ASTNode::Boolean { b } => compile_context.context.bool_type().const_int(*b as u64, false).into(),
         ASTNode::String { str } => compile_str(compile_context, *str).into(),
-        ASTNode::VarDecl { name, val, body } => compile_var_decl(compile_context, *name, *val, *body, false),
+        ASTNode::VarDecl { name, val, body, var_type } => compile_var_decl(compile_context, *name, *val, var_type, *body, false),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => compile_if(compile_context, *cond_expr, *then_body, *else_body),
         ASTNode::FunctionCall { name, args } => compile_function_call(compile_context, *name, args),
         ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, *op, *lhs, *rhs),
@@ -759,14 +759,14 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             let entry = compile_context.context.append_basic_block(function, "entry");
             compile_context.builder.position_at_end(entry);
 
-            let mut old_arg_name_type = Vec::new(); // to save the types that have the same of the args in the global vars 
+            //let mut old_arg_name_type = Vec::new(); // to save the types that have the same of the args in the global vars 
 
             for (arg, arg_val) in args.iter().zip(function.get_param_iter()) {
                 let arg_type = get_llvm_type(compile_context.context, &arg.arg_type);
-                match compile_context.var_types.insert(arg.name, arg.arg_type.clone()) {
+                /*match compile_context.var_types.insert(arg.name, arg.arg_type.clone()) {
                     Some(old_type) => old_arg_name_type.push((arg.name, old_type)),
                     None => {}
-                }
+                }*/
                 create_var(compile_context, arg.name, arg_val.as_any_value_enum(), arg_type);
             }
 
@@ -783,20 +783,20 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
 
             for arg in args {
                 compile_context.var_vals.remove(&arg.name);
-                compile_context.var_types.remove(&arg.name);
+                //compile_context.var_types.remove(&arg.name);
             }
 
-            for (n, t) in old_arg_name_type {
+            /*for (n, t) in old_arg_name_type {
                 compile_context.var_types.insert(n, t);
-            } 
+            }*/
         },
 
-        ASTNode::VarDecl { name, val, body } => {
+        ASTNode::VarDecl { name, val, body, var_type } => {
 
             let last_main_bb = compile_context.main_function.get_last_basic_block().unwrap();
             compile_context.builder.position_at_end(last_main_bb);
 
-            compile_var_decl(compile_context, *name, *val, *body, true);
+            compile_var_decl(compile_context, *name, *val, var_type, *body, true);
         }
         t => panic!("top level node = {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)),
         // _ => unreachable!()
@@ -862,7 +862,7 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
 }
 
-pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool) {
+pub fn compile(ast : ASTRef, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool) {
     let context = Context::create();
     let builder = context.create_builder();
 
@@ -909,7 +909,6 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
         builder: &builder,
         functions: FxHashMap::default(),
         main_function,
-        var_types,
         var_vals: FxHashMap::default(),
         internal_functions,
         external_symbols_declared: FxHashSet::default()
