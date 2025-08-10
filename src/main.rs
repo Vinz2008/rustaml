@@ -9,6 +9,8 @@ use clap::{Parser, Subcommand};
 use debug_with_context::DebugWrapContext;
 
 use crate::types::resolve_and_typecheck;
+#[cfg(not(feature = "native"))]
+use crate::types::TypeInfos;
 use crate::{rustaml::{get_ast, RustamlContext}};
 use crate::types_debug::dump_typed_ast;
 
@@ -121,7 +123,7 @@ struct Args {
 }
 
 #[cfg(not(feature = "native"))]
-pub fn compile(_ast : ASTRef, _rustaml_context: &RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer: bool) {
+pub fn compile(_ast : ASTRef, _rustaml_context: &RustamlContext, _typeinfos : TypeInfos, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer: bool) {
     panic!("the compiler feature was not enabled");
 }
 
@@ -192,10 +194,9 @@ fn main() -> ExitCode {
 
             // TODO : proper error printing
             let typeinfos = resolve_and_typecheck(&mut rustaml_context, ast).unwrap_or_else(|e| panic!("error in types : {:?}", e));
-            todo!(); // TODO : pass typeinfos to compile
             //debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&vars, &rustaml_context));
 
-            compile(ast, &mut rustaml_context, &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, disable_gc, enable_sanitizer);
+            compile(ast, &mut rustaml_context, typeinfos,  &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, disable_gc, enable_sanitizer);
         },
 
         Commands::Check { filename, dump_inference, debug_print: _ } => {

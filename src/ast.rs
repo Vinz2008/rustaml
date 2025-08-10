@@ -607,6 +607,8 @@ fn is_start_of_expr(tok_data : Option<&TokenData>) -> bool {
     !is_end_of_expr
 }
 
+
+// TODO : make this work for any expression for the function
 fn parse_function_call(parser: &mut Parser, function_name : StringRef, first_tok_start: usize) -> Result<ASTRef, ParserErr> {
     let mut args = Vec::new();
 
@@ -614,10 +616,20 @@ fn parse_function_call(parser: &mut Parser, function_name : StringRef, first_tok
     //let mut arg_ranges=  Vec::new();
     while parser.has_tokens_left() && is_start_of_expr(parser.current_tok_data()) {
         //let arg_range_start = parser.current_tok().unwrap().range.start;
-        let arg = parse_primary(parser)?; // TODO : replace with parse_node ? (fix problems with stack overflow -> less recursion ? implement tail call optimization ?)
+        //let arg = parse_primary(parser)?; // TODO : replace with parse_node ? (fix problems with stack overflow -> less recursion ? implement tail call optimization ?)
         //let arg_range_end = parser.current_tok().unwrap().range.end-1;
         //end_last_arg = parser.current_tok().unwrap().range.end-1;
         //arg_ranges.push(arg_range_start..arg_range_end);
+        let arg = match parser.current_tok_data() {
+            Some(TokenData::Identifier(buf)) => {
+                // If the arg itself is an identifier, treat it as a var use, not a call
+                let name = parser.rustaml_context.str_interner.intern_compiler(&buf.iter().collect::<String>());
+                parser.eat_tok(None)?;
+                parser.rustaml_context.ast_pool.push(ASTNode::VarUse { name })
+            }
+            _ => parse_primary(parser)?,
+        };
+        
         args.push(arg);
     }
 

@@ -25,9 +25,12 @@ def is_error(return_code : int) -> bool:
     return return_code != 0
 
 def get_error_message(is_compiling : bool, return_code : int, filename : str) -> str:
+    rustaml_name = "compiler" if is_compiling else "interpreter"
     match return_code:
+        case -6:
+            return f" Stack overflow of the {rustaml_name}"
         case 1:
-            return f"the {"compiler" if is_compiling else "interpreter"} failed with an error"
+            return f"the {rustaml_name} failed with an error"
         case 134:
             return "the compiler panicked"
         case 101:

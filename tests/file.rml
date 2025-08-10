@@ -67,16 +67,16 @@ let r = test_list [] ;;
 let s = test_list [1, 2, 3] ;;
 let s_two = test_list [1, 2] ;;
 
-let append e l = e :: l ;;
+let append el l = el :: l ;;
 
 let t = append 1 [] ;;
 
-let append2 e l = e :: e :: l ;;
+let append2 el2 l = el2 :: el2 :: l ;;
 
 let u = append2 3 [4] ;;
 
 let test_destructure a_ : list[int] -> list[int] =
   match a_ with
-  | e :: l -> e
+  | ee :: l -> ee ;;
 
 let v = test_destructure [2] ;;
