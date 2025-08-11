@@ -1,10 +1,8 @@
 use std::ops::Range;
 
-use rustc_hash::FxHashMap;
-
 use debug_with_context::DebugWrapContext;
 
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug_println, rustaml::RustamlContext, string_intern::StringRef, types::{get_function_type, TypeContext, TypeInfos}};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug_println, string_intern::StringRef, types::{get_function_type, TypeContext}};
 
 
 // TODO : put this in a type_inference_debug.rs ?
@@ -193,7 +191,7 @@ pub fn _infer_var_type(type_context : &mut TypeContext, var_name: StringRef, nod
                 };
                 debug_println!(type_context.rustaml_context.is_debug_print, "other_operand_type : {:#?}", &other_operand_type);
                 //dbg!(&other_operand_type);
-                let operand_type = op.get_operand_type(is_left_var, &other_operand_type);
+                let operand_type = op.get_operand_type(is_left_var, other_operand_type);
                 debug_println!(type_context.rustaml_context.is_debug_print, "operand_type : {:#?}", &operand_type);
                 //dbg!(&operand_type);
                 debug_println!(type_context.rustaml_context.is_debug_print, "other_operand_type : {:#?}", &other_operand_type);

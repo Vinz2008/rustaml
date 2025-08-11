@@ -329,7 +329,7 @@ impl Display for ValWrapDisplay<'_> {
             Val::Float(fl) => write!(f, "{}", fl),
             Val::Bool(b) => write!(f, "{}", b),
             Val::String(s) => write!(f, "{}", s.get_str(&self.rustaml_context.str_interner)),
-            Val::List(l) => display_list(*l, &self.rustaml_context, f), // TODO : pretty print lists
+            Val::List(l) => display_list(*l, self.rustaml_context, f), // TODO : pretty print lists
             Val::Unit => write!(f, "()"),
         }
     }

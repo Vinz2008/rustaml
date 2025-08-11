@@ -136,14 +136,11 @@ fn patch_recursive_calls(context : &mut TypeContext, function_body : ASTRef, ret
                 patch_recursive_calls(context, n, ret_type);
             }
         },
-        ASTNode::FunctionDefinition { name, args, body, return_type } => {}, // TODO : is it possible to do recursive calls to the outer function in functions in functions
-        ASTNode::VarDecl { name, val, body, var_type } => { 
+        ASTNode::FunctionDefinition { name: _, args: _, body: _, return_type: _ } => {}, // TODO : is it possible to do recursive calls to the outer function in functions in functions
+        ASTNode::VarDecl { name: _, val, body, var_type: _ } => { 
             patch_recursive_calls(context, val, ret_type);
-            match body {
-                Some(b) => {
-                    patch_recursive_calls(context, b, ret_type);
-                },
-                None => {},
+            if let Some(b) = body {
+                patch_recursive_calls(context, b, ret_type);
             }
         },
 
@@ -153,7 +150,7 @@ fn patch_recursive_calls(context : &mut TypeContext, function_body : ASTRef, ret
                 patch_recursive_calls(context, e, ret_type);
             }
         },
-        ASTNode::BinaryOp { op, lhs, rhs } => {
+        ASTNode::BinaryOp { op: _, lhs, rhs } => {
             patch_recursive_calls(context, lhs, ret_type);
             patch_recursive_calls(context, rhs, ret_type);
             
@@ -263,7 +260,7 @@ pub fn _resolve_types(context: &mut TypeContext, ast : ASTRef) -> Result<Type, T
 
             Type::Unit
         },
-        ASTNode::VarDecl { name, val, body, var_type } => { 
+        ASTNode::VarDecl { name, val, body, var_type: _ } => { 
             // TODO : add the types (no need to infer the type in this case, should have a get_type function for vars that would : use the var type, if needed, and if not use the inferred type)
             // TODO : do this insertion before ?
             context.type_infos.vars_ast.insert(name, val);

@@ -5,7 +5,7 @@ use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
-use crate::{debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef, type_inference::{infer_var_type, TypeInferenceErr}};
+use crate::{debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef, type_inference::TypeInferenceErr};
 use debug_with_context::{DebugWithContext, DebugWrapContext};
 
 #[derive(Clone, PartialEq, DebugWithContext)]
@@ -584,7 +584,7 @@ fn parse_let(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         ASTNode::VarDecl {
             name,
             val: val_node,
-            var_type: var_type,
+            var_type,
             body,
         }
     };
@@ -983,7 +983,7 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 }
 
 // TODO : remove this
-fn init_std_functions(rustaml_context : &mut RustamlContext) -> FxHashMap<StringRef, Type> {
+/*fn init_std_functions(rustaml_context : &mut RustamlContext) -> FxHashMap<StringRef, Type> {
     let mut i = |s| rustaml_context.str_interner.intern_compiler(s);
     FxHashMap::from_iter([
         (i("print"), Type::Function(vec![Type::Any], Box::new(Type::Unit), false)),
@@ -991,7 +991,7 @@ fn init_std_functions(rustaml_context : &mut RustamlContext) -> FxHashMap<String
         // TODO : add a rand_f ? or make the rand function generic with its return ?
         (i("format"), Type::Function(vec![Type::Str], Box::new(Type::Str), true)),
     ])
-}
+}*/
 
 pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext) -> Result<ASTRef, ParserErr> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ParserErr>*/ {
     let /*(root_node, vars)*/ root_node = { 

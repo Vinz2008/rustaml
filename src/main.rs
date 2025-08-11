@@ -206,7 +206,7 @@ fn main() -> ExitCode {
                 Err(()) => return ExitCode::FAILURE,
             };
 
-            let typeinfos = resolve_and_typecheck(&mut rustaml_context, ast).unwrap_or_else(|e| panic!("error in types : {:?}", e));
+            let _ = resolve_and_typecheck(&mut rustaml_context, ast).unwrap_or_else(|e| panic!("error in types : {:?}", e));
 
             if dump_inference {
                 rustaml_context.dump_inference.borrow().dump(Path::new("infer.dump"), &rustaml_context).unwrap();
