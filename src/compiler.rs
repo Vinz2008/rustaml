@@ -514,7 +514,8 @@ fn compile_var_use<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm
     }*/
 
     //let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("Unknown variable {:?}", name.get_str(&compile_context.rustaml_context.str_interner)));
-    let var_type = compile_context.typeinfos.vars_ast.get(&name).unwrap().get_type(&compile_context.rustaml_context.ast_pool);
+    let var_type = get_var_type(compile_context, name);
+    //let var_type = compile_context.typeinfos.vars_ast.get(&name).unwrap().get_type(&compile_context.rustaml_context.ast_pool);
     let load_type = get_llvm_type(compile_context.context, var_type);
     let load_basic_type = TryInto::<BasicTypeEnum>::try_into(load_type).unwrap();
     let ptr = *compile_context.var_vals.get(&name).unwrap();
@@ -757,13 +758,31 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
     }
 }
 
+fn get_var_type<'context>(compile_context: &'context CompileContext<'context, '_, '_>, name : StringRef) -> &'context Type {
+    match compile_context.typeinfos.vars_env.get(&name) {
+        Some(t) => &t,
+        
+        None => {
+            let var_val_ast = *compile_context.typeinfos.vars_ast.get(&name).unwrap_or_else(|| panic!("Unknown var {:?}", DebugWrapContext::new(&name, compile_context.rustaml_context))); // TODO : add better handling instead of unwrap (the var not found should be here ?)
+            var_val_ast.get_type(&compile_context.rustaml_context.ast_pool)
+        }
+    }
+}
+
 // TODO : test to replace AnyValueEnum with &dyn AnyValue ?
 fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRef) {
     match ast_node.get(&compile_context.rustaml_context.ast_pool) {
         ASTNode::FunctionDefinition { name, args, body, return_type } => {
+            let return_type = match return_type {
+                Type::Any => compile_context.typeinfos.functions_ast.get(name).unwrap().get_type(&compile_context.rustaml_context.ast_pool),
+                t => t,
+            };
             let return_type_llvm = get_llvm_type(compile_context.context, return_type);
-            let param_types = args.iter().map(|a| get_llvm_type(compile_context.context, &a.arg_type).try_into().unwrap()).collect::<Vec<_>>();
-            let function_type = get_fn_type(compile_context.context, return_type_llvm, &param_types, false);
+            //let param_types = args.iter().map(|a| get_llvm_type(compile_context.context, &a.arg_type).try_into().unwrap()).collect::<Vec<_>>();
+            let param_types = args.iter().map(|a| get_var_type(compile_context, a.name)).collect::<Vec<_>>();
+            let param_types = param_types.into_iter().map(|t| get_llvm_type(compile_context.context, t)).collect::<Vec<_>>();
+            let param_types_metadata = param_types.iter().map(|t| (*t).try_into().unwrap()).collect::<Vec<_>>();
+            let function_type = get_fn_type(compile_context.context, return_type_llvm, &param_types_metadata, false);
             let function = compile_context.module.add_function(name.get_str(&compile_context.rustaml_context.str_interner), function_type, Some(inkwell::module::Linkage::Internal));
             compile_context.functions.insert(*name, function);
             
@@ -772,8 +791,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
 
             //let mut old_arg_name_type = Vec::new(); // to save the types that have the same of the args in the global vars 
 
-            for (arg, arg_val) in args.iter().zip(function.get_param_iter()) {
-                let arg_type = get_llvm_type(compile_context.context, &arg.arg_type);
+            for ((arg, arg_val), arg_type) in args.iter().zip(function.get_param_iter()).zip(param_types) {
                 /*match compile_context.var_types.insert(arg.name, arg.arg_type.clone()) {
                     Some(old_type) => old_arg_name_type.push((arg.name, old_type)),
                     None => {}

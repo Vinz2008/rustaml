@@ -1,8 +1,12 @@
 use debug_with_context::DebugWrapContext;
 use rustc_hash::FxHashMap;
 
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, rustaml::{ensure_stack, RustamlContext}, string_intern::StringRef, type_inference::{infer_var_type, merge_types, TypeInferenceErr}};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug_println, rustaml::RustamlContext, string_intern::StringRef, type_inference::{infer_var_type, merge_types, TypeInferenceErr}};
 
+
+// refactor all this code:
+// - make it faster (remove unnecessary work, cache everything possible)
+// - make it smarter (make it constraints based ? see bidirectionnal type checking ?)
 
 impl From<TypeInferenceErr> for TypesErr {
     fn from(value: TypeInferenceErr) -> Self {
@@ -19,13 +23,13 @@ pub enum TypesErr {
 #[derive(Default)]
 pub struct TypeInfos {
     pub vars_ast : FxHashMap<StringRef, ASTRef>,
-    functions_ast : FxHashMap<StringRef, ASTRef>,
+    pub functions_ast : FxHashMap<StringRef, ASTRef>,
+    pub vars_env : FxHashMap<StringRef, Type>, // TODO : replace these strings with vars indexes, then add a Hashmap from the AstRef of a VarUse to the var index
 }
 
 pub struct TypeContext<'a> {
     pub rustaml_context : &'a mut RustamlContext,
     type_infos : TypeInfos,
-    vars_type_annotations : FxHashMap<StringRef, Type>,
     functions_type_annotations : FxHashMap<StringRef, Type>,
     functions_arg_names : FxHashMap<StringRef, Vec<StringRef>>,
     current_function_name : Option<StringRef>,
@@ -47,7 +51,6 @@ pub fn resolve_and_typecheck(rustaml_context: &mut RustamlContext, ast : ASTRef)
     let mut context = TypeContext {
         rustaml_context,
         type_infos: TypeInfos::default(),
-        vars_type_annotations: FxHashMap::default(),
         functions_type_annotations,
         functions_arg_names: FxHashMap::default(),
         current_function_name: None,
@@ -60,8 +63,10 @@ pub fn resolve_and_typecheck(rustaml_context: &mut RustamlContext, ast : ASTRef)
 
 // TOD0 : deduplicate these functions ?
 
+
 fn get_var_type(context: &mut TypeContext, name: StringRef) -> Result<Type, TypesErr> {
-    let t = match context.vars_type_annotations.get(&name) {
+    debug_println!(context.rustaml_context.is_debug_print, "vars env : {:?}", DebugWrapContext::new(&context.type_infos.vars_env, context.rustaml_context));
+    let t = match context.type_infos.vars_env.get(&name) {
         Some(t) => t.clone(),
         
         None => {
@@ -70,6 +75,27 @@ fn get_var_type(context: &mut TypeContext, name: StringRef) -> Result<Type, Type
         }
     };
     Ok(t)
+}
+
+
+// TODO : how do you prevent this from happening multiple times ?
+fn infer_arg_types(context: &mut TypeContext, arg_names : &[StringRef], func_body : ASTRef) -> Result<Vec<Type>, TypesErr> {
+    let mut arg_types = Vec::new();
+    for arg_name in arg_names {
+        let arg_type = match get_var_type(context, *arg_name)? {
+            Type::Any => {
+                let range = 0..0; // TODO
+                let inferred_type = infer_var_type(context, *arg_name, func_body, &range).unwrap();
+                debug_println!(context.rustaml_context.is_debug_print, "inferred {:?} to {:?}", DebugWrapContext::new(arg_name, context.rustaml_context), inferred_type);
+                inferred_type
+            
+            },
+            t => t,
+        };
+                
+        arg_types.push(arg_type);
+    }
+    Ok(arg_types)
 }
 
 pub fn get_function_type(context: &mut TypeContext, name: StringRef) -> Result<Type, TypesErr> {
@@ -90,18 +116,8 @@ pub fn get_function_type(context: &mut TypeContext, name: StringRef) -> Result<T
             let t = Type::Function(args_any, Box::new(ret_type.clone()), false);
             context.functions_type_annotations.insert(name, t.clone());
             
-            let mut arg_types = Vec::new();
-            for arg_name in arg_names {
-                let arg_type = match get_var_type(context, arg_name)? {
-                    Type::Any => {
-                        let range = 0..0; // TODO
-                        infer_var_type(context, arg_name, func_body, &range).unwrap()
-                    },
-                    t => t,
-                };
-                
-                arg_types.push(arg_type);
-            }
+            let arg_types = infer_arg_types(context, &arg_names, func_body)?;
+            
             let t = Type::Function(arg_types, Box::new(ret_type), false);
             context.functions_type_annotations.insert(name, t.clone());
             t
@@ -171,16 +187,20 @@ fn register_pattern_vars(context: &mut TypeContext, pattern: &Pattern, matched_e
         Pattern::ListDestructure(e, l) => {
             let e_type = match &matched_expr_type {
                 Type::List(e) => e.as_ref().clone(),
-                _ => return Ok(()),
-                //t => panic!("trying to use list destructuring on what is not a list, type : {:?}", t), // TODO : better error handling
+                Type::Any => Type::Any, // TODO : temporary workaround, remove this
+                //_ => return Ok(()),
+                t => panic!("trying to use list destructuring on what is not a list, type : {:?}", t), // TODO : better error handling
             };
-            context.vars_type_annotations.insert(*e, e_type);
+            debug_println!(context.rustaml_context.is_debug_print, "REGISTER {:?}", DebugWrapContext::new(e, context.rustaml_context));
+            context.type_infos.vars_env.insert(*e, e_type);
             register_pattern_vars(context, l.as_ref(), matched_expr_type)?;
         },
         Pattern::VarName(n) => {
-            context.vars_type_annotations.insert(*n, matched_expr_type); // use type annotations to select match vars types (TODO : other way ?)
+            debug_println!(context.rustaml_context.is_debug_print, "REGISTER {:?}", DebugWrapContext::new(n, context.rustaml_context));
+            context.type_infos.vars_env.insert(*n, matched_expr_type); // use type annotations to select match vars types (TODO : other way ?)
 
         },
+        //p => println!("Unknown pattern : {:?}", DebugWrapContext::new(p, context.rustaml_context)),
         _ => {}
     }
     Ok(())
@@ -193,135 +213,137 @@ pub fn _resolve_types(context: &mut TypeContext, ast : ASTRef) -> Result<Type, T
     };
 
     // TODO : remove ensure_stack ?
-    ensure_stack(|| {
-        let a = ast.get(&context.rustaml_context.ast_pool).clone(); // TODO : remove the clone (even though it is a shallow clone, it will do a shallow clone at every node in the AST !!)
-        let t = match a {
-            ASTNode::TopLevel { nodes } => {
-                let mut t = Type::Any;
-                for n in nodes {
-                    t = _resolve_types(context, n)?;
-                }
-                t
-            },
-            ASTNode::FunctionDefinition { name, args, body, return_type } => {
-                context.type_infos.functions_ast.insert(name, body);
-                
-                context.current_function_name = Some(name);
-
-                let mut arg_types = Vec::new();
-                let mut arg_names = Vec::new();
-
-                for arg in args {
-                    context.vars_type_annotations.insert(arg.name, arg.arg_type.clone());
-                    arg_names.push(arg.name);
-                    arg_types.push(arg.arg_type);
-                }
-
-                context.functions_arg_names.insert(name, arg_names);
-
-                if !matches!(return_type, Type::Any) && arg_types.iter().all(|e| !matches!(e, Type::Any)){
-                    // function annotation
-                    let function_type = Type::Function(arg_types, Box::new(return_type.clone()), false);
-                    context.functions_type_annotations.insert(name, function_type);
-                };
-
-
-                let body_type = _resolve_types(context, body)?;
-
-                let return_type = match return_type {
-                    Type::Any => body_type,
-                    t => t,
-                };
-
-
-                patch_recursive_calls(context, body, &return_type);
-
-                context.current_function_name.take();
-
-                Type::Unit
-            },
-            ASTNode::VarDecl { name, val, body, var_type } => { 
-                // TODO : add the types (no need to infer the type in this case, should have a get_type function for vars that would : use the var type, if needed, and if not use the inferred type)
-                // TODO : do this insertion before ?
-                context.type_infos.vars_ast.insert(name, val);
-                _resolve_types(context, val)?;
-                let t = match body {
-                    Some(b) => {
-                        _resolve_types(context, b)?
-                    },
-                    None => Type::Unit,
-                };
-                t
-            },
-            ASTNode::VarUse { name } => get_var_type(context, name)?,
-
-            ASTNode::Unit => Type::Unit,
-            ASTNode::Integer { nb: _ } => Type::Integer,
-            ASTNode::Float { nb: _ } => Type::Float,
-            ASTNode::String { str: _ } => Type::Str,
-            ASTNode::Boolean { b: _ } => Type::Bool,
-            ASTNode::List { list } => {
-                let mut e_type = Type::Any; // TODO : how to know the type of the [] list (need to infer it, but will there be problems ?)
-                for e in list {
-                    e_type = _resolve_types(context, e)?;
-                }
-                
-                Type::List(Box::new(e_type))
-            },
-            ASTNode::BinaryOp { op, lhs, rhs } => {
-                let lhs_type = _resolve_types(context, lhs)?;
-                let rhs_type = _resolve_types(context, rhs)?;
-                let e_type_optional = match rhs_type {
-                    Type::List(e_rhs_type) => {
-                        merge_types(Some(lhs_type), Some(*e_rhs_type)) // TODO : add a custom merge type for this module
-                    }
-                    _ => None,
-                };
-                op.get_type(e_type_optional)
-            },
-            ASTNode::FunctionCall { name, args } => {
-                let func_type = get_function_type(context, name)?;
-                let t = match func_type {
-                    Type::Function(_, ret, _) => *ret,
-                    Type::Any => Type::Any, // TODO : remove ?
-                    _ => unreachable!(),
-                };
-
-                for arg in args {
-                    _resolve_types(context, arg)?;
-                }
-
-                t
-            },
-            ASTNode::IfExpr { cond_expr, then_body, else_body } => {
-                _resolve_types(context, cond_expr)?;
-                let then_type = _resolve_types(context, then_body)?;
-                let else_type = _resolve_types(context, else_body)?;
-                match (then_type, else_type){
-                    (Type::Any, t) | (t, Type::Any) => t,
-                    (t1, t2) if t1 == t2 => t1,
-                    (t1, t2) => panic!("mismatched type branches in if : (then : {:?}, else : {:?})", t1, t2),
-                }
+    let a = ast.get(&context.rustaml_context.ast_pool).clone(); // TODO : remove the clone (even though it is a shallow clone, it will do a shallow clone at every node in the AST !!)
+    let t = match a {
+        ASTNode::TopLevel { nodes } => {
+            let mut t = Type::Any;
+            for n in nodes {
+                t = _resolve_types(context, n)?;
             }
-            ASTNode::MatchExpr { matched_expr, patterns } => {
-                let matched_type = _resolve_types(context, matched_expr)?;
-                
-                let mut branch_types = Vec::new();
-                for (pattern, pattern_ast) in patterns {
-                    register_pattern_vars(context, &pattern, matched_type.clone())?;
-                    let t = _resolve_types(context, pattern_ast)?;
-                    branch_types.push(t);
-                }
+            t
+        },
+        ASTNode::FunctionDefinition { name, args, body, return_type } => {
+            context.type_infos.functions_ast.insert(name, body);
 
-                // TODO : typecheck match expr
+            let mut arg_types = Vec::new();
+            let mut arg_names = Vec::new();
 
-                branch_types.into_iter().next().unwrap()
+            for arg in args {
+                context.type_infos.vars_env.insert(arg.name, arg.arg_type.clone());
+                arg_names.push(arg.name);
+                arg_types.push(arg.arg_type);
             }
-            //t => panic!("Unknwown ast node : {:?}", DebugWrapContext::new(&t, context.rustaml_context)),
-        };
-        ast.set_type(&mut context.rustaml_context.ast_pool, t.clone());
-        Ok(t)
-    })
+
+            context.functions_arg_names.insert(name, arg_names.clone());
+
+            context.current_function_name = Some(name);
+
+            if !matches!(return_type, Type::Any) && arg_types.iter().all(|e| !matches!(e, Type::Any)){
+                // function annotation
+                let function_type = Type::Function(arg_types, Box::new(return_type.clone()), false);
+                context.functions_type_annotations.insert(name, function_type);
+            } else {
+                let var_types = infer_arg_types(context, &arg_names, body)?;
+                var_types.into_iter().zip(arg_names).for_each(|(ty, name)| { context.type_infos.vars_env.insert(name, ty); });
+            }
+
+            
+
+            let body_type = _resolve_types(context, body)?;
+
+            let return_type = match return_type {
+                Type::Any => body_type,
+                t => t,
+            };
+
+
+            patch_recursive_calls(context, body, &return_type);
+
+            context.current_function_name.take();
+
+            Type::Unit
+        },
+        ASTNode::VarDecl { name, val, body, var_type } => { 
+            // TODO : add the types (no need to infer the type in this case, should have a get_type function for vars that would : use the var type, if needed, and if not use the inferred type)
+            // TODO : do this insertion before ?
+            context.type_infos.vars_ast.insert(name, val);
+            _resolve_types(context, val)?;
+            let t = match body {
+                Some(b) => {
+                    _resolve_types(context, b)?
+                },
+                None => Type::Unit,
+            };
+            t
+        },
+        ASTNode::VarUse { name } => get_var_type(context, name)?,
+
+        ASTNode::Unit => Type::Unit,
+        ASTNode::Integer { nb: _ } => Type::Integer,
+        ASTNode::Float { nb: _ } => Type::Float,
+        ASTNode::String { str: _ } => Type::Str,
+        ASTNode::Boolean { b: _ } => Type::Bool,
+        ASTNode::List { list } => {
+            let mut e_type = Type::Any; // TODO : how to know the type of the [] list (need to infer it, but will there be problems ?)
+            for e in list {
+                e_type = _resolve_types(context, e)?;
+            }
+                
+            Type::List(Box::new(e_type))
+        },
+        ASTNode::BinaryOp { op, lhs, rhs } => {
+            let lhs_type = _resolve_types(context, lhs)?;
+            let rhs_type = _resolve_types(context, rhs)?;
+            let e_type_optional = match rhs_type {
+                Type::List(e_rhs_type) => {
+                    merge_types(Some(lhs_type), Some(*e_rhs_type)) // TODO : add a custom merge type for this module
+                }
+                _ => None,
+            };
+            op.get_type(e_type_optional)
+        },
+        ASTNode::FunctionCall { name, args } => {
+            let func_type = get_function_type(context, name)?;
+            let t = match func_type {
+                Type::Function(_, ret, _) => *ret,
+                Type::Any => Type::Any, // TODO : remove ?
+                _ => unreachable!(),
+            };
+
+            for arg in args {
+                _resolve_types(context, arg)?;
+            }
+
+            t
+        },
+        ASTNode::IfExpr { cond_expr, then_body, else_body } => {
+            _resolve_types(context, cond_expr)?;
+            let then_type = _resolve_types(context, then_body)?;
+            let else_type = _resolve_types(context, else_body)?;
+            match (then_type, else_type){
+                (Type::Any, t) | (t, Type::Any) => t,
+                (t1, t2) if t1 == t2 => t1,
+                (t1, t2) => panic!("mismatched type branches in if : (then : {:?}, else : {:?})", t1, t2),
+            }
+        }
+        ASTNode::MatchExpr { matched_expr, patterns } => {
+            let matched_type = _resolve_types(context, matched_expr)?;
+                
+            let mut branch_types = Vec::new();
+            for (pattern, pattern_ast) in patterns {
+                register_pattern_vars(context, &pattern, matched_type.clone())?;
+                let t = _resolve_types(context, pattern_ast)?;
+                branch_types.push(t);
+            }
+
+            // TODO : typecheck match expr
+
+            branch_types.into_iter().next().unwrap()
+        }
+        //t => panic!("Unknwown ast node : {:?}", DebugWrapContext::new(&t, context.rustaml_context)),
+    };
+    ast.set_type(&mut context.rustaml_context.ast_pool, t.clone());
+    Ok(t)
 
     
 }
