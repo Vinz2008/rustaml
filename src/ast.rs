@@ -873,7 +873,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     return node;
 }
 
-fn ensure_type_is_binop(op : Operator, t : Type, is_type : Type, range : Range<usize>) -> Result<(), ParserErr>{
+/*fn ensure_type_is_binop(op : Operator, t : Type, is_type : Type, range : Range<usize>) -> Result<(), ParserErr>{
     if t == is_type {
         Ok(())
     } else {
@@ -896,7 +896,7 @@ fn typecheck_binop(op : Operator, lhs_type : Type, rhs_type : Type, lhs_range : 
         }
     }
     Ok(())
-}
+}*/
 
 fn parse_binary_rec(parser: &mut Parser, lhs: ASTRef, min_precedence: i32) -> Result<ASTRef, ParserErr> {
     let mut lhs = lhs;

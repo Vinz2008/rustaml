@@ -119,7 +119,7 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
             create_var(context, *e, element_type_var);
             // TODO : add constraints
 
-            let list_pattern_var = collect_constraints_pattern(context, matched_type_var, l.as_ref());
+            collect_constraints_pattern(context, matched_type_var, l.as_ref());
             context.constraints.push(TypeConstraint::IsElementOf { element: element_type_var, list: todo!() });
         }
         Pattern::VarName(n) => { 
@@ -302,7 +302,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[TypeConstraint]){
                 let root_tv = table.find_root(*tv);
                 match &table.real_types[root_tv.0 as usize] {
                     Some(tv_type) => { 
-                        if /*tv_type != t*/ let None = merge_types(tv_type, t) {
+                        if /*tv_type != t*/ merge_types(tv_type, t).is_none() {
                             // type checking error (TODO)
                             panic!("Error type checking, expected : {:?}, got : {:?}", t, tv_type);
                         }
@@ -314,20 +314,16 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[TypeConstraint]){
                 let root_tv1 = table.find_root(*tv1);
                 let root_tv2 = table.find_root(*tv2);
                 if root_tv1 != root_tv2 {
-
                     let tv1_type = table.real_types[root_tv1.0 as usize].clone();
                     let tv2_type = table.real_types[root_tv2.0 as usize].clone();
-                    match (tv1_type, tv2_type){
-                        (Some(t1), Some(t2)) => {
-                            if let Some(merged_type) = merge_types(&t1, &t2){
-                                table.real_types[tv2.0 as usize] = Some(merged_type);
-                                table.real_types[tv1.0 as usize] = None;
-                            } else {
-                                // type checking error (TODO)
-                                panic!("Error type checking, these types are incompatible : {:?} and {:?}", t1, t2);
-                            }
-                        },
-                        _ => {} // no concrete types
+                    if let (Some(t1), Some(t2)) = (tv1_type, tv2_type){
+                        if let Some(merged_type) = merge_types(&t1, &t2){
+                            table.real_types[tv2.0 as usize] = Some(merged_type);
+                            table.real_types[tv1.0 as usize] = None;
+                        } else {
+                            // type checking error (TODO)
+                            panic!("Error type checking, these types are incompatible : {:?} and {:?}", t1, t2);
+                        }
                     }
 
                     // tv2 becomes the parent of tv1

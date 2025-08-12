@@ -23,25 +23,13 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct BuiltinFunction<'llvm_ctx> {
     name : &'static str,
     args : Vec<BasicMetadataTypeEnum<'llvm_ctx>>,
     ret : Option<AnyTypeEnum<'llvm_ctx>>, // will always be Some, just for the default implementation
     attributes : Vec<(AttributeLoc, Attribute)>,
     is_variadic: bool,
-}
-
-impl<'llvm_ctx> Default for BuiltinFunction<'llvm_ctx> {
-    fn default() -> Self {
-        Self { 
-            name: Default::default(), 
-            args: Default::default(), 
-            ret: None, // dummy value, PLEASE CHANGE THE RET FOR EVERY STRUCT INIT
-            attributes: Default::default(),
-            is_variadic: false,
-        }
-    }
 }
 
 

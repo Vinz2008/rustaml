@@ -3,7 +3,7 @@
 #![allow(clippy::let_and_return)]
 #![feature(debug_closure_helpers)]
 
-use std::{path::{Path, PathBuf}, process::ExitCode};
+use std::{path::PathBuf, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 use debug_with_context::DebugWrapContext;
