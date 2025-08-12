@@ -3,7 +3,7 @@ use std::{fmt, fs::File, io::{self, Write}};
 use debug_with_context::{DebugWithContext, DebugWrapContext};
 
 
-use crate::{ast::{ASTNode, ASTRef, Type}, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, rustaml::RustamlContext, string_intern::StringRef};
 
 pub  struct PrintTypedContext<'a> {
     rustaml_context : &'a RustamlContext,
@@ -129,7 +129,7 @@ impl<'a> DebugWithContext<PrintTypedContext<'a>> for ASTNode {
                         )
                         .field_with(
                             "patterns",
-                            |fmt| { patterns.fmt_with_context(fmt, context.rustaml_context) },
+                            |fmt| { patterns.fmt_with_context(fmt, context) },
                         )
                         .finish()
                 }
@@ -181,6 +181,56 @@ impl<'a> DebugWithContext<PrintTypedContext<'a>> for ASTNode {
                         .finish()
                 }
                 Self::Unit => f.write_fmt(format_args!("Unit")),
+            }
+        }
+    }
+
+    impl<'a> DebugWithContext<PrintTypedContext<'a>> for Pattern {
+        fn fmt_with_context(
+            &self,
+            f: &mut ::std::fmt::Formatter,
+            context: &PrintTypedContext,
+        ) -> ::std::fmt::Result {
+            match self {
+                Self::VarName(arg0) => {
+                    f.debug_tuple("VarName")
+                        .field_with(|fmt| { arg0.fmt_with_context(fmt, context) })
+                        .finish()
+                }
+                Self::Integer(arg0) => {
+                    f.debug_tuple("Integer")
+                        .field_with(|fmt| { arg0.fmt_with_context(fmt, context) })
+                        .finish()
+                }
+                Self::Float(arg0) => {
+                    f.debug_tuple("Float")
+                        .field_with(|fmt| { arg0.fmt_with_context(fmt, context) })
+                        .finish()
+                }
+                Self::Range(arg0, arg1, arg2) => {
+                    f.debug_tuple("Range")
+                        .field_with(|fmt| { arg0.fmt_with_context(fmt, context) })
+                        .field_with(|fmt| { arg1.fmt_with_context(fmt, context) })
+                        .field_with(|fmt| { arg2.fmt_with_context(fmt, context) })
+                        .finish()
+                }
+                Self::String(arg0) => {
+                    f.debug_tuple("String")
+                        .field_with(|fmt| { arg0.fmt_with_context(fmt, context) })
+                        .finish()
+                }
+                Self::List(arg0) => {
+                    f.debug_tuple("List")
+                        .field_with(|fmt| { arg0.fmt_with_context(fmt, context) })
+                        .finish()
+                }
+                Self::ListDestructure(arg0, arg1) => {
+                    f.debug_tuple("ListDestructure")
+                        .field_with(|fmt| { arg0.fmt_with_context(fmt, context) })
+                        .field_with(|fmt| { arg1.fmt_with_context(fmt, context) })
+                        .finish()
+                }
+                Self::Underscore => f.write_fmt(format_args!("Underscore")),
             }
         }
     }

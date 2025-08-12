@@ -79,7 +79,7 @@ fn get_var_type(context: &mut TypeContext, name: StringRef) -> Result<Type, Type
 
 
 // TODO : how do you prevent this from happening multiple times ?
-fn infer_arg_types(context: &mut TypeContext, arg_names : &[StringRef], func_body : ASTRef) -> Result<Vec<Type>, TypesErr> {
+fn get_arg_types(context: &mut TypeContext, arg_names : &[StringRef], func_body : ASTRef) -> Result<Vec<Type>, TypesErr> {
     let mut arg_types = Vec::new();
     for arg_name in arg_names {
         let arg_type = match get_var_type(context, *arg_name)? {
@@ -87,11 +87,14 @@ fn infer_arg_types(context: &mut TypeContext, arg_names : &[StringRef], func_bod
                 let range = 0..0; // TODO
                 let inferred_type = infer_var_type(context, *arg_name, func_body, &range).unwrap();
                 debug_println!(context.rustaml_context.is_debug_print, "inferred {:?} to {:?}", DebugWrapContext::new(arg_name, context.rustaml_context), inferred_type);
+                /*if let Type::Any = inferred_type {
+                    panic!()
+                }*/
                 inferred_type
-            
             },
             t => t,
         };
+        context.type_infos.vars_env.insert(*arg_name, arg_type.clone());
                 
         arg_types.push(arg_type);
     }
@@ -116,14 +119,13 @@ pub fn get_function_type(context: &mut TypeContext, name: StringRef) -> Result<T
             let t = Type::Function(args_any, Box::new(ret_type.clone()), false);
             context.functions_type_annotations.insert(name, t.clone());
             
-            let arg_types = infer_arg_types(context, &arg_names, func_body)?;
+            let arg_types = get_arg_types(context, &arg_names, func_body)?;
             
             let t = Type::Function(arg_types, Box::new(ret_type), false);
             context.functions_type_annotations.insert(name, t.clone());
             t
         }
     };
-    // add this to prevent not caching inference type
     
     Ok(t)
 }
@@ -240,7 +242,7 @@ pub fn _resolve_types(context: &mut TypeContext, ast : ASTRef) -> Result<Type, T
                 let function_type = Type::Function(arg_types, Box::new(return_type.clone()), false);
                 context.functions_type_annotations.insert(name, function_type);
             } else {
-                let var_types = infer_arg_types(context, &arg_names, body)?;
+                let var_types = get_arg_types(context, &arg_names, body)?;
                 var_types.into_iter().zip(arg_names).for_each(|(ty, name)| { context.type_infos.vars_env.insert(name, ty); });
             }
 
@@ -355,5 +357,6 @@ fn resolve_types(context: &mut TypeContext, ast : ASTRef) -> Result<(), TypesErr
 
 fn typecheck_types(context: &mut TypeContext, ast : ASTRef) -> Result<(), TypesErr> {
     // TODO : do all the typechecks not already done in the resolving (ex : function type args, lists)
+    // check for any (optional flag ?)
     Ok(())
 }

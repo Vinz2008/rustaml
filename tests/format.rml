@@ -18,5 +18,5 @@ let _ = print d ;;
 
 let f_bool a : int -> bool = a < 6 ;; 
 
-let e = format "format a bool : {}" (f_bool rand ()) ;;
+let e = format "format a bool : {}" f_bool (rand ()) ;;
 let _ = print e ;;

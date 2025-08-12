@@ -1,7 +1,7 @@
 use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, move_bb_after_current, promote_val_var_arg}, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -574,7 +574,7 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
 
 fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>) -> IntValue<'llvm_ctx>{
     match pattern {
-        Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*i as u64, false), "match_int_cmp").unwrap(),
+        Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap_or_else(|_| panic!("not an int value : {:?}", matched_val)), compile_context.context.i64_type().const_int(*i as u64, false), "match_int_cmp").unwrap(),
         Pattern::Range(lower, upper, inclusivity) => {
             let (lower_predicate, upper_predicate) = if *inclusivity {
                 (IntPredicate::SLE, IntPredicate::SGE)
@@ -607,7 +607,16 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
                 let pattern_bool = compile_pattern_match_bool_val(compile_context, p, );
             }*/
         },
+        Pattern::String(s) => {
+            let str_cmp_fun = compile_context.get_internal_function("__str_cmp");
+            // TODO : verify it these strings are deduplicated
+            let s_val = create_string(compile_context.builder, s.get_str(&compile_context.rustaml_context.str_interner));
+
+            let args = vec![s_val.into()];
+            compile_context.builder.build_call(str_cmp_fun, &args, "pattern_match_str_cmp").unwrap().as_any_value_enum().into_int_value()
+        },
         // the type should be checked before (TODO ?)
+        // TODO : need to recursively make compares if there is more than one destructuring
         Pattern::ListDestructure(_, _) => compile_context.builder.build_int_compare(IntPredicate::NE, matched_val.into_pointer_value(), compile_context.context.ptr_type(AddressSpace::default()).const_null(), "cmp_destructure_not_empty").unwrap(),
         // TODO
         p => panic!("unknown pattern {:?}", DebugWrapContext::new(p, compile_context.rustaml_context)),
@@ -780,6 +789,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             let return_type_llvm = get_llvm_type(compile_context.context, return_type);
             //let param_types = args.iter().map(|a| get_llvm_type(compile_context.context, &a.arg_type).try_into().unwrap()).collect::<Vec<_>>();
             let param_types = args.iter().map(|a| get_var_type(compile_context, a.name)).collect::<Vec<_>>();
+            debug_println!(compile_context.rustaml_context.is_debug_print, "function {:?} param types : {:?}", DebugWrapContext::new(name, compile_context.rustaml_context), param_types);
             let param_types = param_types.into_iter().map(|t| get_llvm_type(compile_context.context, t)).collect::<Vec<_>>();
             let param_types_metadata = param_types.iter().map(|t| (*t).try_into().unwrap()).collect::<Vec<_>>();
             let function_type = get_fn_type(compile_context.context, return_type_llvm, &param_types_metadata, false);
@@ -788,6 +798,8 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             
             let entry = compile_context.context.append_basic_block(function, "entry");
             compile_context.builder.position_at_end(entry);
+
+            debug_println!(compile_context.rustaml_context.is_debug_print,"function {:?} param types llvm : {:?}", DebugWrapContext::new(name, compile_context.rustaml_context), param_types);
 
             //let mut old_arg_name_type = Vec::new(); // to save the types that have the same of the args in the global vars 
 

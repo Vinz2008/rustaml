@@ -15,7 +15,7 @@ let c = fib 14 ;;
 
 let f = 2.6 ;;
 
-let test_f f_arg : float -> float = f_arg + 2.0 ;;
+let test_f f_arg : float -> float = f_arg +. 2.0 ;;
 
 let test_match a_ : int -> int = 
   match a_ with 
@@ -47,17 +47,19 @@ let m = "hello" == "world" ;;
 
 let o = "hello" ^ " " ^ "world" ;;
 
-let test_inference_match s = 
-  match s with
-  | s -> if s == 2 then true else false ;;
+// TODO : remove the 2 here and in every other repetitions to test shadowing after it is implemented again
+// TODO : make this work again without type annotations (will need better inference/bidirectionnal type checking to have the inference work at the same time than the type resolving, because for now the type inference is blocked by the fact that types are not resolved)
+let test_inference_match s2 = 
+  match s2 with
+  | s2_matched -> if s2_matched == 2 then true else false ;;
 
 
 let p = test_inference_match 3 ;;
 
 let q = [2, 3, 4] ;;
 
-let test_list a_ = 
-  match a_ with
+let test_list a_2 = 
+  match a_2 with
   | [] -> "empty"
   | [1, 2, 3] -> "1, 2, 3"
   | e :: l -> "list" ;;
@@ -75,8 +77,8 @@ let append2 el2 l = el2 :: el2 :: l ;;
 
 let u = append2 3 [4] ;;
 
-let test_destructure a_ : list[int] -> list[int] =
-  match a_ with
+let test_destructure a_3 : list[int] -> list[int] =
+  match a_3 with
   | ee :: l -> ee ;;
 
 let v = test_destructure [2] ;;

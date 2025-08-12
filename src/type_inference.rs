@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use debug_with_context::DebugWrapContext;
 
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug_println, string_intern::StringRef, types::{get_function_type, TypeContext}};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug_println, lexer::Operator, string_intern::StringRef, types::{get_function_type, TypeContext, _resolve_types}};
 
 
 // TODO : put this in a type_inference_debug.rs ?
@@ -36,7 +36,9 @@ fn infer_var_type_pattern(type_context : &mut TypeContext, pattern: &Pattern, bo
         Pattern::Underscore => None,
         Pattern::VarName(var_name) => {
             // get the type of the var name in the body
-            _infer_var_type(type_context, *var_name, body, range)
+            // TODO : remove the comment
+            //_infer_var_type(type_context, *var_name, body, range)
+            infer_var_type(type_context, *var_name, body, range).ok()
         }
     }
 }
@@ -148,9 +150,16 @@ pub fn _infer_var_type(type_context : &mut TypeContext, var_name: StringRef, nod
             if matches!(matched_expr.get(&type_context.rustaml_context.ast_pool), ASTNode::VarUse { name: var_use_name } if *var_use_name == var_name){
                 for pattern in &patterns {
                     let pattern_type = infer_var_type_pattern(type_context, &pattern.0, pattern.1, range);
+                    println!("pattern_type (searching {:?}) : {:?}", DebugWrapContext::new(&var_name, type_context.rustaml_context), pattern_type);
                     pattern_type_inferred = merge_types(pattern_type_inferred, pattern_type);
                 }
+                println!("PATTERN TYPE INFERRED for {:?} : {:?}", DebugWrapContext::new(&var_name, type_context.rustaml_context), pattern_type_inferred);
+                /*if let Some(p) = &pattern_type_inferred && !matches!(p, Type::Any) {
+                    panic!();
+                }*/
             }
+
+            
 
             let mut pattern_body_type_inferred = None;
 
@@ -183,15 +192,16 @@ pub fn _infer_var_type(type_context : &mut TypeContext, var_name: StringRef, nod
             debug_println!(type_context.rustaml_context.is_debug_print, "is_right_var = {}", is_right_var);
             //dbg!(is_right_var);
 
-            if is_left_var || is_right_var {
+            let t = if is_left_var || is_right_var {
                 let other_operand_type = if is_left_var {
-                    rhs.get_type(&type_context.rustaml_context.ast_pool)
+                    _resolve_types(type_context, rhs).ok()? // TODO : improve this error handling
+                    //rhs.get_type(&type_context.rustaml_context.ast_pool)
                 } else {
-                    lhs.get_type(&type_context.rustaml_context.ast_pool)
+                    _resolve_types(type_context, lhs).ok()?
                 };
                 debug_println!(type_context.rustaml_context.is_debug_print, "other_operand_type : {:#?}", &other_operand_type);
                 //dbg!(&other_operand_type);
-                let operand_type = op.get_operand_type(is_left_var, other_operand_type);
+                let operand_type = op.get_operand_type(is_left_var, &other_operand_type);
                 debug_println!(type_context.rustaml_context.is_debug_print, "operand_type : {:#?}", &operand_type);
                 //dbg!(&operand_type);
                 debug_println!(type_context.rustaml_context.is_debug_print, "other_operand_type : {:#?}", &other_operand_type);
@@ -199,13 +209,17 @@ pub fn _infer_var_type(type_context : &mut TypeContext, var_name: StringRef, nod
                 // TODO : create prinln_context for these ?
                 debug_println!(type_context.rustaml_context.is_debug_print, "var_name = {:#?}", DebugWrapContext::new(&var_name, type_context.rustaml_context));
                 debug_println!(type_context.rustaml_context.is_debug_print, "node = {:#?}", DebugWrapContext::new(&node, type_context.rustaml_context));
-                Some(operand_type)
+                dbg!(Some(operand_type))
             } else {
                 let lhs_inferred = _infer_var_type(type_context, var_name, lhs, range);
                 let rhs_inferred = _infer_var_type(type_context, var_name, rhs, range); 
-
                 merge_types(lhs_inferred, rhs_inferred)
-            }
+            };
+
+            /*if var_name.get_str(&type_context.rustaml_context.str_interner) == "s2_matched" && matches!(op, Operator::IsEqual){
+                panic!("t : {:?}", t);
+            }*/
+            t
         },
         ASTNode::FunctionCall { name: function_name, args } => {
             let function_type = get_function_type(type_context, function_name).ok(); // replace this a better error handling
