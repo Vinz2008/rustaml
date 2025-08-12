@@ -21,8 +21,6 @@ use human_panic::setup_panic;
 mod ast;
 mod interpreter;
 mod lexer;
-mod type_inference;
-mod type_inference_debug;
 mod string_intern;
 mod print_error;
 mod rustaml;
@@ -103,7 +101,7 @@ enum Commands {
         filename: PathBuf,
 
         #[arg(long, default_value_t = false)]
-        dump_inference : bool,
+        dump_types : bool,
 
 
         #[arg(long, short = 'd', default_value_t = false)]
@@ -140,21 +138,21 @@ fn main() -> ExitCode {
 
     let args = Args::parse();
 
-    let (dump_inference, debug_print) = match args.command {
-        Some(Commands::Check { filename: _, dump_inference, debug_print }) => (dump_inference, debug_print),
+    let debug_print = match args.command {
+        Some(Commands::Check { filename: _, dump_types: _, debug_print }) => debug_print,
         Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, disable_gc: _, enable_sanitizer: _, debug_print }) => {
-            (false, debug_print)
+            debug_print
         },
         Some(Commands::Interpret { filename: _, debug_print }) => {
-            (false, debug_print)
+            debug_print
         },
         Some(Commands::Repl { debug_print }) => {
-            (false, debug_print)
+            debug_print
         },
-        _ => (false, false),
+        _ => false,
     };
 
-    let mut rustaml_context = RustamlContext::new(dump_inference, debug_print);
+    let mut rustaml_context = RustamlContext::new(debug_print);
 
     match args.command.expect("No subcommand specified!") {
         Commands::Interpret { filename, debug_print: _ } => {
@@ -199,7 +197,7 @@ fn main() -> ExitCode {
             compile(ast, &mut rustaml_context, typeinfos,  &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, disable_gc, enable_sanitizer);
         },
 
-        Commands::Check { filename, dump_inference, debug_print: _ } => {
+        Commands::Check { filename, dump_types, debug_print: _ } => {
             let ast = get_ast(&filename, &mut rustaml_context);
             let ast = match ast {
                 Ok(a) => a,
@@ -208,8 +206,7 @@ fn main() -> ExitCode {
 
             let _ = resolve_and_typecheck(&mut rustaml_context, ast).unwrap_or_else(|e| panic!("error in types : {:?}", e));
 
-            if dump_inference {
-                rustaml_context.dump_inference.borrow().dump(Path::new("infer.dump"), &rustaml_context).unwrap();
+            if dump_types {
                 dump_typed_ast(&rustaml_context, ast).unwrap();
             }
 
