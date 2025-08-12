@@ -5,7 +5,7 @@ use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
-use crate::{debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef, type_inference::TypeInferenceErr};
+use crate::{debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef};
 use debug_with_context::{DebugWithContext, DebugWrapContext};
 
 #[derive(Clone, PartialEq, DebugWithContext)]
@@ -70,7 +70,7 @@ impl ASTPool {
 }
 
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ASTRef(u32);
 
 impl ASTRef {
@@ -170,6 +170,7 @@ pub enum Type {
     Str,
     List(Box<Type>),
     // TODO : add a number to any (to have 'a, 'b, etc)
+    // TODO: or remove Any ?
     Any, // equivalent to 'a
     Unit,
     Never,
@@ -327,15 +328,6 @@ pub struct ParserErr {
 impl ParserErr {
     pub fn new(parser_err_data : ParserErrData, range : Range<usize>) -> ParserErr {
         ParserErr { parser_err_data: Box::new(parser_err_data), range }
-    }
-}
-
-impl From<TypeInferenceErr> for ParserErr {
-    fn from(err: TypeInferenceErr) -> Self {
-        ParserErr::new(
-            ParserErrData::TypeInferenceErr { arg_name: *err.arg_name },
-            err.range,
-        )
     }
 }
 

@@ -1,12 +1,8 @@
-use std::ops::Range;
+/*use std::ops::Range;
 
 use debug_with_context::DebugWrapContext;
 
 use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug_println, lexer::Operator, string_intern::StringRef, types::{get_function_type, TypeContext, _resolve_types}};
-
-
-// TODO : put this in a type_inference_debug.rs ?
-
 
 fn infer_var_type_pattern(type_context : &mut TypeContext, pattern: &Pattern, body : ASTRef, range : &Range<usize>) -> Option<Type> {
     match pattern {
@@ -110,7 +106,7 @@ macro_rules! merge_types {
 
 // TODO : return a result with a real error ?
 // TODO : split this function into subfunctions
-pub fn _infer_var_type(type_context : &mut TypeContext, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Option<Type> {
+fn _infer_var_type(type_context : &mut TypeContext, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Option<Type> {
     let n = node.get(&type_context.rustaml_context.ast_pool).clone();
     let t = match n {
         ASTNode::TopLevel { nodes } => {
@@ -253,7 +249,7 @@ pub fn _infer_var_type(type_context : &mut TypeContext, var_name: StringRef, nod
 }
 
 // TODO : make this infallible (inference only gives infos, no need to crash if not found, only if they really need to be used we crash)
-pub fn infer_var_type(type_context : &mut TypeContext, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Result<Type, TypeInferenceErr> {
+fn infer_var_type(type_context : &mut TypeContext, var_name: StringRef, node: ASTRef, range: &Range<usize>) -> Result<Type, TypeInferenceErr> {
     match _infer_var_type(type_context, var_name, node, range) {
         Some(t) => {
             type_context.rustaml_context.dump_inference.borrow_mut().add_var_inferred(var_name, t.clone());
@@ -261,4 +257,4 @@ pub fn infer_var_type(type_context : &mut TypeContext, var_name: StringRef, node
         },
         None => Err(TypeInferenceErr::new(var_name.get_str(&type_context.rustaml_context.str_interner).to_owned(), range.clone()))
     }
-}
+}*/

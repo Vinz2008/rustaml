@@ -170,7 +170,8 @@ fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
 
     if !is_underscore {
         //let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("No type found for var {}", name.get_str(&compile_context.rustaml_context.str_interner)));
-        let var_type = compile_context.typeinfos.vars_ast.get(&name).unwrap().get_type(&compile_context.rustaml_context.ast_pool);
+        //let var_type = compile_context.typeinfos.vars_ast.get(&name).unwrap().get_type(&compile_context.rustaml_context.ast_pool);
+        let var_type = get_var_type(compile_context, name);
         let alloca_type = get_llvm_type(compile_context.context, var_type);
         create_var(compile_context, name, val, alloca_type);
     }
@@ -767,6 +768,8 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
     }
 }
 
+
+// TODO : is the second part needed ?
 fn get_var_type<'context>(compile_context: &'context CompileContext<'context, '_, '_>, name : StringRef) -> &'context Type {
     match compile_context.typeinfos.vars_env.get(&name) {
         Some(t) => t,

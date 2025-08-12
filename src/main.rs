@@ -40,9 +40,9 @@ cfg_if! {
 
         use crate::compiler::compile;
     } else {
-        use crate::ast::{ASTRef, Type};
-        use rustc_hash::FxHashMap;
-        use crate::string_intern::StringRef;
+        use crate::ast::ASTRef;
+        //use rustc_hash::FxHashMap;
+        //use crate::string_intern::StringRef;
     }
 }
 
