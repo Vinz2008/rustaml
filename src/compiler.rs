@@ -768,7 +768,8 @@ fn get_var_type<'context>(compile_context: &'context CompileContext<'context, '_
         None => {
             //let var_val_ast = *compile_context.typeinfos.vars_ast.get(&name).unwrap_or_else(|| panic!("Unknown var {:?}", DebugWrapContext::new(&name, compile_context.rustaml_context))); // TODO : add better handling instead of unwrap (the var not found should be here ?)
             //var_val_ast.get_type(&compile_context.rustaml_context.ast_pool)
-            unreachable!()
+            panic!("Compiler: unknown var : {:?}", DebugWrapContext::new(&name, compile_context.rustaml_context));
+            //unreachable!()
         }
     }
 }
