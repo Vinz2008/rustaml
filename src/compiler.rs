@@ -2,7 +2,7 @@ use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
-use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
+use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
@@ -760,11 +760,15 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
 // TODO : is the second part needed ?
 fn get_var_type<'context>(compile_context: &'context CompileContext<'context, '_, '_>, name : StringRef) -> &'context Type {
     match compile_context.typeinfos.vars_env.get(&name) {
-        Some(t) => t,
+        Some(t) => match t {
+            Type::Any => panic!("Compiler: var {:?} is any", DebugWrapContext::new(&name, compile_context.rustaml_context)),
+            t => t,
+        },
         
         None => {
-            let var_val_ast = *compile_context.typeinfos.vars_ast.get(&name).unwrap_or_else(|| panic!("Unknown var {:?}", DebugWrapContext::new(&name, compile_context.rustaml_context))); // TODO : add better handling instead of unwrap (the var not found should be here ?)
-            var_val_ast.get_type(&compile_context.rustaml_context.ast_pool)
+            //let var_val_ast = *compile_context.typeinfos.vars_ast.get(&name).unwrap_or_else(|| panic!("Unknown var {:?}", DebugWrapContext::new(&name, compile_context.rustaml_context))); // TODO : add better handling instead of unwrap (the var not found should be here ?)
+            //var_val_ast.get_type(&compile_context.rustaml_context.ast_pool)
+            unreachable!()
         }
     }
 }
@@ -772,14 +776,17 @@ fn get_var_type<'context>(compile_context: &'context CompileContext<'context, '_
 // TODO : test to replace AnyValueEnum with &dyn AnyValue ?
 fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRef) {
     match ast_node.get(&compile_context.rustaml_context.ast_pool) {
-        ASTNode::FunctionDefinition { name, args, body, return_type } => {
-            let return_type = match return_type {
-                Type::Any => compile_context.typeinfos.functions_ast.get(name).unwrap().get_type(&compile_context.rustaml_context.ast_pool),
-                t => t,
+        ASTNode::FunctionDefinition { name, args, body, return_type: _ } => {
+            //println!("typeinfos function_env : {:?}", DebugWrapContext::new(&compile_context.typeinfos.functions_env, compile_context.rustaml_context));
+            let (return_type, arg_types) = match compile_context.typeinfos.functions_env.get(name).unwrap(){
+                Type::Function(args, ret, _) => (ret.as_ref().clone(), args),
+                t => panic!("BUG : the function definition has not a function type, it is {:?} instead", t), // TODO : replace this with an unreachable
             };
-            let return_type_llvm = get_llvm_type(compile_context.context, return_type);
+
+            let return_type_llvm = get_llvm_type(compile_context.context, &return_type);
             //let param_types = args.iter().map(|a| get_llvm_type(compile_context.context, &a.arg_type).try_into().unwrap()).collect::<Vec<_>>();
-            let param_types = args.iter().map(|a| get_var_type(compile_context, a.name)).collect::<Vec<_>>();
+            //let param_types = args.iter().map(|a| get_var_type(compile_context, a.name)).collect::<Vec<_>>();
+            let param_types = arg_types;
             debug_println!(compile_context.rustaml_context.is_debug_print, "function {:?} param types : {:?}", DebugWrapContext::new(name, compile_context.rustaml_context), param_types);
             let param_types = param_types.into_iter().map(|t| get_llvm_type(compile_context.context, t)).collect::<Vec<_>>();
             let param_types_metadata = param_types.iter().map(|t| (*t).try_into().unwrap()).collect::<Vec<_>>();

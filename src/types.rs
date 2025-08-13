@@ -1,12 +1,14 @@
-use debug_with_context::DebugWrapContext;
+use debug_with_context::{DebugWithContext, DebugWrapContext};
 use rustc_hash::FxHashMap;
 
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug_println, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
 
 #[derive(Debug)]
 pub enum TypesErr {
     
 }
+
+// TODO : test to use typerefs to interned types instead of types to speed up type comparisons ? (ex : could store somewhere the Type::Any index to compare it for the merge type ?)
 
 #[derive(Default)]
 pub struct TypeInfos {
@@ -38,14 +40,16 @@ pub struct TypeContext<'a> {
 }
 
 // unknown type
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, DebugWithContext)]
+#[debug_context(RustamlContext)]
 struct TypeVarId(u32);
 
 // TODO : rename just Constraint ?
 enum TypeConstraint {
     SameType(TypeVarId, TypeVarId),   // var1 == var2
     IsType(TypeVarId, Type),   // var == Int, Float, Function, ...
-    FunctionType { fun_type_var: TypeVarId, args_type_vars: Vec<TypeVarId>, ret_type_var: TypeVarId, is_variadic: bool }, // check if the function type is good (for calls)
+    // TODO : replace function_name with a stringref ?
+    FunctionType { fun_type_var: TypeVarId, args_type_vars: Vec<TypeVarId>, ret_type_var: TypeVarId, is_variadic: bool, function_name : String }, // check if the function type is good (for calls)
     // TODO : can I merge these list constraints ?
     ListType(TypeVarId), // var is list(Any)
     IsElementOf { element: TypeVarId, list : TypeVarId }
@@ -80,6 +84,7 @@ impl TypeVarTable {
     fn resolve_type(&mut self, tv : TypeVarId) -> Type {
         let tv_root = self.find_root(tv);
         self.real_types[tv_root.0 as usize].clone().unwrap_or(Type::Any) // TODO : try to replace unwrap_or with unwrap ?
+        //self.real_types[tv_root.0 as usize].clone().unwrap()
     }
 }
 
@@ -174,8 +179,28 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> TypeVarId {
         ASTNode::BinaryOp { op, lhs, rhs } => {
             let lhs_type_var = collect_constraints(context, lhs);
             let rhs_type_var = collect_constraints(context, rhs);
-            // TODO : make it more complex (for now just need to be the same type)
-            context.constraints.push(TypeConstraint::SameType(lhs_type_var, rhs_type_var));
+
+            match op {
+                Operator::Plus | Operator::Minus | Operator::Mult | Operator::Div => {
+                    context.constraints.push(TypeConstraint::IsType(lhs_type_var, Type::Integer));
+                    context.constraints.push(TypeConstraint::IsType(rhs_type_var, Type::Integer));
+                },
+                Operator::PlusFloat | Operator::MinusFloat | Operator::MultFloat | Operator::DivFloat => {
+                    context.constraints.push(TypeConstraint::IsType(lhs_type_var, Type::Float));
+                    context.constraints.push(TypeConstraint::IsType(rhs_type_var, Type::Float));
+                },
+                Operator::IsEqual | Operator::IsNotEqual | Operator::SuperiorOrEqual | Operator::InferiorOrEqual | Operator::Superior | Operator::Inferior => {
+                    context.constraints.push(TypeConstraint::SameType(lhs_type_var, rhs_type_var));
+                },
+                Operator::StrAppend => {
+                    context.constraints.push(TypeConstraint::IsType(lhs_type_var, Type::Str));
+                    context.constraints.push(TypeConstraint::IsType(rhs_type_var, Type::Str));
+                },
+                Operator::ListAppend => {
+                    context.constraints.push(TypeConstraint::IsElementOf { element: lhs_type_var, list: rhs_type_var });
+                },
+                Operator::Equal => unreachable!(),
+            }
 
             // TODO : refactor this (inline this ?)
             let res_type = op.get_type(None);
@@ -188,7 +213,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> TypeVarId {
             let mut arg_vars = Vec::new();
             for arg in args {
                 let arg_type_var = context.table.new_type_var();
-                context.type_infos.vars_env.insert(arg.name, Type::Any); // placeholder (TODO ? remove ?)
+                //context.type_infos.vars_env.insert(arg.name, Type::Any); // placeholder (TODO ? remove ?)
                 arg_vars.push(arg_type_var);
                 if !matches!(arg.arg_type, Type::Any){
                     context.constraints.push(TypeConstraint::IsType(arg_type_var, arg.arg_type));
@@ -206,7 +231,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> TypeVarId {
             context.constraints.push(TypeConstraint::SameType(body_type_var, ret_type_var));
             //context.constraints.push(TypeConstraint::IsType(new_type_var, Type::Function(arg_vars.iter().map(|_| Type::Any).collect(), Box::new(Type::Any), false))); // The Any are replaced later
         
-            context.constraints.push(TypeConstraint::FunctionType { fun_type_var: new_type_var, args_type_vars: arg_vars, ret_type_var, is_variadic: false });
+            context.constraints.push(TypeConstraint::FunctionType { fun_type_var: new_type_var, args_type_vars: arg_vars, ret_type_var, is_variadic: false, function_name: name.get_str(&context.rustaml_context.str_interner).to_owned() });
         }
 
         ASTNode::FunctionCall { name, args } => {
@@ -217,15 +242,11 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> TypeVarId {
                 context.constraints.push(TypeConstraint::IsType(new_type_var, *ret.clone()));
             }*/
 
-            let ret_type_var = context.table.new_type_var();
+            let ret_type_var = new_type_var;
 
             let args_type_vars = args.iter().map(|&e| collect_constraints(context, e)).collect::<Vec<_>>();
 
-            context.constraints.push(TypeConstraint::FunctionType { fun_type_var, args_type_vars, ret_type_var, is_variadic: false });
-
-            for arg in args {
-                collect_constraints(context, arg);
-            }
+            context.constraints.push(TypeConstraint::FunctionType { fun_type_var, args_type_vars, ret_type_var, is_variadic: false, function_name: name.get_str(&context.rustaml_context.str_interner).to_owned() });
         }
 
         ASTNode::VarDecl { name, val, body, var_type } => {
@@ -257,7 +278,9 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> TypeVarId {
 
             let then_type_var = collect_constraints(context, then_body);
             let else_type_var = collect_constraints(context, else_body);
-            context.constraints.push(TypeConstraint::SameType(then_type_var, else_type_var));
+            context.constraints.push(TypeConstraint::SameType(new_type_var, then_type_var));
+            context.constraints.push(TypeConstraint::SameType(new_type_var, else_type_var));
+            
         }
 
         ASTNode::MatchExpr { matched_expr, patterns } => {
@@ -285,7 +308,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> TypeVarId {
 }
 
 fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
-    match (t1, t2){
+    let merged_type = match (t1, t2){
         (t, Type::Any) | (Type::Any, t) => Some(t.clone()),
         (t1, t2) if t1 == t2 => Some(t1.clone()),
         (Type::List(e1), Type::List(e2)) => {
@@ -293,25 +316,36 @@ fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
             Some(Type::List(Box::new(e)))
         }
         _ => None,
-    }
+    };
+
+    //println!("merging type {:?} {:?} -> {:?}", t1, t2, merged_type.as_ref());
+    merged_type
 }
 
 // TODO : return result
 fn solve_constraints(table: &mut TypeVarTable, constraints : &[TypeConstraint]){
+    //println!("constraints: {:?}", constraints);
     for c in constraints {
         match c {
             // TODO : add support for the Never type in these constraints
             TypeConstraint::IsType(tv, t) => {
                 let root_tv = table.find_root(*tv);
-                match &table.real_types[root_tv.0 as usize] {
+                let merged_type = match &table.real_types[root_tv.0 as usize] {
                     Some(tv_type) => { 
-                        if /*tv_type != t*/ merge_types(tv_type, t).is_none() {
+                        if let Some(merged_type) = merge_types(tv_type, t) {
+                            merged_type
+                        } else {
                             // type checking error (TODO)
                             panic!("Error type checking, expected : {:?}, got : {:?}", t, tv_type);
                         }
                     },
-                    None => table.real_types[root_tv.0 as usize] = Some(t.clone()),
-                }
+                    None => t.clone(),
+                };
+
+                //println!("real type becomes with isType {:?}", &merged_type);
+                
+                table.real_types[root_tv.0 as usize] = Some(merged_type);
+
             },
             TypeConstraint::SameType(tv1, tv2) => {
                 let root_tv1 = table.find_root(*tv1);
@@ -319,22 +353,30 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[TypeConstraint]){
                 if root_tv1 != root_tv2 {
                     let tv1_type = table.real_types[root_tv1.0 as usize].clone();
                     let tv2_type = table.real_types[root_tv2.0 as usize].clone();
-                    if let (Some(t1), Some(t2)) = (tv1_type, tv2_type){
-                        if let Some(merged_type) = merge_types(&t1, &t2){
-                            table.real_types[tv2.0 as usize] = Some(merged_type);
-                            table.real_types[tv1.0 as usize] = None;
-                        } else {
-                            // type checking error (TODO)
-                            panic!("Error type checking, these types are incompatible : {:?} and {:?}", t1, t2);
+                    let merged_type = match (tv1_type, tv2_type) {
+                        (Some(t1), Some(t2)) => Some(merge_types(&t1, &t2).unwrap_or_else(|| panic!("Error type checking, these types are incompatible : {:?} and {:?}", t1, t2))),
+                        (Some(t), None) | (None, Some(t)) => Some(t),
+                        (None, None) => {
+                            // tv2 becomes the parent of tv1
+                            table.type_var_parents[tv1.0 as usize] = *tv2;
+                            None
                         }
+                    };
+
+                    if let Some(merged_type) = merged_type {
+                        //println!("real type becomes with SameType {:?}", &merged_type);
+                        table.real_types[root_tv2.0 as usize] = Some(merged_type);
+                        table.real_types[root_tv1.0 as usize] = None;
+                        
+                        // tv2 becomes the parent of tv1
+                        table.type_var_parents[root_tv1.0 as usize] = root_tv2;
                     }
 
-                    // tv2 becomes the parent of tv1
-                    table.type_var_parents[tv1.0 as usize] = *tv2;
+                    
                 }
             },
             // TODO : add in this constraint if it a function call or decl for message error
-            TypeConstraint::FunctionType { fun_type_var, args_type_vars, ret_type_var, is_variadic } => {
+            TypeConstraint::FunctionType { fun_type_var, args_type_vars, ret_type_var, is_variadic, function_name } => {
                 let fun_root = table.find_root(*fun_type_var);
                 let fun_type = table.real_types[fun_root.0 as usize].clone();
 
@@ -342,55 +384,116 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[TypeConstraint]){
 
                 let ret_type = table.resolve_type(*ret_type_var);
 
-                let (actual_args, actual_ret, variadic) = match fun_type {
-                    Some(Type::Function(args, ret, v)) => (args, ret, v),
+                let fun_type_tuple = match fun_type {
+                    Some(Type::Function(args, ret, v)) => Some((args, ret, v)),
                     Some(_) => panic!("This is supposed to be a function type"),
                     None => {
-                        table.real_types[fun_root.0 as usize] = Some(Type::Function(passed_args_types, Box::new(ret_type), *is_variadic));
-                        return;
+                        table.real_types[fun_root.0 as usize] = Some(Type::Function(passed_args_types.clone(), Box::new(ret_type.clone()), *is_variadic));
+                        None
                     },
                 };
 
-
-                if *is_variadic && passed_args_types.len() != actual_args.len() {
-                    panic!("Error when calling function, expected {} args, got {} args", actual_args.len(), passed_args_types.len()) // TODO : add the name of the function for error message
-                }
-                
-                let mut merged_arg_types = Vec::new();
-                for (passed_arg, actual_arg) in passed_args_types.iter().zip(&actual_args) {
-                    if let Some(merged_art_type) = merge_types(passed_arg, actual_arg){
-                        merged_arg_types.push(merged_art_type);
-                    } else {
-                        panic!("Wrong arg in function call, expected : {:?}, got : {:?}", actual_arg, passed_arg);
+                if let Some((actual_args, actual_ret, variadic)) = fun_type_tuple {
+                    if !*is_variadic && passed_args_types.len() != actual_args.len() {
+                        panic!("Error when calling function {}, expected {} args, got {} args", function_name, actual_args.len(), passed_args_types.len()) // TODO : add the name of the function for error message
                     }
+                
+                    let mut merged_arg_types = Vec::new();
+                    //dbg!(&passed_args_types);
+                    //dbg!(&actual_args);
+                    for (passed_arg, actual_arg) in passed_args_types.iter().zip(&actual_args) {
+                        if let Some(merged_art_type) = merge_types(passed_arg, actual_arg){
+                            merged_arg_types.push(merged_art_type);
+                        } else {
+                            // for now use just this check, in the future add a better way to have generic args
+
+                            if function_name != "print"{
+                                panic!("Wrong arg in function call of {:?}, expected : {:?}, got : {:?}", function_name, actual_arg, passed_arg);
+                            }
+                        }
+                    }
+
+                    let merged_ret = if let Some(merged_ret) = merge_types(&actual_ret, &ret_type) {
+                        merged_ret
+                    } else {
+                        panic!("Wrong ret type of function ")
+                    };
+
+                    table.real_types[fun_root.0 as usize] = Some(Type::Function(merged_arg_types, Box::new(merged_ret), variadic));
                 }
 
-                let merged_ret = if let Some(merged_ret) = merge_types(&actual_ret, &ret_type) {
-                    merged_ret
-                } else {
-                    panic!("Wrong ret type of function ")
-                };
 
-                table.real_types[fun_root.0 as usize] = Some(Type::Function(merged_arg_types, Box::new(merged_ret), variadic));
+                
             }
 
-            TypeConstraint::ListType(l) => todo!(),
-            TypeConstraint::IsElementOf { element, list } => todo!(),
+            TypeConstraint::ListType(tv_l) => {
+                let tv_l_root = table.find_root(*tv_l);
+                if let Some(tv_type) = &table.real_types[tv_l_root.0 as usize] {
+                    if !matches!(tv_type, Type::List(_)){
+                        panic!("expected a list type, but got {:?}", tv_type);
+                    }
+                } else {
+                    table.real_types[tv_l_root.0 as usize] = Some(Type::List(Box::new(Type::Any)));
+                }
+            },
+            TypeConstraint::IsElementOf { element, list } => {
+                let element_root = table.find_root(*element);
+                let list_root = table.find_root(*list);
+                let element_type = table.real_types[element_root.0 as usize].clone();
+                let list_type = table.real_types[list_root.0 as usize].clone();
+                //dbg!((&list_type, &element_type));
+
+                let merged_element_type = match (&list_type, &element_type) {
+                    (Some(Type::List(list_element_type)), element_type) => {
+                        if let Some(element_type) = element_type {
+                            let merged_element_type = merge_types(list_element_type.as_ref(), &element_type);
+                            if merged_element_type.is_none() {
+                                panic!("Incorrect types : the type {:?} should be the same as the elements of {:?}", element_type, list_type);
+                            }
+                            merged_element_type
+                        } else {
+                            Some(list_element_type.as_ref().clone())
+                        }
+                    },
+                    (None, Some(t)) => Some(t.clone()),
+                    (None, None) => None,
+                    _ => panic!("expected a list type, but got {:?}", list_type),
+                };
+
+                if let Some(merged_element_type) = merged_element_type {
+                    // we have infos about the element type
+                    let merged_list_type = Type::List(Box::new(merged_element_type.clone()));
+
+                    table.real_types[element_root.0 as usize] = Some(merged_element_type);
+                    table.real_types[list_root.0 as usize] = Some(merged_list_type);
+                } else {
+                    // the only info is that obviously the list is a list
+                    // stolen from IsList to remove the need of IsList and IsElementOf because if there is elements, it is alist
+                    table.real_types[list_root.0 as usize] = Some(Type::List(Box::new(Type::Any)));
+                }
+            },
         }
+
+        //println!("real types: {:?}", table.real_types);
+        //println!("real types len: {:?}", table.real_types.len());
     }
 }
 
 fn apply_types_to_ast(context : &mut TypeContext){
     for (node, tv) in &context.node_type_vars {
         let t = context.table.resolve_type(*tv);
+        //println!("is tv {:?} in var_type_vars : {}", tv, context.vars_types_vars_names.contains_key(tv));
         if let Some(name) = context.vars_types_vars_names.get(tv) {
             // var is associated to value of typevar, so set the real type
             context.type_infos.vars_env.insert(*name, t.clone());
+            //println!("vars env : {:?}", DebugWrapContext::new(&context.type_infos.vars_env, context.rustaml_context));
         } 
 
         if let Some(name) = context.functions_type_vars_names.get(tv){
             context.type_infos.functions_env.insert(*name, t.clone());
         }
+
+        debug_println!(context.rustaml_context.is_debug_print, "set type of node {:?} to {:?}", DebugWrapContext::new(node, context.rustaml_context), DebugWrapContext::new(&t, context.rustaml_context));
 
         node.set_type(&mut context.rustaml_context.ast_pool, t);
     }
@@ -410,7 +513,7 @@ fn std_function_constraint(context : &mut TypeContext, name : &'static str, args
     let ret_type_var =  context.table.new_type_var();
     context.constraints.push(TypeConstraint::IsType(ret_type_var, ret));
 
-    context.constraints.push(TypeConstraint::FunctionType { fun_type_var, args_type_vars, ret_type_var, is_variadic });
+    context.constraints.push(TypeConstraint::FunctionType { fun_type_var, args_type_vars, ret_type_var, is_variadic, function_name: name.to_owned() });
 }
 
 fn std_functions_constraints_types(context : &mut TypeContext) {
@@ -442,6 +545,8 @@ pub fn resolve_and_typecheck(rustaml_context: &mut RustamlContext, ast : ASTRef)
 
     collect_constraints(&mut context, ast);
     solve_constraints(&mut context.table, &context.constraints);
+
+    //panic!("ast types : {:?}", context.table.real_types);
     apply_types_to_ast(&mut context);
 
     /*resolve_types(&mut context, ast)?;

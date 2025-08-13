@@ -18,6 +18,7 @@ pub enum Operator {
     MinusFloat,
     MultFloat,
     DivFloat,
+    // TODO : put the equal in its own token
     Equal,
     IsEqual,
     IsNotEqual,

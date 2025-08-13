@@ -14,6 +14,9 @@ use crate::types::TypeInfos;
 use crate::{rustaml::{get_ast, RustamlContext}};
 use crate::types_debug::dump_typed_ast;
 
+#[cfg(not(feature = "native"))]
+use std::path::Path;
+
 
 #[cfg(feature = "human-panic")]
 use human_panic::setup_panic;
