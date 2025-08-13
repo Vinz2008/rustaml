@@ -382,9 +382,12 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[TypeConstraint]){
                 let fun_root = table.find_root(*fun_type_var);
                 let fun_type = table.real_types[fun_root.0 as usize].clone();
 
+                // TODO : remove these resolve_type ?
+
                 let passed_args_types = args_type_vars.iter().map(|&e| table.resolve_type(e)).collect::<Vec<_>>();
 
-                let ret_type = table.resolve_type(*ret_type_var);
+                let ret_var_root = table.find_root(*ret_type_var);
+                let ret_type = table.real_types[ret_var_root.0 as usize].clone().unwrap_or(Type::Any);
 
                 let fun_type_tuple = match fun_type {
                     Some(Type::Function(args, ret, v)) => Some((args, ret, v)),
@@ -421,7 +424,8 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[TypeConstraint]){
                         panic!("Wrong ret type of function ")
                     };
 
-                    table.real_types[fun_root.0 as usize] = Some(Type::Function(merged_arg_types, Box::new(merged_ret), variadic));
+                    table.real_types[fun_root.0 as usize] = Some(Type::Function(merged_arg_types, Box::new(merged_ret.clone()), variadic));
+                    table.real_types[ret_var_root.0 as usize] = Some(merged_ret); 
                 }
 
 
