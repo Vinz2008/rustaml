@@ -101,6 +101,8 @@ fn create_function(context : &mut TypeContext, name : StringRef, val_type_var : 
     context.functions_type_vars_names.insert(val_type_var, name);
 }
 
+
+
 fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : TypeVarId, pattern: &Pattern) {
     match pattern {
         Pattern::Integer(_) | Pattern::Range(_, _, _) => context.constraints.push(TypeConstraint::IsType(matched_type_var, Type::Integer)),
@@ -120,7 +122,8 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
             // TODO : add constraints
 
             collect_constraints_pattern(context, matched_type_var, l.as_ref());
-            context.constraints.push(TypeConstraint::IsElementOf { element: element_type_var, list: todo!() });
+            let list = matched_type_var;
+            context.constraints.push(TypeConstraint::IsElementOf { element: element_type_var, list });
         }
         Pattern::VarName(n) => { 
             let var_type_var = context.table.new_type_var();
