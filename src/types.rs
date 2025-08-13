@@ -30,7 +30,7 @@ pub struct TypeContext<'a> {
     table : TypeVarTable,
     constraints : Vec<TypeConstraint>,
     node_type_vars : FxHashMap<ASTRef, TypeVarId>,
-    args_type_var : FxHashMap<StringRef, TypeVarId>, // is needed because args are associated with no ast in the node_type_vars
+    args_and_patterns_type_var : FxHashMap<StringRef, TypeVarId>, // is needed because args are associated with no ast in the node_type_vars
     
     // they are the reverse of each other, (TODO : use this https://docs.rs/bidirectional-map/latest/bidirectional_map/struct.Bimap.html ?)
     vars_type_vars : FxHashMap<StringRef, TypeVarId>,
@@ -124,6 +124,7 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
         },
         Pattern::ListDestructure(e, l) => {
             let element_type_var = context.table.new_type_var();
+            context.args_and_patterns_type_var.insert(*e, element_type_var);
             create_var(context, *e, element_type_var);
             // TODO : add constraints
 
@@ -133,6 +134,7 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
         }
         Pattern::VarName(n) => { 
             let var_type_var = context.table.new_type_var();
+            context.args_and_patterns_type_var.insert(*n, var_type_var);
             create_var(context, *n, var_type_var);
             context.constraints.push(TypeConstraint::SameType(var_type_var, matched_type_var));
         }, 
@@ -220,7 +222,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> TypeVarId {
                     context.constraints.push(TypeConstraint::IsType(arg_type_var, arg.arg_type));
                 }
 
-                context.args_type_var.insert(arg.name, arg_type_var);
+                context.args_and_patterns_type_var.insert(arg.name, arg_type_var);
                 create_var(context, arg.name, arg_type_var);
             }
 
@@ -487,7 +489,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[TypeConstraint]){
 
 fn apply_types_to_ast(context : &mut TypeContext){
 
-    for (name, tv) in context.args_type_var.clone() {
+    for (name, tv) in context.args_and_patterns_type_var.clone() {
         let t = context.table.resolve_type(tv);
         context.type_infos.vars_env.insert(name, t);
     }
@@ -547,7 +549,7 @@ pub fn resolve_and_typecheck(rustaml_context: &mut RustamlContext, ast : ASTRef)
         table: TypeVarTable::default(),
         constraints: Vec::new(),
         node_type_vars: FxHashMap::default(),
-        args_type_var: FxHashMap::default(),
+        args_and_patterns_type_var: FxHashMap::default(),
         vars_type_vars: FxHashMap::default(),
         vars_types_vars_names: FxHashMap::default(),
         functions_type_vars: FxHashMap::default(),
