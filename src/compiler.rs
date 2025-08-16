@@ -447,7 +447,7 @@ fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
 
             cmp_call.unwrap().as_any_value_enum().into_int_value()
         },
-        _ => panic!("Invalid type for bool op {:?}", op),
+        _ => panic!("Invalid type for bool op {:?}, {:?}", op, (lhs_val, rhs_val)),
     }
 }
 

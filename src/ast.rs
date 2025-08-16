@@ -600,19 +600,52 @@ fn is_start_of_expr(tok_data : Option<&TokenData>) -> bool {
 }
 
 
+fn is_function_arg_start(tok_data : Option<&TokenData>) -> bool {
+    match tok_data {
+        Some(t) => 
+            matches!(t, TokenData::Identifier(_) | TokenData::Integer(_) | TokenData::Float(_) | TokenData::String(_) | TokenData::ParenOpen | TokenData::ArrayOpen | TokenData::True | TokenData::False),
+        None => false,
+    }
+}
+
+fn parse_var_use_in_function(parser : &mut Parser , identifier_buf : Vec<char>, first_tok_start: usize) -> Result<ASTRef, ParserErr> {
+    let identifier = parser.rustaml_context.str_interner.intern_compiler(&identifier_buf.iter().collect::<String>());
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::VarUse { name: identifier }))
+
+}
+
+fn parse_function_arg(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
+    let tok = parser.eat_tok(None).unwrap();
+    let first_tok_start = tok.range.start;
+    let node = match tok.tok_data {
+        TokenData::Integer(nb) => Ok(parse_integer(parser, nb)),
+        TokenData::Float(nb) => Ok(parse_float(parser, nb)),
+        TokenData::String(buf) => Ok(parse_string(parser, buf)),
+        TokenData::Identifier(buf) => parse_var_use_in_function(parser, buf, first_tok_start),
+        TokenData::True => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: true })),
+        TokenData::False => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: false })),
+        TokenData::ParenOpen => parse_parenthesis(parser), // TODO : move this to the start of parse_node and make it unreachable! ? (because each time there are parenthesis, parse_node -> parse_primary -> parse_node is added to the call stack) 
+        TokenData::ArrayOpen => parse_static_list(parser),
+        t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))
+    };
+
+    return node;
+}
+
+// parse what could be a function call
 // TODO : make this work for any expression for the function
-fn parse_function_call(parser: &mut Parser, function_name : StringRef, first_tok_start: usize) -> Result<ASTRef, ParserErr> {
+fn parse_function_call(parser: &mut Parser, name : StringRef, first_tok_start: usize) -> Result<ASTRef, ParserErr> {
     let mut args = Vec::new();
 
     //let mut end_last_arg = first_tok_start;
     //let mut arg_ranges=  Vec::new();
-    while parser.has_tokens_left() && is_start_of_expr(parser.current_tok_data()) {
+    while parser.has_tokens_left() && is_function_arg_start(parser.current_tok_data()) {
         //let arg_range_start = parser.current_tok().unwrap().range.start;
         //let arg = parse_primary(parser)?; // TODO : replace with parse_node ? (fix problems with stack overflow -> less recursion ? implement tail call optimization ?)
         //let arg_range_end = parser.current_tok().unwrap().range.end-1;
         //end_last_arg = parser.current_tok().unwrap().range.end-1;
         //arg_ranges.push(arg_range_start..arg_range_end);
-        let arg = match parser.current_tok_data() {
+        /*let arg = match parser.current_tok_data() {
             Some(TokenData::Identifier(buf)) => {
                 // If the arg itself is an identifier, treat it as a var use, not a call
                 let name = parser.rustaml_context.str_interner.intern_compiler(&buf.iter().collect::<String>());
@@ -620,11 +653,24 @@ fn parse_function_call(parser: &mut Parser, function_name : StringRef, first_tok
                 parser.rustaml_context.ast_pool.push(ASTNode::VarUse { name })
             }
             _ => parse_primary(parser)?,
-        };
-        
+        };*/
+        //let arg = parse_primary(parser)?;
+        let arg= parse_function_arg(parser)?;
+
         args.push(arg);
     }
 
+    let ast_node = if args.is_empty(){
+        ASTNode::VarUse { 
+            name
+        }
+    } else {
+        ASTNode::FunctionCall { 
+            name, 
+            args,
+        }
+    };
+    
     /*let (args_type, is_variadic)  = match parser.vars.get(&function_name).unwrap() {
         Type::Function(args_type, _, is_variadic) => (args_type, *is_variadic),
         _ => unreachable!(),
@@ -648,10 +694,7 @@ fn parse_function_call(parser: &mut Parser, function_name : StringRef, first_tok
     }*/
 
     //dbg!(&args);
-    Ok(parser.rustaml_context.ast_pool.push(ASTNode::FunctionCall { 
-        name: function_name, 
-        args,
-    }))
+    Ok(parser.rustaml_context.ast_pool.push(ast_node))
 }
 
 fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>, first_tok_start: usize) -> Result<ASTRef, ParserErr> {
@@ -662,7 +705,7 @@ fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>, first_
         //None => panic!("ERROR : unknown identifier {}", identifier.get_str(&mut parser.rustaml_context.str_interner)),
     };*/
 
-    let is_function = is_start_of_expr(parser.current_tok_data());
+    let is_function = is_function_arg_start(parser.current_tok_data());
     if is_function {
         parse_function_call(parser, identifier, first_tok_start)
     } else {
@@ -867,6 +910,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         TokenData::False => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: false })),
         TokenData::ParenOpen => parse_parenthesis(parser), // TODO : move this to the start of parse_node and make it unreachable! ? (because each time there are parenthesis, parse_node -> parse_primary -> parse_node is added to the call stack) 
         TokenData::ArrayOpen => parse_static_list(parser),
+        t => panic!("t : {:?}", t),
         t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))
     };
 

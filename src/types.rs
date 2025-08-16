@@ -444,8 +444,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[TypeConstraint]){
 
                     if let Some((actual_args, actual_ret, variadic)) = fun_type_tuple {
                         // TODO: fix the print part
-                        let is_arg_nb_wrong = (function_name != "print" && !*is_variadic && passed_args_types.len() != actual_args.len()) || (function_name == "print" && passed_args_types.len() != 1);
-
+                        let is_arg_nb_wrong = (function_name != "print" && !variadic && passed_args_types.len() != actual_args.len()) || (function_name == "print" && passed_args_types.len() != 1);
 
                         if is_arg_nb_wrong {
                             panic!("Error when calling function {}, expected {} args, got {} args", function_name, actual_args.len(), passed_args_types.len());
