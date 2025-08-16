@@ -16,13 +16,12 @@ pub mod rustaml;
 pub mod ast;
 pub mod interpreter;
 pub mod lexer;
-pub mod type_inference;
-pub mod type_inference_debug;
 pub mod string_intern;
 pub mod print_error;
 pub mod debug;
 pub mod gc;
-
+pub mod types;
+pub mod types_debug;
 
 cfg_if! {
     if #[cfg(feature = "native")] {
@@ -34,7 +33,7 @@ cfg_if! {
 
 // make it not return ExitCode, just a empty error ?
 pub fn interpret_code(code : &str, filename : &Path, is_debug_print  : bool) -> Result<(), ()> {
-    let mut rustaml_context = RustamlContext::new(false, is_debug_print);
+    let mut rustaml_context = RustamlContext::new(is_debug_print);
     let content = code.chars().collect::<Vec<_>>();
     let tokens = lexer::lex(content, is_debug_print);
     let tokens = match tokens {
@@ -45,13 +44,22 @@ pub fn interpret_code(code : &str, filename : &Path, is_debug_print  : bool) -> 
         },
     };
 
-    let ast_and_vars = ast::parse(tokens, &mut rustaml_context);
+    /*let ast_and_vars = ast::parse(tokens, &mut rustaml_context);
     let (ast, _vars) = match ast_and_vars {
         Ok(a_v) => a_v,
         Err(e) => {
             print_error::print_parser_error(e, filename, code);
             return Err(());
         },
+    };*/
+
+    let ast = ast::parse(tokens, &mut rustaml_context);
+    let ast = match ast {
+        Ok(a) => a,
+        Err(e) => {
+            print_error::print_parser_error(e, filename, code);
+            return Err(());
+        }
     };
     interpreter::interpret(ast, &mut rustaml_context);
     Ok(())

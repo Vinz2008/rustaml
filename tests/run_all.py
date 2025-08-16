@@ -14,7 +14,7 @@ if "Cargo.toml" not in os.listdir(root_project_dir):
     root_project_dir = os.path.join(os.getcwd(), os.pardir)
 
 # TODO : add release mode support ?
-exe_path = os.path.join(root_project_dir, "target", "debug", "rustaml")
+exe_path = None
 
 excluded_files = [
     "parser_error.rml",
@@ -24,10 +24,13 @@ excluded_files = [
 def is_error(return_code : int) -> bool:
     return return_code != 0
 
-def get_error_message(return_code : int, filename : str) -> str:
+def get_error_message(is_compiling : bool, return_code : int, filename : str, is_release_mode : bool) -> str:
+    rustaml_name = "compiler" if is_compiling else "interpreter"
     match return_code:
+        case -6:
+            return (f" Stack overflow of the {rustaml_name}" if not is_release_mode else "Error or Stack overflow (try in debug mode to have more infos)")
         case 1:
-            return "the compiler failed with an error"
+            return f"the {rustaml_name} failed with an error"
         case 134:
             return "the compiler panicked"
         case 101:
@@ -36,11 +39,11 @@ def get_error_message(return_code : int, filename : str) -> str:
             if os.path.exists(error_filename):
                 return f"LLVM ERROR (check the {error_filename}) file for more details)"
             else:
-                return get_error_message(1, filename)
+                return get_error_message(is_compiling, 1, filename, is_release_mode)
         case _:
             sys.exit(f"Unknown error return code {return_code}")
 
-def test_file(filename : str, is_compiling: bool):
+def test_file(filename : str, is_compiling: bool, is_release_mode : bool):
     cmd = f"{exe_path} "
     if is_compiling:
         cmd += "compile -o out "
@@ -56,7 +59,7 @@ def test_file(filename : str, is_compiling: bool):
 
 
     if is_error(return_code):
-        error_message = get_error_message(return_code, filename)
+        error_message = get_error_message(is_compiling, return_code, filename, is_release_mode)
         return "❌", error_message, out
         
     return "✅", "", out
@@ -67,7 +70,7 @@ def print_error(filename: str, error_message : str, out : bytes):
     print(f"{out.decode("utf-8", errors="replace")}")
 
 
-def test_all_files(is_compiling : bool):
+def test_all_files(is_compiling : bool, is_release_mode: bool):
     print(f"--\n{Fore.BLUE}START TESTING {"COMPILED" if is_compiling else "INTERPRETED"}{Style.RESET_ALL}")
 
     summary_filenames.clear()
@@ -76,7 +79,7 @@ def test_all_files(is_compiling : bool):
         if extension == ".rml" and file not in excluded_files:
             print(f"{file} ", end='', flush=True)
             summary_filenames.append(file)
-            output_print, error_message, out = test_file(file, is_compiling)
+            output_print, error_message, out = test_file(file, is_compiling, is_release_mode)
             if is_compiling:
                 summary_compiler.append(output_print)
             else:
@@ -88,10 +91,10 @@ def test_all_files(is_compiling : bool):
             
     print(f"{Fore.BLUE}END TESTING {"COMPILED" if is_compiling else "INTERPRETED"}{Style.RESET_ALL}")
 
-def ensure_compiler_built():
+def ensure_compiler_built(is_release_mode : bool):
     with yaspin(Spinners.dots, text="BUILDING RUSTAML...") as spinner:
         print("BUILDING RUSTAML... ", end='')
-        pipe = subprocess.Popen("cargo build -F native -F stack-expand -F gc-test-collect", shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        pipe = subprocess.Popen("cargo build -F native -F stack-expand -F gc-test-collect" + (" --release" if is_release_mode else ""), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         
         
         out, _ = pipe.communicate()
@@ -130,6 +133,7 @@ def print_summary():
 
 if __name__ == '__main__':
     command = COMMAND.ALL
+    is_release_mode = False
     for arg in sys.argv:
         if arg == "--interpret":
             command = COMMAND.INTERPRET
@@ -137,16 +141,24 @@ if __name__ == '__main__':
             command = COMMAND.COMPILE
         elif arg == "--all":
             command = COMMAND.ALL
+        elif arg == "--release":
+            is_release_mode = True
+        elif arg == "--debug":
+            is_release_mode = False
     
-    ensure_compiler_built()
+    ensure_compiler_built(is_release_mode)
+    
+
+    exe_path = os.path.join(root_project_dir, "target", "release" if is_release_mode else "debug", "rustaml")
+    
     match command:
         case COMMAND.ALL:
-            test_all_files(False)
-            test_all_files(True)
+            test_all_files(False, is_release_mode)
+            test_all_files(True, is_release_mode)
         case COMMAND.INTERPRET:
-            test_all_files(False)
+            test_all_files(False, is_release_mode)
         case COMMAND.COMPILE:
-            test_all_files(True)
+            test_all_files(True, is_release_mode)
     print_summary()
 
             

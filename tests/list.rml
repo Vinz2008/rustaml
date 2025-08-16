@@ -6,7 +6,8 @@ let big_list n =
 // let l = big_list 100000 ;;
 let list = big_list 30 ;;
 
-let len l = match l with
+// TODO : make function genrics
+let len l : list[int] -> int = match l with
   | [] -> 0
   | e :: li -> 1 + len li ;;
 

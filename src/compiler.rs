@@ -1,8 +1,8 @@
 use core::panic;
-use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, ExitCode, Stdio}, time::{SystemTime, UNIX_EPOCH}};
+use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{append_bb_just_after, codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef};
-use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FloatType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
+use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
@@ -14,16 +14,16 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     pub context : &'llvm_ctx Context,
     pub module : &'refs Module<'llvm_ctx>,
     pub builder : &'refs Builder<'llvm_ctx>,
+    pub typeinfos : TypeInfos,
     functions : FxHashMap<StringRef, FunctionValue<'llvm_ctx>>,
     main_function : FunctionValue<'llvm_ctx>,
-    var_types : FxHashMap<StringRef, Type>,
     pub var_vals : FxHashMap<StringRef, PointerValue<'llvm_ctx>>,
     pub external_symbols_declared : FxHashSet<&'static str>,
     // TODO : replace this with a hashmap ?
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct BuiltinFunction<'llvm_ctx> {
     name : &'static str,
     args : Vec<BasicMetadataTypeEnum<'llvm_ctx>>,
@@ -32,20 +32,8 @@ struct BuiltinFunction<'llvm_ctx> {
     is_variadic: bool,
 }
 
-impl<'llvm_ctx> Default for BuiltinFunction<'llvm_ctx> {
-    fn default() -> Self {
-        Self { 
-            name: Default::default(), 
-            args: Default::default(), 
-            ret: None, // dummy value, PLEASE CHANGE THE RET FOR EVERY STRUCT INIT
-            attributes: Default::default(),
-            is_variadic: false,
-        }
-    }
-}
 
-
-fn new_attribute<'llvm_ctx>(llvm_context : &'llvm_ctx Context, name : &'static str) -> Attribute {
+fn new_attribute(llvm_context : &Context, name : &'static str) -> Attribute {
     let attribute_id = Attribute::get_named_enum_kind_id(name);
     llvm_context.create_enum_attribute(attribute_id, 0)
 }
@@ -158,7 +146,7 @@ impl<'context, 'refs, 'llvm_ctx> CompileContext<'context, 'refs, 'llvm_ctx> {
 }
 
 // TODO : add a print function that returns unit for the compiler
-
+// the var_type should be resolved at this point : TODO
 fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : ASTRef, body : Option<ASTRef>, is_global : bool) -> AnyValueEnum<'llvm_ctx> {
     let is_underscore = name.get_str(&compile_context.rustaml_context.str_interner) == "_";
     
@@ -169,7 +157,9 @@ fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
     let val = compile_expr(compile_context, val);
 
     if !is_underscore {
-        let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("No type found for var {}", name.get_str(&compile_context.rustaml_context.str_interner)));
+        //let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("No type found for var {}", name.get_str(&compile_context.rustaml_context.str_interner)));
+        //let var_type = compile_context.typeinfos.vars_ast.get(&name).unwrap().get_type(&compile_context.rustaml_context.ast_pool);
+        let var_type = get_var_type(compile_context, name);
         let alloca_type = get_llvm_type(compile_context.context, var_type);
         create_var(compile_context, name, val, alloca_type);
     }
@@ -230,7 +220,7 @@ fn get_void_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> AnyValueEnum<'l
     llvm_context.i64_type().get_undef().into()
 }
 
-fn get_format_string(print_type : Type) -> &'static str {
+fn get_format_string(print_type : &Type) -> &'static str {
     match print_type {
         Type::Integer => "%ld\n", // TODO : verify it is good
         Type::Float => "%f\n",
@@ -244,7 +234,7 @@ fn get_format_string(print_type : Type) -> &'static str {
 }
 
 // TODO : call a c function that will call printf ? (then write the formatting part myself ? under a feature flag ?)
-fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, print_val : AnyValueEnum<'llvm_ctx>, print_val_type : Type) -> AnyValueEnum<'llvm_ctx> {
+fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, print_val : AnyValueEnum<'llvm_ctx>, print_val_type : &Type) -> AnyValueEnum<'llvm_ctx> {
     let mut print_val = TryInto::<BasicMetadataValueEnum>::try_into(print_val).unwrap();
     // TODO : should I trust the e_type ?
     if let Type::List(_) = print_val_type {
@@ -256,7 +246,7 @@ fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 
     let printf_fun = compile_context.get_internal_function("printf");
     // TODO : change this
-    let format_str = get_format_string(print_val_type.clone());
+    let format_str = get_format_string(print_val_type);
     let format_str = create_string(compile_context.builder, format_str);
     match print_val_type {
         Type::Bool => {
@@ -276,7 +266,7 @@ fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 
 fn compile_rand<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>) -> AnyValueEnum<'llvm_ctx>{
     let rand_fun = compile_context.get_internal_function("__rand");
-    compile_context.builder.build_call(rand_fun, &vec![], "rand_internal_call").unwrap().as_any_value_enum()
+    compile_context.builder.build_call(rand_fun, &[], "rand_internal_call").unwrap().as_any_value_enum()
 }
 
 fn get_format_string_format(format_str : &str, arg_types : &[Type]) -> String {
@@ -341,7 +331,8 @@ fn compile_format<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_
 fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, args: &[ASTRef]) -> AnyValueEnum<'llvm_ctx>{
     match name.get_str(&compile_context.rustaml_context.str_interner) {
         "print" => {
-            let print_val_type = args[0].get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
+            //let print_val_type = args[0].get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
+            let print_val_type = args[0].get_type(&compile_context.rustaml_context.ast_pool);
             let print_val = compile_expr(compile_context, args[0]);
             return compile_print(compile_context, print_val, print_val_type);
         }
@@ -354,7 +345,8 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
                 ASTNode::String { str } => *str,
                 _ => unreachable!(),
             };
-            let args_types = args_ast.iter().map(|&a| a.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap()).collect::<Vec<_>>();
+            //let args_types = args_ast.iter().map(|&a| a.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap()).collect::<Vec<_>>();
+            let args_types = args_ast.iter().map(|&a| a.get_type(&compile_context.rustaml_context.ast_pool).clone()).collect();
             let args_val = args_ast.iter().map(|&a| compile_expr(compile_context, a)).collect::<Vec<_>>();
             
             return compile_format(compile_context, format_str, args_val, args_types);
@@ -455,7 +447,7 @@ fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
 
             cmp_call.unwrap().as_any_value_enum().into_int_value()
         },
-        _ => panic!("Invalid type for bool op {:?}", op),
+        _ => panic!("Invalid type for bool op {:?}, {:?}", op, (lhs_val, rhs_val)),
     }
 }
 
@@ -492,15 +484,14 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     let rhs_val = compile_expr(compile_context, rhs);
     // TODO : add better error handling to remove unwraps for get_type calls
 
-    let lhs_type = lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
+    let lhs_type = lhs.get_type(&compile_context.rustaml_context.ast_pool);
 
     match op.get_type() {
         Type::Integer => compile_binop_int(compile_context, op, lhs_val, rhs_val, &name).into(),
         Type::Float => compile_binop_float(compile_context, op, lhs_val, rhs_val, &name).into(),
-        Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, lhs_type, &name).into(),
+        Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, lhs_type.clone(), &name).into(),
         Type::Str => compile_binop_str(compile_context, op, lhs_val, rhs_val, &name),
-        // here do not trust the -e (it is Type::Any), use get_type on the head
-        Type::List(_e) => compile_binop_list(compile_context, op, lhs_val, rhs_val, /*e.as_ref()*/ &lhs.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap()),
+        Type::List(_) => compile_binop_list(compile_context, op, lhs_val, rhs_val, lhs_type),
         _ => unreachable!(),
     }
 }
@@ -511,10 +502,12 @@ fn compile_var_use<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm
         println!("{} = {:?}", v.get_str(&compile_context.rustaml_context.str_interner), v_t);
     }*/
 
-    let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("Unknown variable {:?}", name.get_str(&compile_context.rustaml_context.str_interner)));
+    //let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("Unknown variable {:?}", name.get_str(&compile_context.rustaml_context.str_interner)));
+    let var_type = get_var_type(compile_context, name);
+    //let var_type = compile_context.typeinfos.vars_ast.get(&name).unwrap().get_type(&compile_context.rustaml_context.ast_pool);
     let load_type = get_llvm_type(compile_context.context, var_type);
     let load_basic_type = TryInto::<BasicTypeEnum>::try_into(load_type).unwrap();
-    let ptr = *compile_context.var_vals.get(&name).unwrap();
+    let ptr = *compile_context.var_vals.get(&name).unwrap_or_else(|| panic!("Compiler: Unknown var {:?}", DebugWrapContext::new(&name, compile_context.rustaml_context)));
     compile_context.builder.build_load(load_basic_type, ptr, name.get_str(&compile_context.rustaml_context.str_interner)).unwrap().into()
 }
 
@@ -532,14 +525,15 @@ fn to_std_c_val<'llvm_ctx>(compile_context: &CompileContext<'_, '_, 'llvm_ctx>, 
     }
 }
 
-fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : &[ASTRef]) -> AnyValueEnum<'llvm_ctx> {
+fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : &[ASTRef], list_type : &Type) -> AnyValueEnum<'llvm_ctx> {
     let mut current_node = compile_context.context.ptr_type(AddressSpace::default()).const_null();
     
     // TODO : optimize this by keeping the last node and just appending to it to not have to go through the list each time by doing append ?
+    // with a function like __append_with_tail that would return a struct with the head and the tail ?
 
-    let list_element_type = match list.first() {
-        Some(f) => f.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap(),
-        None => Type::Integer// empty list, so type will not be used, dummy time
+    let list_element_type = match list_type {
+        Type::List(e) => e.as_ref(),
+        _ => unreachable!(),
     };
 
     /*for e in list {
@@ -549,12 +543,12 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
 
     dbg!(&list_element_type);*/
 
-    let type_tag_val = get_type_tag_val(compile_context.context, &list_element_type);
+    let type_tag_val = get_type_tag_val(compile_context.context, list_element_type);
 
 
     for &e in list {
         let val = compile_expr(compile_context, e);
-        let val = to_std_c_val(compile_context, val, &list_element_type);
+        let val = to_std_c_val(compile_context, val, list_element_type);
         let node_val = create_list_append_call(compile_context, current_node, type_tag_val, val);
 
         current_node = node_val;
@@ -566,7 +560,7 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
 
 fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>) -> IntValue<'llvm_ctx>{
     match pattern {
-        Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*i as u64, false), "match_int_cmp").unwrap(),
+        Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap_or_else(|_| panic!("not an int value : {:?}", matched_val)), compile_context.context.i64_type().const_int(*i as u64, false), "match_int_cmp").unwrap(),
         Pattern::Range(lower, upper, inclusivity) => {
             let (lower_predicate, upper_predicate) = if *inclusivity {
                 (IntPredicate::SLE, IntPredicate::SGE)
@@ -599,7 +593,16 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
                 let pattern_bool = compile_pattern_match_bool_val(compile_context, p, );
             }*/
         },
+        Pattern::String(s) => {
+            let str_cmp_fun = compile_context.get_internal_function("__str_cmp");
+            // TODO : verify it these strings are deduplicated
+            let s_val = create_string(compile_context.builder, s.get_str(&compile_context.rustaml_context.str_interner));
+
+            let args = vec![s_val.into()];
+            compile_context.builder.build_call(str_cmp_fun, &args, "pattern_match_str_cmp").unwrap().as_any_value_enum().into_int_value()
+        },
         // the type should be checked before (TODO ?)
+        // TODO : need to recursively make compares if there is more than one destructuring
         Pattern::ListDestructure(_, _) => compile_context.builder.build_int_compare(IntPredicate::NE, matched_val.into_pointer_value(), compile_context.context.ptr_type(AddressSpace::default()).const_null(), "cmp_destructure_not_empty").unwrap(),
         // TODO
         p => panic!("unknown pattern {:?}", DebugWrapContext::new(p, compile_context.rustaml_context)),
@@ -615,7 +618,7 @@ fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContex
             //let matched_val_type = matched_val.get_type();
             let matched_val_type_llvm = get_llvm_type(compile_context.context, matched_val_type);
             create_var(compile_context, *n, matched_val, matched_val_type_llvm);
-            compile_context.var_types.insert(*n, matched_val_type.clone());
+            //compile_context.var_types.insert(*n, matched_val_type.clone());
         }
         Pattern::ListDestructure(head, tail) => {
             let element_type = match matched_val_type {
@@ -625,7 +628,7 @@ fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContex
             
             // TODO : add this before (during AST -> so need to have a list of stacks instead of a hashmap ? or a hashmap of vecs ?)
             // TODO : would need a stack to use the old_val (use a HashMap of Vec is another solution to use during compilation, so there's more work because need to find the type of match multiple types during compilation, but could have just good caching instead ?)
-            let _old_val = compile_context.var_types.insert(*head, element_type.clone());
+            //let _old_val = compile_context.var_types.insert(*head, element_type.clone());
 
             let element_type_llvm = get_llvm_type(compile_context.context, element_type);
             let matched_val_list = matched_val.into_pointer_value();
@@ -642,7 +645,7 @@ fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContex
     }
 }
 
-fn compile_pattern_match_epilogue<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern){
+/*fn compile_pattern_match_epilogue<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern){
     match pattern {
         Pattern::VarName(name) => {
             compile_context.var_types.remove(name);
@@ -652,7 +655,7 @@ fn compile_pattern_match_epilogue<'llvm_ctx>(compile_context: &mut CompileContex
         }
         _ => {}
     }
-}
+}*/
 
 fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>, bb: BasicBlock<'llvm_ctx>, else_bb : BasicBlock<'llvm_ctx>){
     let bool_val = compile_pattern_match_bool_val(compile_context, pattern, matched_val);
@@ -665,13 +668,15 @@ fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
 fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, match_node : ASTRef, matched_expr : ASTRef, patterns : &[(Pattern, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
     
     let matched_val = compile_expr(compile_context, matched_expr);
-    let matched_val_type = matched_expr.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
+    //let matched_val_type = matched_expr.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
+    let matched_val_type = matched_expr.get_type(&compile_context.rustaml_context.ast_pool);
     let function = get_current_function(compile_context.builder);
 
 
     // TODO : instead of calling get_type here, get all the types and store them in the nodes during parsing ?
-    let match_type = match_node.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
-    let match_type_llvm: AnyTypeEnum = get_llvm_type(compile_context.context, &match_type);
+    //let match_type = match_node.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
+    let match_type = match_node.get_type(&compile_context.rustaml_context.ast_pool);
+    let match_type_llvm: AnyTypeEnum = get_llvm_type(compile_context.context, match_type);
 
     let mut match_bbs = Vec::new();
     for _ in patterns {
@@ -694,7 +699,7 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
         compile_context.builder.position_at_end(*pattern_bb);
         compile_pattern_match_prologue(compile_context, pattern, matched_val, &matched_val_type);
         let pattern_body_val = compile_expr(compile_context, *pattern_body);
-        compile_pattern_match_epilogue(compile_context, pattern);
+        //compile_pattern_match_epilogue(compile_context, pattern);
         match_phi_bbs.push(compile_context.builder.get_insert_block().unwrap());
         compile_context.builder.build_unconditional_branch(after_match).unwrap();
         pattern_vals.push(pattern_body_val);
@@ -733,12 +738,14 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
         ASTNode::Float { nb } => compile_context.context.f64_type().const_float(*nb).into(),
         ASTNode::Boolean { b } => compile_context.context.bool_type().const_int(*b as u64, false).into(),
         ASTNode::String { str } => compile_str(compile_context, *str).into(),
-        ASTNode::VarDecl { name, val, body } => compile_var_decl(compile_context, *name, *val, *body, false),
+        ASTNode::VarDecl { name, val, body, var_type: _ } => compile_var_decl(compile_context, *name, *val, *body, false),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => compile_if(compile_context, *cond_expr, *then_body, *else_body),
         ASTNode::FunctionCall { name, args } => compile_function_call(compile_context, *name, args),
         ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, *op, *lhs, *rhs),
         ASTNode::VarUse { name } => compile_var_use(compile_context, *name),
-        ASTNode::List { list } => compile_static_list(compile_context, list),
+        ASTNode::List { list } => { 
+            compile_static_list(compile_context, list, ast_node.get_type(&compile_context.rustaml_context.ast_pool))
+        },
         ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, *matched_expr, patterns),
         ASTNode::Unit => get_void_val(compile_context.context),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)), 
@@ -746,27 +753,57 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
     }
 }
 
+
+// TODO : is the second part needed ?
+fn get_var_type<'context>(compile_context: &'context CompileContext<'context, '_, '_>, name : StringRef) -> &'context Type {
+    match compile_context.typeinfos.vars_env.get(&name) {
+        Some(t) => match t {
+            Type::Any => panic!("Compiler: var {:?} is any", DebugWrapContext::new(&name, compile_context.rustaml_context)),
+            t => t,
+        },
+        
+        None => {
+            //let var_val_ast = *compile_context.typeinfos.vars_ast.get(&name).unwrap_or_else(|| panic!("Unknown var {:?}", DebugWrapContext::new(&name, compile_context.rustaml_context))); // TODO : add better handling instead of unwrap (the var not found should be here ?)
+            //var_val_ast.get_type(&compile_context.rustaml_context.ast_pool)
+            panic!("Compiler: unknown var : {:?}", DebugWrapContext::new(&name, compile_context.rustaml_context));
+            //unreachable!()
+        }
+    }
+}
+
 // TODO : test to replace AnyValueEnum with &dyn AnyValue ?
 fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRef) {
     match ast_node.get(&compile_context.rustaml_context.ast_pool) {
-        ASTNode::FunctionDefinition { name, args, body, return_type } => {
-            let return_type_llvm = get_llvm_type(compile_context.context, return_type);
-            let param_types = args.iter().map(|a| get_llvm_type(compile_context.context, &a.arg_type).try_into().unwrap()).collect::<Vec<_>>();
-            let function_type = get_fn_type(compile_context.context, return_type_llvm, &param_types, false);
+        ASTNode::FunctionDefinition { name, args, body, return_type: _ } => {
+            //println!("typeinfos function_env : {:?}", DebugWrapContext::new(&compile_context.typeinfos.functions_env, compile_context.rustaml_context));
+            let (return_type, arg_types) = match compile_context.typeinfos.functions_env.get(name).unwrap(){
+                Type::Function(args, ret, _) => (ret.as_ref().clone(), args),
+                t => panic!("BUG : the function definition has not a function type, it is {:?} instead", t), // TODO : replace this with an unreachable
+            };
+
+            let return_type_llvm = get_llvm_type(compile_context.context, &return_type);
+            //let param_types = args.iter().map(|a| get_llvm_type(compile_context.context, &a.arg_type).try_into().unwrap()).collect::<Vec<_>>();
+            //let param_types = args.iter().map(|a| get_var_type(compile_context, a.name)).collect::<Vec<_>>();
+            let param_types = arg_types;
+            debug_println!(compile_context.rustaml_context.is_debug_print, "function {:?} param types : {:?}", DebugWrapContext::new(name, compile_context.rustaml_context), param_types);
+            let param_types = param_types.into_iter().map(|t| get_llvm_type(compile_context.context, t)).collect::<Vec<_>>();
+            let param_types_metadata = param_types.iter().map(|t| (*t).try_into().unwrap()).collect::<Vec<_>>();
+            let function_type = get_fn_type(compile_context.context, return_type_llvm, &param_types_metadata, false);
             let function = compile_context.module.add_function(name.get_str(&compile_context.rustaml_context.str_interner), function_type, Some(inkwell::module::Linkage::Internal));
             compile_context.functions.insert(*name, function);
             
             let entry = compile_context.context.append_basic_block(function, "entry");
             compile_context.builder.position_at_end(entry);
 
-            let mut old_arg_name_type = Vec::new(); // to save the types that have the same of the args in the global vars 
+            debug_println!(compile_context.rustaml_context.is_debug_print,"function {:?} param types llvm : {:?}", DebugWrapContext::new(name, compile_context.rustaml_context), param_types);
 
-            for (arg, arg_val) in args.iter().zip(function.get_param_iter()) {
-                let arg_type = get_llvm_type(compile_context.context, &arg.arg_type);
-                match compile_context.var_types.insert(arg.name, arg.arg_type.clone()) {
+            //let mut old_arg_name_type = Vec::new(); // to save the types that have the same of the args in the global vars 
+
+            for ((arg, arg_val), arg_type) in args.iter().zip(function.get_param_iter()).zip(param_types) {
+                /*match compile_context.var_types.insert(arg.name, arg.arg_type.clone()) {
                     Some(old_type) => old_arg_name_type.push((arg.name, old_type)),
                     None => {}
-                }
+                }*/
                 create_var(compile_context, arg.name, arg_val.as_any_value_enum(), arg_type);
             }
 
@@ -783,15 +820,15 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
 
             for arg in args {
                 compile_context.var_vals.remove(&arg.name);
-                compile_context.var_types.remove(&arg.name);
+                //compile_context.var_types.remove(&arg.name);
             }
 
-            for (n, t) in old_arg_name_type {
+            /*for (n, t) in old_arg_name_type {
                 compile_context.var_types.insert(n, t);
-            } 
+            }*/
         },
 
-        ASTNode::VarDecl { name, val, body } => {
+        ASTNode::VarDecl { name, val, body, var_type } => {
 
             let last_main_bb = compile_context.main_function.get_last_basic_block().unwrap();
             compile_context.builder.position_at_end(last_main_bb);
@@ -862,7 +899,7 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
 }
 
-pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool) {
+pub fn compile(ast : ASTRef, rustaml_context: &mut RustamlContext, typeinfos : TypeInfos, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool) {
     let context = Context::create();
     let builder = context.create_builder();
 
@@ -907,9 +944,9 @@ pub fn compile(ast : ASTRef, var_types : FxHashMap<StringRef, Type>, rustaml_con
         context : &context,
         module: &module,
         builder: &builder,
+        typeinfos,
         functions: FxHashMap::default(),
         main_function,
-        var_types,
         var_vals: FxHashMap::default(),
         internal_functions,
         external_symbols_declared: FxHashSet::default()

@@ -329,8 +329,8 @@ impl Display for ValWrapDisplay<'_> {
             Val::Float(fl) => write!(f, "{}", fl),
             Val::Bool(b) => write!(f, "{}", b),
             Val::String(s) => write!(f, "{}", s.get_str(&self.rustaml_context.str_interner)),
-            Val::List(l) => display_list(*l, &self.rustaml_context, f), // TODO : pretty print lists
-            Val::Unit => Ok(()),
+            Val::List(l) => display_list(*l, self.rustaml_context, f), // TODO : pretty print lists
+            Val::Unit => write!(f, "()"),
         }
     }
 }
@@ -787,7 +787,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::Float { nb } => Val::Float(*nb),
         ASTNode::Integer { nb } => Val::Integer(*nb),
         ASTNode::Boolean { b } => Val::Bool(*b),
-        ASTNode::VarDecl { name, val, body } => {
+        ASTNode::VarDecl { name, val, body, var_type: _ } => {
             let val_node = interpret_node(context, *val);
             let is_underscore = name.get_str(&context.rustaml_context.str_interner) == "_";
             if !is_underscore {

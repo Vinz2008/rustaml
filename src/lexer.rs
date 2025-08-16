@@ -18,6 +18,7 @@ pub enum Operator {
     MinusFloat,
     MultFloat,
     DivFloat,
+    // TODO : put the equal in its own token
     Equal,
     IsEqual,
     IsNotEqual,
@@ -42,20 +43,20 @@ impl Operator {
         }
     }
 
-    pub fn get_operand_type(&self, is_left : bool, other_operand_type : &Type) -> Type {
+    /*pub fn get_operand_type(&self, is_left : bool, other_operand_type : &Type) -> Type {
         match self {
             Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => other_operand_type.clone(),
             Self::StrAppend => Type::Str,
             Self::ListAppend => if is_left { 
-                Type::Any
+                Type::Any // TODO : replace this with better type inference ?
             } else {
                 Type::List(Box::new(other_operand_type.clone()))
             },
-            Self::Equal => unreachable!(),
             Self::PlusFloat | Self::MinusFloat | Self::MultFloat | Self::DivFloat => Type::Float,
             Self::Plus | Self::Minus | Self::Mult | Self::Div => Type::Integer,
+            Self::Equal => unreachable!(),
         }
-    }
+    }*/
 
     fn is_char_op(c : char) -> bool {
         matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^' | ':' | '!' | '.')
