@@ -6,7 +6,7 @@ out_file = "big_file.rml"
 f = open(out_file, mode = "w")
 
 
-for i in range(0, 1000):
+for i in range(0, 10000):
     f.writelines(
         ["let f{} a{} =".format(i, i), 
          "\tif a{} == {} then".format(i, i),
