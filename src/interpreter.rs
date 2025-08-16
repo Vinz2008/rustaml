@@ -527,7 +527,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
     let lhs_val = interpret_node(context, lhs);
     let rhs_val = interpret_node(context, rhs);
 
-    match op.get_type(None) {
+    match op.get_type() {
         Type::Integer => interpret_binop_int(op, lhs_val, rhs_val),
         Type::Float => interpret_binop_float(op, lhs_val, rhs_val),
         Type::Bool => interpret_binop_bool(&context.rustaml_context.list_node_pool, op, lhs_val, rhs_val),

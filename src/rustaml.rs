@@ -38,15 +38,6 @@ pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<
         },
     };
 
-    /*let ast_and_vars = ast::parse(tokens, rustaml_context);
-    let (ast, vars) = match ast_and_vars {
-        Ok(a_v) => a_v,
-        Err(e) => {
-            print_error::print_parser_error(e, filename, &content_str);
-            return Err(());
-        },
-    };*/
-
     let ast = ast::parse(tokens, rustaml_context);
 
     let ast = match ast {
@@ -57,7 +48,6 @@ pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<
         }
     };
 
-    //Ok((ast, vars))
     Ok(ast)
 }
 

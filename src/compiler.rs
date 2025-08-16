@@ -486,12 +486,12 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 
     let lhs_type = lhs.get_type(&compile_context.rustaml_context.ast_pool);
 
-    match op.get_type(Some(lhs_type.clone())) {
+    match op.get_type() {
         Type::Integer => compile_binop_int(compile_context, op, lhs_val, rhs_val, &name).into(),
         Type::Float => compile_binop_float(compile_context, op, lhs_val, rhs_val, &name).into(),
         Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, lhs_type.clone(), &name).into(),
         Type::Str => compile_binop_str(compile_context, op, lhs_val, rhs_val, &name),
-        Type::List(e) => compile_binop_list(compile_context, op, lhs_val, rhs_val, e.as_ref()),
+        Type::List(_) => compile_binop_list(compile_context, op, lhs_val, rhs_val, lhs_type),
         _ => unreachable!(),
     }
 }
@@ -529,11 +529,8 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
     let mut current_node = compile_context.context.ptr_type(AddressSpace::default()).const_null();
     
     // TODO : optimize this by keeping the last node and just appending to it to not have to go through the list each time by doing append ?
+    // with a function like __append_with_tail that would return a struct with the head and the tail ?
 
-    /*let list_element_type = match list.first() {
-        Some(f) => f.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap(),
-        None => Type::Integer// empty list, so type will not be used, dummy time
-    };*/
     let list_element_type = match list_type {
         Type::List(e) => e.as_ref(),
         _ => unreachable!(),

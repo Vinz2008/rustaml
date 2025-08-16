@@ -159,11 +159,6 @@ fn main() -> ExitCode {
 
     match args.command.expect("No subcommand specified!") {
         Commands::Interpret { filename, debug_print: _ } => {
-            /*let ast_and_vars = get_ast(&filename, &mut rustaml_context);
-            let (ast, _vars) = match ast_and_vars {
-                Ok(a_v) => a_v,
-                Err(()) => return ExitCode::FAILURE,
-            };*/
 
             let ast = get_ast(&filename, &mut rustaml_context);
             let ast = match ast {
@@ -180,11 +175,6 @@ fn main() -> ExitCode {
             interpreter::interpret(ast, &mut rustaml_context);
         }
         Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _ } => {
-            /*let ast_and_vars = get_ast(&filename, &mut rustaml_context);
-            let (ast, vars) = match ast_and_vars {
-                Ok(a_v) => a_v,
-                Err(()) => return ExitCode::FAILURE,
-            };*/
 
             // create a frontend fonction instead of get_ast ?
             let ast = get_ast(&filename, &mut rustaml_context);

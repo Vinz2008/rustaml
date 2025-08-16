@@ -32,18 +32,18 @@ pub enum Operator {
 
 impl Operator {
     pub const OPERATORS: &'static [&'static str] = &["+", "-", "*", "/", "=", "==", ">=", "<="];
-    pub fn get_type(&self, element_type : Option<Type>) -> Type {
+    pub fn get_type(&self) -> Type {
         match self {
             Self::Plus | Self::Minus | Self::Mult | Self::Div => Type::Integer,
             Self::PlusFloat | Self::MinusFloat | Self::MultFloat | Self::DivFloat => Type::Float,
             Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => Type::Bool,
             Self::StrAppend => Type::Str,
-            Self::ListAppend => Type::List(Box::new(element_type.unwrap_or(Type::Any))),
+            Self::ListAppend => Type::List(Box::new(Type::Any)),
             Self::Equal => unreachable!()
         }
     }
 
-    pub fn get_operand_type(&self, is_left : bool, other_operand_type : &Type) -> Type {
+    /*pub fn get_operand_type(&self, is_left : bool, other_operand_type : &Type) -> Type {
         match self {
             Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => other_operand_type.clone(),
             Self::StrAppend => Type::Str,
@@ -56,7 +56,7 @@ impl Operator {
             Self::Plus | Self::Minus | Self::Mult | Self::Div => Type::Integer,
             Self::Equal => unreachable!(),
         }
-    }
+    }*/
 
     fn is_char_op(c : char) -> bool {
         matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^' | ':' | '!' | '.')
