@@ -118,19 +118,17 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
             context.constraints.push(TypeConstraint::ListType(matched_type_var));
             for p in pattern_list {
                 let element_type_var = context.table.new_type_var();
-                collect_constraints_pattern(context, element_type_var, p);
                 context.constraints.push(TypeConstraint::IsElementOf { element: element_type_var, list: matched_type_var });
+                collect_constraints_pattern(context, element_type_var, p);
             }
         },
         Pattern::ListDestructure(e, l) => {
             let element_type_var = context.table.new_type_var();
             context.args_and_patterns_type_var.insert(*e, element_type_var);
             create_var(context, *e, element_type_var);
-            // TODO : add constraints
 
+            context.constraints.push(TypeConstraint::IsElementOf { element: element_type_var, list: matched_type_var });
             collect_constraints_pattern(context, matched_type_var, l.as_ref());
-            let list = matched_type_var;
-            context.constraints.push(TypeConstraint::IsElementOf { element: element_type_var, list });
         }
         Pattern::VarName(n) => { 
             let var_type_var = context.table.new_type_var();
@@ -173,6 +171,10 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> TypeVarId {
                     first_element = Some(element_var_type);
                 }
             }
+            if let Some(f) = first_element {
+                context.constraints.push(TypeConstraint::IsElementOf { element: f, list: new_type_var });
+            }
+            
         }
         ASTNode::VarUse { name } => {
             let var_type_var = get_var_type_var(context, name);
@@ -205,9 +207,25 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> TypeVarId {
                 Operator::Equal => unreachable!(),
             }
 
-            // TODO : refactor this (inline this ?)
-            let res_type = op.get_type(None);
-            context.constraints.push(TypeConstraint::IsType(new_type_var, res_type));
+            match op {
+                Operator::Plus | Operator::Minus | Operator::Mult | Operator::Div => {
+                    context.constraints.push(TypeConstraint::IsType(new_type_var, Type::Integer));
+                },
+                Operator::PlusFloat | Operator::MinusFloat | Operator::MultFloat | Operator::DivFloat => {
+                    context.constraints.push(TypeConstraint::IsType(new_type_var, Type::Float));
+                },
+                Operator::IsEqual | Operator::IsNotEqual | Operator::SuperiorOrEqual | Operator::InferiorOrEqual | Operator::Superior | Operator::Inferior => {
+                    context.constraints.push(TypeConstraint::IsType(new_type_var, Type::Bool));
+                },
+                Operator::StrAppend => {
+                    context.constraints.push(TypeConstraint::IsType(new_type_var, Type::Str));
+                },
+                Operator::ListAppend => {
+                    context.constraints.push(TypeConstraint::SameType(new_type_var, rhs_type_var));
+                },
+                Operator::Equal => unreachable!(),
+            }
+            
         }
 
         ASTNode::FunctionDefinition { name, args, body, return_type } => {
@@ -301,6 +319,10 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> TypeVarId {
                 } else {
                     first_branch = Some(pattern_ast_type_var);
                 }
+            }
+
+            if let Some(f) = first_branch {
+                context.constraints.push(TypeConstraint::SameType(new_type_var, f));
             }
 
         }
@@ -401,10 +423,14 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[TypeConstraint]){
                 };
 
                 if let Some((actual_args, actual_ret, variadic)) = fun_type_tuple {
-                    if !*is_variadic && passed_args_types.len() != actual_args.len() {
-                        panic!("Error when calling function {}, expected {} args, got {} args", function_name, actual_args.len(), passed_args_types.len()) // TODO : add the name of the function for error message
+                    // TODO: fix the print part
+                    let is_arg_nb_wrong = (function_name != "print" && !*is_variadic && passed_args_types.len() != actual_args.len()) || (function_name == "print" && passed_args_types.len() != 1);
+
+
+                    if is_arg_nb_wrong {
+                        panic!("Error when calling function {}, expected {} args, got {} args", function_name, actual_args.len(), passed_args_types.len());
                     }
-                
+                    
                     let mut merged_arg_types = Vec::new();
                     //dbg!(&passed_args_types);
                     //dbg!(&actual_args);
