@@ -31,7 +31,7 @@ let f = test_match 3 ;;
 
 let g = let h = 7 in h - 2 ;;
 
-let i = "aaa" ;;
+let i2 = "aaa" ;;
 
 let test_match_string s : str -> bool = 
     match s with
@@ -79,6 +79,6 @@ let u = append2 3 [4] ;;
 
 let test_destructure a_3 : list[int] -> list[int] =
   match a_3 with
-  | ee :: l -> ee ;;
+  | ee :: l -> l ;;
 
 let v = test_destructure [2] ;;
