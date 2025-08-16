@@ -11,7 +11,7 @@ let sum l = match l with
 
 let sum_f l : list[float] -> float = match l with 
   | [] -> 0.0
-  | e :: li -> e +. sum_f li ;;
+  | ee :: li -> ee +. sum_f li ;;
 
 let s = sum list ;;
 
