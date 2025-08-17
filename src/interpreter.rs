@@ -541,6 +541,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
 const STD_FUNCTIONS : &[&str] = &[
     "print",
     "rand",
+    "format",
 ];
 
 fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args_val : Vec<Val>) -> Val {
@@ -557,6 +558,9 @@ fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args
             let rand_nb = context.rng.random::<i64>();
             Val::Integer(rand_nb)
         },
+        "format" => {
+            todo!()
+        }
         _ => unreachable!()
     }
 }
