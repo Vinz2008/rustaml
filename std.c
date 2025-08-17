@@ -165,6 +165,15 @@ uint8_t __list_cmp(struct ListNode* list1, struct ListNode* list2){
     return list1 == list2; // both are NULL
 }
 
+int64_t __list_len(struct ListNode* list){
+    int64_t count = 0;
+    while (list != NULL){
+        list = list->next;
+        count++;
+    }
+    return count;
+}
+
 const char* __bool_to_str(bool b){
     if (b) {
         return "true";

@@ -466,7 +466,11 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint]){
                             panic!("Wrong ret type of function ")
                         };
 
-                        
+                        for (arg_tv, arg_type) in args_type_vars.iter().zip(&merged_arg_types) {
+                            let arg_root = table.find_root(*arg_tv);
+                            set_type_with_changed(&mut table.real_types[arg_root.0 as usize], arg_type.clone(), &mut changed);
+                        }
+
                         set_type_with_changed(&mut table.real_types[fun_root.0 as usize], Type::Function(merged_arg_types, Box::new(merged_ret.clone()), variadic), &mut changed);
                         set_type_with_changed(&mut table.real_types[ret_var_root.0 as usize], merged_ret, &mut changed);
                         //table.real_types[fun_root.0 as usize] = Some();;
