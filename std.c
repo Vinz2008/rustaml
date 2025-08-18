@@ -402,7 +402,6 @@ static int digit_nb_unsigned(uint64_t u){
     return d_nb + 1;
 }
 
-// TODO : optimize this
 static int digit_nb(int64_t i){
     uint64_t u = absolute(i);
     return digit_nb_unsigned(u);

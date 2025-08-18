@@ -170,7 +170,7 @@ fn main() -> ExitCode {
             let _ = vars.unwrap_or_else(|e| panic!("error in types : {:?}", e));
 
             // after removing this, remove pub at the ast_pool.1
-            debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&rustaml_context.ast_pool.1, &rustaml_context));
+            debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&rustaml_context.ast_pool.ast_node_types, &rustaml_context));
 
             interpreter::interpret(ast, &mut rustaml_context);
         }
