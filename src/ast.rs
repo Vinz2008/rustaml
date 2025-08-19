@@ -196,60 +196,6 @@ impl DebugWithContext<RustamlContext> for Type {
     }
 }
 
-/*impl ASTNode {
-    // TODO : return a GetTypeErr instead of a ParserErr that can be coerced to other error types
-    pub fn get_type(&self, rustaml_context : &RustamlContext, vars: &FxHashMap<StringRef, Type>) -> Result<Type, ParserErr> {
-        let t = match self {
-            ASTNode::Boolean { b: _ } => Type::Bool,
-            ASTNode::Integer { nb: _ } => Type::Integer,
-            ASTNode::Float { nb : _ } => Type::Float,
-            ASTNode::String { str: _ } => Type::Str,
-            ASTNode::List { list } => { 
-                let elem_type = match list.first() {
-                    Some(f) => f.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?,
-                    None => Type::Any,
-                };
-                Type::List(Box::new(elem_type)) 
-            },
-            ASTNode::BinaryOp { op, lhs: _, rhs: _ } => op.get_type(None),
-            ASTNode::VarDecl { name: _, val: _, body, var_type: _ } => {
-                if let Some(b) = body {
-                    b.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?
-                } else {
-                    Type::Unit
-                }
-                
-            },
-            ASTNode::FunctionCall { name, args: _ } => { 
-                let func_type = vars.get(name).unwrap();
-                match func_type {
-                    Type::Function(_, ret, _) => ret.as_ref().clone(),
-                    _ => panic!("Trying to call something that is not a function"),
-                } 
-            },
-            ASTNode::VarUse { name} => match vars.get(name){
-                Some(t) => t.clone(),
-                None => return Err(ParserErr::new(ParserErrData::UnknownVar { name: name.get_str(&rustaml_context.str_interner).to_owned() }, 0..0)), // TODO
-             },
-            ASTNode::IfExpr { cond_expr: _, then_body, else_body } => {
-                let then_type = then_body.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?;
-                let else_type = else_body.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?;
-                match (then_type, else_type){
-                    (Type::Never, t) | (t, Type::Never) => t,
-                    (t, t2) if t.tag() == t2.tag() => t,
-                    (t, t2) => panic!("Typechecking error in if : if -> {:?}, else -> {:?}", t, t2), // TODO : return a type checking error instead that can coerce to a parserErr
-                }
-            }, 
-            ASTNode::MatchExpr { matched_expr: _, patterns } => patterns.first().unwrap().1.get(&rustaml_context.ast_pool).get_type(rustaml_context, vars)?,
-            ASTNode::TopLevel { nodes: _ } => Type::Unit,
-            ASTNode::FunctionDefinition { name: _, args: _, body: _, return_type: _ } => Type::Unit,
-            ASTNode::Unit => Type::Unit,
-        };
-
-        Ok(t)
-    }
-}*/
-
 
 fn init_precedences() -> FxHashMap<Operator, (i32, Associativity)> {
 
