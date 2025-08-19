@@ -1,7 +1,7 @@
 use cfg_if::cfg_if;
 
 use crate::{ast::{self, ASTPool, ASTRef}, interpreter::ListPool, lexer, print_error, string_intern::StrInterner, types::{resolve_and_typecheck, TypeInfos}};
-use std::{fs, path::Path, rc::Rc};
+use std::{fs, path::Path};
 
 pub struct RustamlContext {
     pub str_interner : StrInterner,
@@ -22,10 +22,10 @@ impl RustamlContext {
     }
 }
 
-pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<char>, content_str: Option<Rc<str>>, filename : &Path) -> Result<ASTRef, ()> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ()>*/ {
+pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<char>, content_str: Option<&str>, filename : &Path) -> Result<ASTRef, ()> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ()>*/ {
     
-    let content_str = match content_str.as_ref() {
-        Some(c) => c.as_ref(),
+    let content_str = match content_str {
+        Some(c) => c,
         None => &content.iter().collect::<String>(),
     };
 
@@ -66,10 +66,9 @@ pub fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Resu
         panic!("Invalid UTF-8 in {}: {}", filename.display(), err);
     });
 
-    let content_rc = Rc::from(content.as_str());
     let content_chars = content.chars().collect::<Vec<_>>();
     
-    let ast = get_ast_from_string(rustaml_context, content_chars, Some(content_rc), filename)?;
+    let ast = get_ast_from_string(rustaml_context, content_chars, Some(&content), filename)?;
 
     let type_infos = match resolve_and_typecheck(rustaml_context, ast) {
         Ok(t) => t,
