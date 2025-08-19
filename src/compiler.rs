@@ -1,7 +1,7 @@
 use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::TypeInfos};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -428,7 +428,7 @@ fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
         },
         (AnyValueEnum::FloatValue(f),  AnyValueEnum::FloatValue(f2)) => {
             let predicate = match op {
-                Operator::Equal => FloatPredicate::OEQ,
+                Operator::IsEqual => FloatPredicate::OEQ,
                 Operator::IsNotEqual => FloatPredicate::ONE,
                 Operator::Inferior => FloatPredicate::OLT,
                 Operator::Superior => FloatPredicate::OGT,
@@ -958,7 +958,8 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
 }
 
-pub fn compile(ast : ASTRef, rustaml_context: &mut RustamlContext, typeinfos : TypeInfos, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool) {
+// TODO : pass all the args after optimization level as a struct named OptionalArgs
+pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool) {
     let context = Context::create();
     let builder = context.create_builder();
 
@@ -1003,7 +1004,7 @@ pub fn compile(ast : ASTRef, rustaml_context: &mut RustamlContext, typeinfos : T
         context : &context,
         module: &module,
         builder: &builder,
-        typeinfos,
+        typeinfos: frontend_output.type_infos,
         functions: FxHashMap::default(),
         main_function,
         var_vals: FxHashMap::default(),
@@ -1011,7 +1012,7 @@ pub fn compile(ast : ASTRef, rustaml_context: &mut RustamlContext, typeinfos : T
         external_symbols_declared: FxHashSet::default()
     };
 
-    let top_level_nodes = match ast.get(&rustaml_context.ast_pool) {
+    let top_level_nodes = match frontend_output.ast.get(&rustaml_context.ast_pool) {
         ASTNode::TopLevel { nodes } => nodes,
         _ => unreachable!(),
     };

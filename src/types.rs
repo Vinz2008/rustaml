@@ -131,8 +131,7 @@ impl TypeVarTable {
 
     fn resolve_type(&mut self, tv : TypeVarId) -> Type {
         let tv_root = self.find_root(tv);
-        self.real_types[tv_root.0 as usize].clone().unwrap_or(Type::Any) // TODO : try to replace unwrap_or with unwrap ?
-        //self.real_types[tv_root.0 as usize].clone().unwrap()
+        self.real_types[tv_root.0 as usize].clone().unwrap_or(Type::Any)
     }
 }
 

@@ -1,7 +1,7 @@
 use std::{ops::Range, path::Path};
 use levenshtein::levenshtein;
 
-use crate::{ast::{ParserErr, ParserErrData}, lexer::{LexerErr, Operator, TokenData, TokenDataTag}};
+use crate::{ast::{ParserErr, ParserErrData}, lexer::{LexerErr, Operator, TokenData, TokenDataTag}, types::TypesErr};
 use crate::lexer::LexerErrData;
 
 use ariadne::{Color, ColorGenerator, Label, Report, ReportKind, Source};
@@ -249,4 +249,8 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
     //assert!((error_print.note.is_some() && error_print.label.is_some()) || (error_print.note.is_none() && error_print.label.is_none()));
 
     print_error(error_print);
+}
+
+pub fn print_type_error(type_error : TypesErr, filename : &Path, content : &str){
+    todo!()
 }

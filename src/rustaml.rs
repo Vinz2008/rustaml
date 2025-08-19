@@ -1,7 +1,7 @@
 use cfg_if::cfg_if;
 
-use crate::{ast::{self, ASTPool, ASTRef}, interpreter::ListPool, lexer, print_error, string_intern::StrInterner};
-use std::{fs, path::Path};
+use crate::{ast::{self, ASTPool, ASTRef}, interpreter::ListPool, lexer, print_error, string_intern::StrInterner, types::{resolve_and_typecheck, TypeInfos}};
+use std::{fs, path::Path, rc::Rc};
 
 pub struct RustamlContext {
     pub str_interner : StrInterner,
@@ -22,18 +22,18 @@ impl RustamlContext {
     }
 }
 
-pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<char>, content_str: Option<String>, filename : &Path) -> Result<ASTRef, ()> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ()>*/ {
+pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<char>, content_str: Option<Rc<str>>, filename : &Path) -> Result<ASTRef, ()> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ()>*/ {
     
-    let content_str = match content_str {
-        Some(c) => c,
-        None => content.iter().collect(),
+    let content_str = match content_str.as_ref() {
+        Some(c) => c.as_ref(),
+        None => &content.iter().collect::<String>(),
     };
 
     let tokens = lexer::lex(content, rustaml_context.is_debug_print);
     let tokens = match tokens {
         Ok(t) => t,
         Err(e) => {
-            print_error::print_lexer_error(e, filename, &content_str);
+            print_error::print_lexer_error(e, filename, content_str);
             return Err(())
         },
     };
@@ -51,17 +51,38 @@ pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<
     Ok(ast)
 }
 
+
+pub struct FrontendOutput {
+    pub ast : ASTRef,
+    pub type_infos : TypeInfos,
+}
+
 // used for every command (used for code deduplication)
-pub fn get_ast(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<ASTRef, ()> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ()>*/ {
+pub fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<FrontendOutput, ()> {
     let content_bytes = fs::read(filename).unwrap_or_else(|err| {
             panic!("Error when opening {} : {}", filename.display(), err)
     });
     let content = String::from_utf8(content_bytes).unwrap_or_else(|err| {
         panic!("Invalid UTF-8 in {}: {}", filename.display(), err);
     });
+
+    let content_rc = Rc::from(content.as_str());
     let content_chars = content.chars().collect::<Vec<_>>();
     
-    get_ast_from_string(rustaml_context, content_chars, Some(content), filename)
+    let ast = get_ast_from_string(rustaml_context, content_chars, Some(content_rc), filename)?;
+
+    let type_infos = match resolve_and_typecheck(rustaml_context, ast) {
+        Ok(t) => t,
+        Err(e) => { 
+            print_error::print_type_error(e, filename, &content);
+            return Err(());
+        }
+    };
+
+    Ok(FrontendOutput {
+        ast,
+        type_infos,
+    })
 }
 
 

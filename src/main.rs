@@ -8,10 +8,10 @@ use std::{path::PathBuf, process::ExitCode};
 use clap::{Parser, Subcommand};
 use debug_with_context::DebugWrapContext;
 
-use crate::types::resolve_and_typecheck;
 #[cfg(not(feature = "native"))]
-use crate::types::TypeInfos;
-use crate::{rustaml::{get_ast, RustamlContext}};
+use crate::rustaml::FrontendOutput;
+
+use crate::{rustaml::{frontend, RustamlContext}};
 use crate::types_debug::dump_typed_ast;
 
 #[cfg(not(feature = "native"))]
@@ -124,7 +124,7 @@ struct Args {
 }
 
 #[cfg(not(feature = "native"))]
-pub fn compile(_ast : ASTRef, _rustaml_context: &RustamlContext, _typeinfos : TypeInfos, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer: bool) {
+pub fn compile(_frontend_output : FrontendOutput, _rustaml_context: &mut RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer : bool) {
     panic!("the compiler feature was not enabled");
 }
 
@@ -160,47 +160,41 @@ fn main() -> ExitCode {
     match args.command.expect("No subcommand specified!") {
         Commands::Interpret { filename, debug_print: _ } => {
 
-            let ast = get_ast(&filename, &mut rustaml_context);
-            let ast = match ast {
-                Ok(a) => a,
+            let frontend_output = frontend(&filename, &mut rustaml_context);
+            let frontend_output = match frontend_output {
+                Ok(f) => f,
                 Err(()) => return ExitCode::FAILURE,
             };
-
-            let vars = resolve_and_typecheck(&mut rustaml_context, ast);
-            let _ = vars.unwrap_or_else(|e| panic!("error in types : {:?}", e));
 
             // after removing this, remove pub at the ast_pool.1
             debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&rustaml_context.ast_pool.ast_node_types, &rustaml_context));
 
-            interpreter::interpret(ast, &mut rustaml_context);
+            interpreter::interpret(frontend_output.ast, &mut rustaml_context);
         }
         Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _ } => {
 
             // create a frontend fonction instead of get_ast ?
-            let ast = get_ast(&filename, &mut rustaml_context);
-            let ast = match ast {
-                Ok(a) => a,
+            let frontend_output = frontend(&filename, &mut rustaml_context);
+            let frontend_output = match frontend_output {
+                Ok(f) => f,
                 Err(()) => return ExitCode::FAILURE,
             };
 
             // TODO : proper error printing
-            let typeinfos = resolve_and_typecheck(&mut rustaml_context, ast).unwrap_or_else(|e| panic!("error in types : {:?}", e));
             //debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&vars, &rustaml_context));
 
-            compile(ast, &mut rustaml_context, typeinfos,  &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, disable_gc, enable_sanitizer);
+            compile(frontend_output, &mut rustaml_context,  &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, disable_gc, enable_sanitizer);
         },
 
         Commands::Check { filename, dump_types, debug_print: _ } => {
-            let ast = get_ast(&filename, &mut rustaml_context);
-            let ast = match ast {
-                Ok(a) => a,
+            let frontend_output = frontend(&filename, &mut rustaml_context);
+            let frontend_output = match frontend_output {
+                Ok(f) => f,
                 Err(()) => return ExitCode::FAILURE,
             };
 
-            let _ = resolve_and_typecheck(&mut rustaml_context, ast).unwrap_or_else(|e| panic!("error in types : {:?}", e));
-
             if dump_types {
-                dump_typed_ast(&rustaml_context, ast).unwrap();
+                dump_typed_ast(&rustaml_context, frontend_output.ast).unwrap();
             }
 
             
