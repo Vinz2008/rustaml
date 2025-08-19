@@ -19,7 +19,6 @@ pub enum Operator {
     MultFloat,
     DivFloat,
     // TODO : put the equal in its own token
-    Equal,
     IsEqual,
     IsNotEqual,
     SuperiorOrEqual,
@@ -39,7 +38,6 @@ impl Operator {
             Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => Type::Bool,
             Self::StrAppend => Type::Str,
             Self::ListAppend => Type::List(Box::new(Type::Any)),
-            Self::Equal => unreachable!()
         }
     }
 
@@ -68,7 +66,6 @@ impl Operator {
             "-" => Operator::Minus,
             "*" => Operator::Mult,
             "/" => Operator::Div,
-            "=" => Operator::Equal,
             "==" => Operator::IsEqual,
             "!=" => Operator::IsNotEqual,
             ">=" => Operator::SuperiorOrEqual,
@@ -104,6 +101,7 @@ pub enum TokenData {
     In,
     True,
     False,
+    Equal,
     ParenOpen,
     ParenClose,
     ArrayOpen,
@@ -314,6 +312,7 @@ fn lex_op(lexer: &mut Lexer) -> Result<Option<Token>, LexerErr> {
 
     let tok_data = match op_str.as_str() {
         "->" => TokenData::Arrow,
+        "=" => TokenData::Equal,
         "//" => { 
             handle_comment(lexer);
             return Ok(None)
@@ -396,7 +395,7 @@ mod tests {
     fn lexer_simple() {
         let input = "let a = 2 ;;".to_string().chars().collect();
         let result = lex(input, false).unwrap().into_iter().map(|t| t.tok_data).collect::<Vec<_>>();
-        let expected = vec![TokenData::Let, TokenData::Identifier(vec!['a']), TokenData::Op(Operator::Equal), TokenData::Integer(2), TokenData::EndOfExpr];
+        let expected = vec![TokenData::Let, TokenData::Identifier(vec!['a']), TokenData::Equal, TokenData::Integer(2), TokenData::EndOfExpr];
         assert_eq!(result, expected);
     }
 }

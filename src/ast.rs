@@ -196,6 +196,8 @@ impl DebugWithContext<RustamlContext> for Type {
     }
 }
 
+// TODO : add @ operator to append lists
+
 
 fn init_precedences() -> FxHashMap<Operator, (i32, Associativity)> {
 
@@ -355,7 +357,7 @@ fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
 
     let type_parsed = match parser.current_tok_data() {
         Some(TokenData::Arrow) => {
-            // only simple types can be returned or passed to functions, need to refator this code to support cases like (int -> int) -> (int -> int)
+            // only simple types can be returned or passed to functions, need to refactor this code to support cases like (int -> int) -> (int -> int)
             let mut function_type_parts = vec![simple_type];
             debug_println!(parser.rustaml_context.is_debug_print, "parser.current_tok_data() = {:#?}", parser.current_tok_data());
             //dbg!(parser.current_tok_data());
@@ -426,13 +428,7 @@ fn parse_let(parser: &mut Parser, let_range : Range<usize>) -> Result<ASTRef, Pa
         let args = arg_names.into_iter().zip(arg_types.clone()).map(|x| Arg { name: parser.rustaml_context.str_interner.intern_compiler(&x.0), arg_type: x.1 }).collect::<Vec<Arg>>();
 
 
-        let equal_tok = parser.eat_tok(Some(TokenDataTag::Op));
-
-        match equal_tok.map(|t| t.tok_data) {
-            Ok(TokenData::Op(Operator::Equal)) => {},
-            Ok(t) => panic!("expected equal in let expr, got {:?}", t),
-            Err(e) => panic!("Error when expecting equal in let expr : {:?}", e),
-        };
+        parser.eat_tok(Some(TokenDataTag::Equal))?;
 
         let body = parse_node(parser)?;
 
@@ -453,11 +449,7 @@ fn parse_let(parser: &mut Parser, let_range : Range<usize>) -> Result<ASTRef, Pa
         };
 
 
-        let tok = parser.eat_tok(Some(TokenDataTag::Op))?;
-        match &tok.tok_data {
-            TokenData::Op(Operator::Equal) => {},
-            _ => return Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: tok.tok_data }, tok.range)),
-        };
+        parser.eat_tok(Some(TokenDataTag::Equal))?;
 
         let val_node = parse_node(parser)?;
 
