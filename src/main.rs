@@ -40,10 +40,6 @@ cfg_if! {
         mod compiler_utils;
 
         use crate::compiler::compile;
-    } else {
-        use crate::ast::ASTRef;
-        //use rustc_hash::FxHashMap;
-        //use crate::string_intern::StringRef;
     }
 }
 

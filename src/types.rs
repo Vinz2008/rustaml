@@ -1,4 +1,5 @@
 use debug_with_context::{DebugWithContext, DebugWrapContext};
+use enum_tags::Tag;
 use rustc_hash::FxHashMap;
 // TODO : replace these with use std::range::Range when https://github.com/rust-lang/rust/issues/125687 is added without a feature, then remove all the ranges clones because the new version is Copy
 use std::ops::Range;
@@ -9,8 +10,8 @@ use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug_println, lexer::Operato
 // TODO : make this part generic for every err (something like Ranged<TypesErr>)
 #[derive(Debug)]
 pub struct TypesErr {
-    err_data: Box<TypesErrData>,
-    range : Range<usize>,
+    pub err_data: Box<TypesErrData>,
+    pub range : Range<usize>,
 }
 
 impl TypesErr {
@@ -19,7 +20,7 @@ impl TypesErr {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Tag)]
 pub enum TypesErrData {
     VarNotFound {
         name : String

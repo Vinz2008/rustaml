@@ -18,7 +18,8 @@ exe_path = None
 
 excluded_files = [
     "parser_error.rml",
-    "interpreter_error.rml"
+    "types_error.rml",
+    "interpreter_error.rml",
 ]
 
 def is_error(return_code : int) -> bool:

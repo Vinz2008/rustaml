@@ -1,13 +1,14 @@
 use std::{ops::Range, path::Path};
 use levenshtein::levenshtein;
 
-use crate::{ast::{ParserErr, ParserErrData}, lexer::{LexerErr, Operator, TokenData, TokenDataTag}, types::TypesErr};
+use crate::{ast::{ParserErr, ParserErrData}, lexer::{LexerErr, Operator, TokenData, TokenDataTag}, types::{TypesErr, TypesErrData}};
 use crate::lexer::LexerErrData;
 
 use ariadne::{Color, ColorGenerator, Label, Report, ReportKind, Source};
 use enum_tags::TaggedEnum;
 
 const PARSER_ERROR_OFFSET : u32 = 100;
+const TYPE_ERROR_OFFSET : u32 = 200;
 
 #[derive(Default, Clone)]
 struct ErrorBasicInfos<'a> {
@@ -251,6 +252,43 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
     print_error(error_print);
 }
 
+
+fn print_function_not_found_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, name: &str) -> ErrorPrint<'a> {
+    ErrorPrint { 
+        error_basic_infos, 
+        message: format!("Function not found : {}", name),
+        ..Default::default()
+    }
+}
+
 pub fn print_type_error(type_error : TypesErr, filename : &Path, content : &str){
-    todo!()
+
+    let error_nb =  TYPE_ERROR_OFFSET + type_error.err_data.tag() as u32;
+    let range = type_error.range;
+    let filename_str = filename.to_str().unwrap();
+
+    let mut colors = ColorGenerator::new();
+    let color = colors.next();
+
+    let error_basic_infos = ErrorBasicInfos {
+        error_nb,
+        range,
+        filename: filename_str,
+        content,
+        color
+    };
+
+    let error_print = match *type_error.err_data {
+        TypesErrData::FunctionNotFound { name } => print_function_not_found_error(error_basic_infos, &name),
+        TypesErrData::FunctionTypeExpected { wrong_type } => todo!(),
+        TypesErrData::IncompatibleTypes { type1, type2 } => todo!(),
+        TypesErrData::ListTypeExpected { wrong_type } => todo!(),
+        TypesErrData::VarNotFound { name } => todo!(),
+        TypesErrData::WrongArgNb { function_name, expected_nb, got_nb } => todo!(),
+        TypesErrData::WrongArgType { function_name, expected_type, got_type } => todo!(),
+        TypesErrData::WrongRetType { function_name, expected_type, got_type } => todo!(),
+        TypesErrData::WrongType { expected_type, got_type } => todo!(),
+    };
+
+    print_error(error_print);
 }
