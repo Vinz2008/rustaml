@@ -646,7 +646,7 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
         TokenData::Float(nb) => Pattern::Float(nb),
         TokenData::String(s) => Pattern::String(parser.rustaml_context.str_interner.intern_compiler(&s.iter().collect::<String>())),
         TokenData::ArrayOpen => {
-            let (elems, range_end) = parse_list_form(parser, parse_pattern)?;
+            let (elems, _range_end) = parse_list_form(parser, parse_pattern)?;
 
             Pattern::List(elems)
         },

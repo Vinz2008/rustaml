@@ -2,7 +2,7 @@ use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::TypeInfos};
-use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
+use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
@@ -607,7 +607,7 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
                 let const_list_pattern_len = compile_context.context.i64_type().const_int(pattern_list.len() as u64, false);
                 
                 let list_len_fun = compile_context.get_internal_function("__list_len");
-                let list_len = compile_context.builder.build_call(list_len_fun, &vec![matched_val.try_into().unwrap()], "list_len_internal").unwrap().as_any_value_enum().into_int_value();
+                let list_len = compile_context.builder.build_call(list_len_fun, &[matched_val.try_into().unwrap()], "list_len_internal").unwrap().as_any_value_enum().into_int_value();
 
                 let is_same_len = compile_context.builder.build_int_compare(IntPredicate::EQ, list_len, const_list_pattern_len, "match_list_len_cmp").unwrap();
                 compile_context.builder.build_conditional_branch(is_same_len, patterns_cmp, after_bb).unwrap();
@@ -756,7 +756,7 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
         compile_pattern_match(compile_context, pattern, matched_val, matched_val_type, *pattern_bb, *pattern_else_bb);
         move_bb_after_current(compile_context, *pattern_bb);
         compile_context.builder.position_at_end(*pattern_bb);
-        compile_pattern_match_prologue(compile_context, pattern, matched_val, &matched_val_type);
+        compile_pattern_match_prologue(compile_context, pattern, matched_val, matched_val_type);
         let pattern_body_val = compile_expr(compile_context, *pattern_body);
         //compile_pattern_match_epilogue(compile_context, pattern);
         match_phi_bbs.push(compile_context.builder.get_insert_block().unwrap());
@@ -845,7 +845,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             //let param_types = args.iter().map(|a| get_var_type(compile_context, a.name)).collect::<Vec<_>>();
             let param_types = arg_types;
             debug_println!(compile_context.rustaml_context.is_debug_print, "function {:?} param types : {:?}", DebugWrapContext::new(name, compile_context.rustaml_context), param_types);
-            let param_types = param_types.into_iter().map(|t| get_llvm_type(compile_context.context, t)).collect::<Vec<_>>();
+            let param_types = param_types.iter().map(|t| get_llvm_type(compile_context.context, t)).collect::<Vec<_>>();
             let param_types_metadata = param_types.iter().map(|t| (*t).try_into().unwrap()).collect::<Vec<_>>();
             let function_type = get_fn_type(compile_context.context, return_type_llvm, &param_types_metadata, false);
             let function = compile_context.module.add_function(name.get_str(&compile_context.rustaml_context.str_interner), function_type, Some(inkwell::module::Linkage::Internal));

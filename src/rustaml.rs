@@ -43,7 +43,7 @@ pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<
     let ast = match ast {
         Ok(a) => a,
         Err(e) => {
-            print_error::print_parser_error(e, filename, &content_str);
+            print_error::print_parser_error(e, filename, content_str);
             return Err(());
         }
     };

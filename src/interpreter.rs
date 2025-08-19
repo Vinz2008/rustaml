@@ -44,7 +44,7 @@ impl ListPool {
     fn free(&mut self, list_node : ListRef) {
         let freed_node = self.0[list_node.0 as usize].take();
 
-        let freed_node = match freed_node {
+        let _freed_node = match freed_node {
             Some(n) => n,
             None => panic!("gc tried to free a None list node"),
         };

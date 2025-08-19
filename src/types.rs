@@ -563,7 +563,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint]) -> R
                     let merged_element_type = match (&list_type, &element_type) {
                         (Some(Type::List(list_element_type)), element_type) => {
                             if let Some(element_type) = element_type {
-                                let merged_element_type = merge_types(list_element_type.as_ref(), &element_type);
+                                let merged_element_type = merge_types(list_element_type.as_ref(), element_type);
                                 if merged_element_type.is_none() {
                                     // TODO : replace this to make it more clear that is not list_element_type and element_type that are incompatible, but it is that appending a element_type to a list_type (which is List(list_element_type)) that is invalid
                                     return Err(TypesErr::new(TypesErrData::IncompatibleTypes { type1: *list_element_type.clone(), type2: element_type.clone() }, 0..0))
