@@ -1,1 +1,24 @@
-let a = f 2 ;;
+// function not found
+// let a = f 2 ;;
+
+// var not found
+// let b2 = 3 ;;
+// let a = b ;;
+
+// wrong type
+// let b = 1 + 2.0 ;;
+
+// list type expected
+// let a = 1 :: 3 ;;
+
+// incompatible types
+// let _ = if true then 1 else 1.0 ;;
+// let _ = 2.0 :: [3] ;;
+
+// wrong arg nb
+// let f a b = a + b ;;
+// let _ = f 1 ;;
+
+// wrong arg type
+let f a b = a + b ;;
+let _ = f 2.0 3.0 ;;

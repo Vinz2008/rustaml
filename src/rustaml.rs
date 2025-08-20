@@ -1,4 +1,5 @@
 use cfg_if::cfg_if;
+use levenshtein::levenshtein;
 
 use crate::{ast::{self, ASTPool, ASTRef}, interpreter::ListPool, lexer, print_error, string_intern::StrInterner, types::{resolve_and_typecheck, TypeInfos}};
 use std::{fs, path::Path};
@@ -20,6 +21,21 @@ impl RustamlContext {
             is_debug_print,
         }
     }
+}
+
+pub fn nearest_string<'a>(searched_str : &str, strings : impl IntoIterator<Item = &'a str>, default : Option<&'a str>) -> Option<&'a str> {
+    let mut min_distance = usize::MAX;
+    let mut nearest = default;
+
+    for current_s in strings {
+        let current_distance = levenshtein(searched_str, current_s);
+        if current_distance < min_distance {
+            min_distance = current_distance;
+            nearest = Some(current_s);
+        }
+    }
+
+    nearest
 }
 
 pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<char>, content_str: Option<&str>, filename : &Path) -> Result<ASTRef, ()> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ()>*/ {

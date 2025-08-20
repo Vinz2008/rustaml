@@ -813,9 +813,12 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     while parser.has_tokens_left() {
         nodes.push(parse_node(parser)?);
     }
-    let start_range = nodes.first().unwrap().get_range(&parser.rustaml_context.ast_pool).start;
-    let end_range = nodes.last().unwrap().get_range(&parser.rustaml_context.ast_pool).end;
-    Ok(parser.rustaml_context.ast_pool.push(ASTNode::TopLevel { nodes }, start_range..end_range))
+    let range = match (nodes.first(), nodes.last()) {
+        (Some(first), Some(last)) => first.get_range(&parser.rustaml_context.ast_pool).start..last.get_range(&parser.rustaml_context.ast_pool).end,
+        _ => 0..0, // 0..0 because there is no expressions
+    };
+
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::TopLevel { nodes }, range))
 }
 
 pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext) -> Result<ASTRef, ParserErr> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ParserErr>*/ {

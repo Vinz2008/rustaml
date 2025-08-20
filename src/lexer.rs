@@ -30,7 +30,7 @@ pub enum Operator {
 }
 
 impl Operator {
-    pub const OPERATORS: &'static [&'static str] = &["+", "-", "*", "/", "=", "==", ">=", "<="];
+    pub const OPERATORS: [&'static str; 16] = ["+", "-", "*", "/", "+.", "-.", "*.", "/.", "==", "!=", ">=", "<=", ">", "<", "^", "::"];
     pub fn get_type(&self) -> Type {
         match self {
             Self::Plus | Self::Minus | Self::Mult | Self::Div => Type::Integer,
@@ -355,7 +355,7 @@ pub fn lex(content: Vec<char>, is_debug_print : bool) -> Result<Vec<Token>, Lexe
     
 
     while let Some(c) = lexer.read_char() {
-        let range = lexer.pos-1..lexer.pos-1;
+        let range = lexer.pos-1..lexer.pos;
         let tok: Option<Token> = match c {
             ' ' | '\t' | '\n' => None,
             '(' => Some(Token::new(TokenData::ParenOpen, range)),

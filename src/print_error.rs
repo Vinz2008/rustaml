@@ -1,7 +1,6 @@
 use std::{ops::Range, path::Path};
-use levenshtein::levenshtein;
 
-use crate::{ast::{ParserErr, ParserErrData}, lexer::{LexerErr, Operator, TokenData, TokenDataTag}, types::{TypesErr, TypesErrData}};
+use crate::{ast::{ParserErr, ParserErrData, Type}, lexer::{LexerErr, Operator, TokenData, TokenDataTag}, rustaml::nearest_string, types::{TypesErr, TypesErrData}};
 use crate::lexer::LexerErrData;
 
 use ariadne::{Color, ColorGenerator, Label, Report, ReportKind, Source};
@@ -29,6 +28,9 @@ struct ErrorPrint<'a> {
 }
 
 fn print_error(err : ErrorPrint){
+
+    assert!(!(err.note.is_some() && err.label.is_none()));
+
     let mut report = Report::build(ReportKind::Error, (err.error_basic_infos.filename, err.error_basic_infos.range.clone()))
     .with_code(err.error_basic_infos.error_nb)
     .with_message(err.message);
@@ -56,8 +58,8 @@ fn print_number_parsing_failure(error_basic_infos : ErrorBasicInfos, buf  : Vec<
     }
 }
 
-fn nearest_op(s : &str) -> &'static str {
-    let mut min_distance = usize::MAX;
+fn nearest_op(s : &str) -> String {
+    /*let mut min_distance = usize::MAX;
     let mut nearest = Operator::OPERATORS[0]; 
     for op in Operator::OPERATORS {
         let distance = levenshtein(s, op);
@@ -66,7 +68,9 @@ fn nearest_op(s : &str) -> &'static str {
             nearest = op;
         }
     }
-    nearest
+    nearest*/
+
+    nearest_string(s, Operator::OPERATORS, Some(Operator::OPERATORS[0])).unwrap().to_owned()
 }
 
 fn print_invalid_op_error(error_basic_infos : ErrorBasicInfos, op : String) -> ErrorPrint {
@@ -256,8 +260,64 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
 fn print_function_not_found_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, name: &str) -> ErrorPrint<'a> {
     ErrorPrint { 
         error_basic_infos, 
-        message: format!("Function not found : {}", name),
+        message: format!("Function \"{}\" not found", name),
+        label: Some("This is the function not found"),
         ..Default::default()
+    }
+}
+
+fn print_incompatible_types_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, type1 : Type, type2 : Type) -> ErrorPrint<'a> {
+    ErrorPrint {
+        error_basic_infos,
+        message: format!("Incompatible types, {:?} and {:?} are not compatible", type1, type2),
+        label: Some("This is where the types are incompatible"),
+        note: Some("Check if you have ifs and else branches with incompatible types or if you are appending an element to a list of a different type".to_owned()),
+    }
+}
+
+fn print_list_type_expected_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, wrong_type : Type) -> ErrorPrint<'a> {
+    ErrorPrint {
+        error_basic_infos,
+        message: format!("Wrong type, expected a list type, but got {:?}", wrong_type),
+        label: Some("This is where the type is wrong"),
+        note: Some("Check if you use the :: operator or use the e :: l pattern on a value that is not a list".to_owned()),
+    }
+}
+
+fn print_var_not_found_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, name: &str, nearest_var_name : Option<String>) -> ErrorPrint<'a> {
+    let note = nearest_var_name.map(|n| format!("Maybe you meant {}", n));
+    ErrorPrint {
+        error_basic_infos,
+        message: format!("Variable \"{}\" not found", name),
+        label: Some("This is the variable not found"),
+        note,
+    }
+}
+
+fn print_wrong_arg_nb<'a>(error_basic_infos : ErrorBasicInfos<'a>, function_name : &str, expected_nb : usize, got_nb : usize) -> ErrorPrint<'a> {
+    ErrorPrint {
+        error_basic_infos,
+        message: format!("There is a wrong argument number for the function {}, the expected number was {} but we got {}", function_name, expected_nb, got_nb),
+        label: Some("Here the number of args is wrong"),
+        note: Some("Check if there is function call to this function with the wrong number of arguments there".to_owned())
+    }
+}
+
+fn print_wrong_arg_type<'a>(error_basic_infos : ErrorBasicInfos<'a>, function_name : &str, expected_type : Type, got_type : Type) -> ErrorPrint<'a> {
+    ErrorPrint {
+        error_basic_infos,
+        message: format!("There is a wrong argument type for the function {}, the expected types was {:?}, but we got {:?}", function_name, expected_type, got_type),
+        label: Some("Here the type of args is wrong"),
+        note: Some("Check if there is function call to this function with the wrong type of arguments there".to_owned())
+    }
+}
+
+fn print_wrong_type_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, expected_type : Type, got_type : Type) -> ErrorPrint<'a> {
+    ErrorPrint {
+        error_basic_infos,
+        message: format!("Wrong type, expected {:?} type but got {:?}", expected_type, got_type), // TODO : replace these debug prints by a real Display implementation for types
+        label: Some("This is where the types are wrong"),
+        note: Some("Check if a type is obviously wrong (for example a non bool value in a if or a + with a float)".to_owned()),
     }
 }
 
@@ -281,13 +341,13 @@ pub fn print_type_error(type_error : TypesErr, filename : &Path, content : &str)
     let error_print = match *type_error.err_data {
         TypesErrData::FunctionNotFound { name } => print_function_not_found_error(error_basic_infos, &name),
         TypesErrData::FunctionTypeExpected { wrong_type } => todo!(),
-        TypesErrData::IncompatibleTypes { type1, type2 } => todo!(),
-        TypesErrData::ListTypeExpected { wrong_type } => todo!(),
-        TypesErrData::VarNotFound { name } => todo!(),
-        TypesErrData::WrongArgNb { function_name, expected_nb, got_nb } => todo!(),
-        TypesErrData::WrongArgType { function_name, expected_type, got_type } => todo!(),
+        TypesErrData::IncompatibleTypes { type1, type2 } => print_incompatible_types_error(error_basic_infos, type1, type2),
+        TypesErrData::ListTypeExpected { wrong_type } => print_list_type_expected_error(error_basic_infos, wrong_type),
+        TypesErrData::VarNotFound { name, nearest_var_name } => print_var_not_found_error(error_basic_infos, &name, nearest_var_name),
+        TypesErrData::WrongArgNb { function_name, expected_nb, got_nb } => print_wrong_arg_nb(error_basic_infos, &function_name, expected_nb, got_nb),
+        TypesErrData::WrongArgType { function_name, expected_type, got_type } => print_wrong_arg_type(error_basic_infos, &function_name, expected_type, got_type),
         TypesErrData::WrongRetType { function_name, expected_type, got_type } => todo!(),
-        TypesErrData::WrongType { expected_type, got_type } => todo!(),
+        TypesErrData::WrongType { expected_type, got_type } => print_wrong_type_error(error_basic_infos, expected_type, got_type),
     };
 
     print_error(error_print);

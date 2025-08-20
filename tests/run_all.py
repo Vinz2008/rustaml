@@ -17,6 +17,7 @@ if "Cargo.toml" not in os.listdir(root_project_dir):
 exe_path = None
 
 excluded_files = [
+    "lexer_error.rml",
     "parser_error.rml",
     "types_error.rml",
     "interpreter_error.rml",
