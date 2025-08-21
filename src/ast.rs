@@ -664,11 +664,11 @@ where F: Fn(&mut Parser) -> Result<T, ParserErr>
 
 fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
     let pattern_tok = parser.eat_tok(None)?;
-    let pattern_tok_range = pattern_tok.range;
+    let pattern_first_tok_range = pattern_tok.range;
 
-    let pattern = match pattern_tok.tok_data {
+    let (pattern, range) = match pattern_tok.tok_data {
         TokenData::Identifier(buf) => {
-            if matches!(parser.current_tok_data(), Some(TokenData::Op(Operator::ListAppend))){
+            let p = if matches!(parser.current_tok_data(), Some(TokenData::Op(Operator::ListAppend))){
                 parser.eat_tok(Some(TokenDataTag::Op))?;
 
                 let head = buf.iter().collect::<String>();
@@ -680,8 +680,8 @@ fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
                     "_" => Pattern::Underscore,
                     s_ref => Pattern::VarName(parser.rustaml_context.str_interner.intern_compiler(s_ref)),
                 }
-            }
-            
+            };
+            (p, pattern_first_tok_range)
         },
         TokenData::Integer(nb) => { 
             if let Some(&TokenData::Range(inclusivity)) = parser.current_tok_data() {
@@ -691,23 +691,23 @@ fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
                     TokenData::Integer(end) => end,
                     _ => unreachable!(),
                 };
-                Pattern::Range(nb, end_nb, inclusivity)
+                (Pattern::Range(nb, end_nb, inclusivity), pattern_first_tok_range.start..end_tok.range.end)
 
             } else {
-                Pattern::Integer(nb)
+                (Pattern::Integer(nb), pattern_first_tok_range)
             } 
         },
-        TokenData::Float(nb) => Pattern::Float(nb),
-        TokenData::String(s) => Pattern::String(parser.rustaml_context.str_interner.intern_compiler(&s.iter().collect::<String>())),
+        TokenData::Float(nb) => (Pattern::Float(nb), pattern_first_tok_range),
+        TokenData::String(s) => (Pattern::String(parser.rustaml_context.str_interner.intern_compiler(&s.iter().collect::<String>())), pattern_first_tok_range),
         TokenData::ArrayOpen => {
-            let (elems, _range_end) = parse_list_form(parser, parse_pattern)?;
+            let (elems, range_end) = parse_list_form(parser, parse_pattern)?;
 
-            Pattern::List(elems)
+            (Pattern::List(elems), pattern_first_tok_range.start..range_end)
         },
-        t => return Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, pattern_tok_range)),
+        t => return Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, pattern_first_tok_range)),
     };
 
-    Ok(parser.rustaml_context.pattern_pool.push(pattern, 0..0))
+    Ok(parser.rustaml_context.pattern_pool.push(pattern, range))
 
 }
 
