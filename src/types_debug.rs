@@ -3,7 +3,7 @@ use std::{fmt, fs::File, io::{self, Write}};
 use debug_with_context::{DebugWithContext, DebugWrapContext};
 
 
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, rustaml::RustamlContext, string_intern::StringRef};
 
 pub  struct PrintTypedContext<'a> {
     rustaml_context : &'a RustamlContext,
@@ -29,6 +29,12 @@ impl<'a> DebugWithContext<PrintTypedContext<'a>> for ASTRef {
             node_type: self.get_type(&context.rustaml_context.ast_pool),
         };
         ast_with_type.fmt_with_context(f, context)
+    }
+}
+
+impl<'a> DebugWithContext<PrintTypedContext<'a>> for PatternRef {
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, context: &PrintTypedContext<'a>) -> std::fmt::Result {
+        self.get(&context.rustaml_context.pattern_pool).fmt_with_context(f, context)
     }
 }
 

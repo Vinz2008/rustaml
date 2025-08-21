@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 // TODO : replace these with use std::range::Range when https://github.com/rust-lang/rust/issues/125687 is added without a feature, then remove all the ranges clones because the new version is Copy
 use std::ops::Range;
 
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, debug_println, lexer::Operator, rustaml::{nearest_string, RustamlContext}, string_intern::StringRef};
+use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, debug_println, lexer::Operator, rustaml::{nearest_string, RustamlContext}, string_intern::StringRef};
 
 
 // TODO : make this part generic for every err (something like Ranged<TypesErr>)
@@ -225,53 +225,56 @@ fn is_underscore(rustaml_context: &RustamlContext, name : StringRef) -> bool {
 
 
 // TODO : add ranges to patterns ? (add a pattern pool and add a vec of ranges in it ?)
-fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : TypeVarId, pattern: &Pattern) {
-    match pattern {
-        Pattern::Integer(_) | Pattern::Range(_, _, _) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Integer), 0..0),
-        Pattern::Float(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Float), 0..0),
-        Pattern::String(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Str), 0..0), 
+fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : TypeVarId, pattern: PatternRef) {
+    let range = pattern.get_range(&context.rustaml_context.pattern_pool);
+    // TODO : remove clone
+    match pattern.get(&context.rustaml_context.pattern_pool).clone() {
+        Pattern::Integer(_) | Pattern::Range(_, _, _) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Integer), range),
+        Pattern::Float(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Float), range),
+        Pattern::String(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Str), range), 
         Pattern::List(pattern_list) => {
-            context.push_constraint(Constraint::ListType(matched_type_var), 0..0);
+            context.push_constraint(Constraint::ListType(matched_type_var), range.clone());
             for p in pattern_list {
                 let element_type_var = context.table.new_type_var();
-                context.push_constraint(Constraint::IsElementOf { element: element_type_var, list: matched_type_var }, 0..0);
+                context.push_constraint(Constraint::IsElementOf { element: element_type_var, list: matched_type_var }, range.clone());
                 collect_constraints_pattern(context, element_type_var, p);
             }
         },
         Pattern::ListDestructure(e, l) => {
             let element_type_var = context.table.new_type_var();
-            let is_var_underscore= is_underscore(context.rustaml_context, *e); 
+            let is_var_underscore= is_underscore(context.rustaml_context, e); 
             if !is_var_underscore {
-                create_var(context, *e, element_type_var);
+                create_var(context, e, element_type_var);
             }
 
-            context.push_constraint(Constraint::IsElementOf { element: element_type_var, list: matched_type_var }, 0..0);
-            collect_constraints_pattern(context, matched_type_var, l.as_ref());
+            context.push_constraint(Constraint::IsElementOf { element: element_type_var, list: matched_type_var }, range.clone());
+            collect_constraints_pattern(context, matched_type_var, l);
         }
         Pattern::VarName(n) => { 
             let var_type_var = context.table.new_type_var();
-            if !is_underscore(context.rustaml_context, *n) {
-                debug_println!(context.rustaml_context.is_debug_print, "add pattern var {:?}", DebugWrapContext::new(n, context.rustaml_context));
-                create_var(context, *n, var_type_var);
+            if !is_underscore(context.rustaml_context, n) {
+                debug_println!(context.rustaml_context.is_debug_print, "add pattern var {:?}", DebugWrapContext::new(&n, context.rustaml_context));
+                create_var(context, n, var_type_var);
             }
             
-            context.push_constraint(Constraint::SameType(var_type_var, matched_type_var), 0..0);
+            context.push_constraint(Constraint::SameType(var_type_var, matched_type_var), range);
         }, 
         Pattern::Underscore => {}, // no constraints
     }
 }
 
-fn remove_vars_pattern(context : &mut TypeContext, pattern: &Pattern){
-    match pattern {
+fn remove_vars_pattern(context : &mut TypeContext, pattern: PatternRef){
+    // TODO : remove this clone ?
+    match pattern.get(&context.rustaml_context.pattern_pool).clone() {
         Pattern::ListDestructure(e, l) => {
-            if !is_underscore(context.rustaml_context, *e) {
-                remove_var(context, *e);
+            if !is_underscore(context.rustaml_context, e) {
+                remove_var(context, e);
             }
-            remove_vars_pattern(context, l.as_ref());
+            remove_vars_pattern(context, l);
         }
         Pattern::VarName(n) => {
-            if !is_underscore(context.rustaml_context, *n) {
-                remove_var(context, *n);
+            if !is_underscore(context.rustaml_context, n) {
+                remove_var(context, n);
             }
         }
         _ => {}
@@ -474,7 +477,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             // put all the constraints to one root to improve performance (test ?)
             let mut first_branch = None;
             for (pattern, pattern_ast) in patterns {
-                collect_constraints_pattern(context, matched_type_var, &pattern);
+                collect_constraints_pattern(context, matched_type_var, pattern);
 
                 let pattern_ast_type_var = collect_constraints(context, pattern_ast)?;
                 if let Some(f) = first_branch {
@@ -482,7 +485,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 } else {
                     first_branch = Some(pattern_ast_type_var);
                 }
-                remove_vars_pattern(context, &pattern);
+                remove_vars_pattern(context, pattern);
             }
 
             if let Some(f) = first_branch {

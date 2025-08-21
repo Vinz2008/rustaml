@@ -1,12 +1,13 @@
 use cfg_if::cfg_if;
 use levenshtein::levenshtein;
 
-use crate::{ast::{self, ASTPool, ASTRef}, interpreter::ListPool, lexer, print_error, string_intern::StrInterner, types::{resolve_and_typecheck, TypeInfos}};
+use crate::{ast::{self, ASTPool, ASTRef, PatternPool}, interpreter::ListPool, lexer, print_error, string_intern::StrInterner, types::{resolve_and_typecheck, TypeInfos}};
 use std::{fs, path::Path};
 
 pub struct RustamlContext {
     pub str_interner : StrInterner,
     pub ast_pool : ASTPool,
+    pub pattern_pool : PatternPool,
     pub list_node_pool : ListPool,
 
     pub is_debug_print : bool,
@@ -16,7 +17,8 @@ impl RustamlContext {
     pub fn new(is_debug_print : bool) -> RustamlContext {
         RustamlContext { 
             str_interner: StrInterner::new(), 
-            ast_pool: ASTPool::new(), 
+            ast_pool: ASTPool::new(),
+            pattern_pool: PatternPool::new(),
             list_node_pool: ListPool::new(), 
             is_debug_print,
         }

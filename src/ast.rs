@@ -29,10 +29,59 @@ pub enum Pattern {
     Float(f64), // | 2.6
     Range(i64, i64, bool), // bool is for the inclusivity | 0..1
     String(StringRef), // | "test"
-    List(Vec<Pattern>), // | [1, 2, 3] // TODO : replace vec with Box<[Pattern]>
-    ListDestructure(StringRef, Box<Pattern>), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
+    List(Vec<PatternRef>), // | [1, 2, 3] // TODO : replace vec with Box<[Pattern]>
+    ListDestructure(StringRef, PatternRef), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
     Underscore,
 }
+
+#[derive(Default)]
+pub struct PatternPool {
+    pattern_vec : Vec<Pattern>,
+    pattern_ranges : Vec<Range<usize>>,
+}
+
+impl PatternPool {
+    pub fn new () -> PatternPool {
+        PatternPool::default()
+    }
+
+    pub fn get(&self, pat : PatternRef) -> &Pattern {
+        &self.pattern_vec[pat.0 as usize]
+    }
+
+    pub fn get_range(&self, pat : PatternRef) -> Range<usize> {
+        self.pattern_ranges[pat.0 as usize].clone()
+    }
+
+    pub fn push(&mut self, pat : Pattern, range : Range<usize>) -> PatternRef {
+        let idx = self.pattern_vec.len();
+        self.pattern_vec.push(pat);
+        self.pattern_ranges.push(range);
+        PatternRef(idx.try_into().unwrap())
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct PatternRef(u32);
+
+impl PatternRef {
+    #[inline]
+    pub fn get(self, pattern_pool : &PatternPool) -> &Pattern {
+        pattern_pool.get(self)
+    }
+
+    #[inline]
+    pub fn get_range(self, pattern_pool : &PatternPool) -> Range<usize> {
+        pattern_pool.get_range(self)
+    }
+}
+
+impl DebugWithContext<RustamlContext> for PatternRef {
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, context: &RustamlContext) -> std::fmt::Result {
+        self.get(&context.pattern_pool).fmt_with_context(f, context)
+    }
+}
+
 
 #[derive(Default)]
 pub struct ASTPool {
@@ -45,13 +94,14 @@ impl ASTPool {
     pub fn new() -> ASTPool {
         ASTPool::default()
     }
+
     pub fn get(&self, expr : ASTRef) -> &ASTNode {
         &self.ast_pool_vec[expr.0 as usize]
     }
 
-    pub fn get_mut(&mut self, expr : ASTRef) -> &mut ASTNode {
+    /*pub fn get_mut(&mut self, expr : ASTRef) -> &mut ASTNode {
         &mut self.ast_pool_vec[expr.0 as usize]
-    }
+    }*/
 
     pub fn get_type(&self, expr : ASTRef) -> &Type {
         &self.ast_node_types[expr.0 as usize]
@@ -84,6 +134,7 @@ impl ASTPool {
 pub struct ASTRef(u32);
 
 impl ASTRef {
+    #[inline]
     pub fn get(self, ast_pool : &ASTPool) -> &ASTNode {
         ast_pool.get(self)
     }
@@ -92,14 +143,17 @@ impl ASTRef {
         ast_pool.get_mut(self)
     }*/
 
+    #[inline]
     pub fn get_type(self, ast_pool : &ASTPool) -> &Type {
         ast_pool.get_type(self)
     }
 
+    #[inline]
     pub fn get_range(self, ast_pool : &ASTPool) -> Range<usize> {
         ast_pool.get_range(self)
     }
 
+    #[inline]
     pub fn set_type(self, ast_pool : &mut ASTPool, t: Type){
         ast_pool.set_type(self, t);
     }
@@ -142,7 +196,7 @@ pub enum ASTNode {
     },
     MatchExpr {
         matched_expr : ASTRef,
-        patterns : Vec<(Pattern, ASTRef)>,
+        patterns : Vec<(PatternRef, ASTRef)>,
     },
     Integer {
         nb: i64,
@@ -608,7 +662,7 @@ where F: Fn(&mut Parser) -> Result<T, ParserErr>
     Ok((elems, array_close_tok.range.end))
 }
 
-fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
+fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
     let pattern_tok = parser.eat_tok(None)?;
     let pattern_tok_range = pattern_tok.range;
 
@@ -619,7 +673,7 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
 
                 let head = buf.iter().collect::<String>();
                 let tail_pattern = parse_pattern(parser)?;
-                Pattern::ListDestructure(parser.rustaml_context.str_interner.intern_compiler(&head), Box::new(tail_pattern))
+                Pattern::ListDestructure(parser.rustaml_context.str_interner.intern_compiler(&head), tail_pattern)
             } else {
                 let s = buf.iter().collect::<String>();
                 match s.as_str() {
@@ -653,7 +707,7 @@ fn parse_pattern(parser : &mut Parser) -> Result<Pattern, ParserErr> {
         t => return Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, pattern_tok_range)),
     };
 
-    Ok(pattern)
+    Ok(parser.rustaml_context.pattern_pool.push(pattern, 0..0))
 
 }
 

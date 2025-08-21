@@ -1,7 +1,7 @@
 use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, compiler_utils::{codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -570,8 +570,8 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
 }
 
 
-fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>, matched_expr_type : &Type) -> IntValue<'llvm_ctx>{
-    match pattern {
+fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_expr_type : &Type) -> IntValue<'llvm_ctx>{
+    match pattern.get(&compile_context.rustaml_context.pattern_pool) {
         Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap_or_else(|_| panic!("not an int value : {:?}", matched_val)), compile_context.context.i64_type().const_int(*i as u64, false), "match_int_cmp").unwrap(),
         Pattern::Range(lower, upper, inclusivity) => {
             let (lower_predicate, upper_predicate) = if *inclusivity {
@@ -639,7 +639,7 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
                     
                     let current_node_val = load_list_val(compile_context, &elem_type, current_node).as_any_value_enum();
 
-                    let b = compile_pattern_match_bool_val(compile_context, p, current_node_val, &elem_type);
+                    let b = compile_pattern_match_bool_val(compile_context, *p, current_node_val, &elem_type);
                     bools_patterns.push(b);
                 }
 
@@ -677,8 +677,8 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
 
 
 // init vars, etc
-fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type){
-    match pattern {
+fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type){
+    match pattern.get(&compile_context.rustaml_context.pattern_pool) {
         Pattern::VarName(n) => {
             //let matched_val_type = matched_val.get_type();
             let matched_val_type_llvm = get_llvm_type(compile_context.context, matched_val_type);
@@ -700,7 +700,7 @@ fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContex
             let head_val = load_list_val(compile_context, element_type, matched_val_list);
             create_var(compile_context, *head, head_val.into(), element_type_llvm);
             let tail_val = load_list_tail(compile_context, matched_val_list);
-            compile_pattern_match_prologue(compile_context, tail.as_ref(), tail_val.into(), matched_val_type);
+            compile_pattern_match_prologue(compile_context, *tail, tail_val.into(), matched_val_type);
 
             /*if let Some(old_v) = old_val {
                 // ...
@@ -722,7 +722,7 @@ fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContex
     }
 }*/
 
-fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : &Pattern, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type, bb: BasicBlock<'llvm_ctx>, else_bb : BasicBlock<'llvm_ctx>){
+fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type, bb: BasicBlock<'llvm_ctx>, else_bb : BasicBlock<'llvm_ctx>){
     let bool_val = compile_pattern_match_bool_val(compile_context, pattern, matched_val, matched_val_type);
 
     compile_context.builder.build_conditional_branch(bool_val, bb, else_bb).unwrap();
@@ -730,7 +730,7 @@ fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
 
 
 // TODO : test nested matchs for problem with bb placement (use move_bb_after_current ?)
-fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, match_node : ASTRef, matched_expr : ASTRef, patterns : &[(Pattern, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
+fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, match_node : ASTRef, matched_expr : ASTRef, patterns : &[(PatternRef, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
     
     let matched_val = compile_expr(compile_context, matched_expr);
     //let matched_val_type = matched_expr.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
@@ -759,10 +759,10 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     for (pattern, pattern_bbs) in patterns.iter().zip(&match_bbs) {
         let (pattern, pattern_body) = pattern;
         let (pattern_bb, pattern_else_bb) = pattern_bbs;
-        compile_pattern_match(compile_context, pattern, matched_val, matched_val_type, *pattern_bb, *pattern_else_bb);
+        compile_pattern_match(compile_context, *pattern, matched_val, matched_val_type, *pattern_bb, *pattern_else_bb);
         move_bb_after_current(compile_context, *pattern_bb);
         compile_context.builder.position_at_end(*pattern_bb);
-        compile_pattern_match_prologue(compile_context, pattern, matched_val, matched_val_type);
+        compile_pattern_match_prologue(compile_context, *pattern, matched_val, matched_val_type);
         let pattern_body_val = compile_expr(compile_context, *pattern_body);
         //compile_pattern_match_epilogue(compile_context, pattern);
         match_phi_bbs.push(compile_context.builder.get_insert_block().unwrap());

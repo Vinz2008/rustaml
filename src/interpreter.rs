@@ -6,6 +6,7 @@ use debug_with_context::DebugWithContext;
 use rand::prelude::*;
 
 use crate::ast::ASTRef;
+use crate::ast::PatternRef;
 use crate::debug_println;
 use crate::gc::{try_gc_collect, Gc, GcContext};
 use crate::rustaml::ensure_stack;
@@ -615,14 +616,15 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_bo
     }
 }
 
-fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : &Pattern) -> bool {
-    match pattern {
+fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, pattern : PatternRef) -> bool {
+    // TODO : remove this clone
+    match pattern.get(&context.rustaml_context.pattern_pool).clone() {
         Pattern::VarName(_) | Pattern::Underscore => true,
         Pattern::Integer(nb) => {
             match matched_val {
                 Val::Integer(matched_nb) => {
                     //dbg!((*nb, matched_nb));
-                    *nb == *matched_nb
+                    nb == *matched_nb
                 },
                 _ => panic!("matching an expression that is not an integer with an integer pattern"),
             }
@@ -630,7 +632,7 @@ fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : 
         Pattern::Float(nb) => {
             match matched_val {
                 Val::Float(matched_nb) => {
-                    *nb == *matched_nb
+                    nb == *matched_nb
                 },
                 _ => panic!("matching an expression that is not a float with a float pattern"),
             }
@@ -638,10 +640,10 @@ fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : 
         Pattern::Range(start, end, inclusivity) => {
             match matched_val {
                 Val::Integer(matched_nb) => {
-                    if *inclusivity {
-                        *start <= *matched_nb && matched_nb <= end
+                    if inclusivity {
+                        start <= *matched_nb && *matched_nb <= end
                     } else {
-                        *start < *matched_nb && matched_nb < end
+                        start < *matched_nb && *matched_nb < end
                     }
                 },
                 _ => panic!("matching an expression that is not an integer with an range integer pattern"),
@@ -650,7 +652,7 @@ fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : 
         Pattern::String(s) => {
             match matched_val {
                 Val::String(matched_str) => {
-                    s == matched_str
+                    s == *matched_str
                 },
                 _ => panic!("matching an expression that is not an integer with an integer pattern"),
             }
@@ -661,7 +663,7 @@ fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : 
                 _ => panic!("matching an expression that is not a list with a list pattern"),
             };
 
-            let matched_expr_list_node = matched_expr_list.get(list_pool);
+            let matched_expr_list_node = matched_expr_list.get(&context.rustaml_context.list_node_pool);
 
             // if both empty
             if l.is_empty() && matches!(matched_expr_list_node, List::None){
@@ -669,7 +671,7 @@ fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : 
             }
 
             // TODO : maybe put len in the node to improve performance/create a cache for length ? (benchmark it/ add it as a feature ?)
-            let matched_expr_list_len = matched_expr_list_node.len(list_pool);
+            let matched_expr_list_len = matched_expr_list_node.len(&context.rustaml_context.list_node_pool);
 
             if matched_expr_list_len != l.len(){
                 return false;
@@ -677,8 +679,10 @@ fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : 
                 
             // TODO : refactor this if it is a performance problem (profile it ?)
             let mut pattern_matched_nb = 0;
-            for (p, v) in l.iter().zip(matched_expr_list_node.iter(list_pool)) {
-                if !interpret_match_pattern(list_pool, v, p){
+            // TODO : remove these clones -need these because we can't borrow as mut context while borrowing those vals)
+            let matched_list = matched_expr_list_node.iter(&context.rustaml_context.list_node_pool).map(|e| e.clone()).collect::<Vec<_>>();
+            for (&p, v) in l.iter().zip(matched_list) {
+                if !interpret_match_pattern(context, &v, p){
                     return false;
                 }
                 pattern_matched_nb += 1;
@@ -694,17 +698,17 @@ fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : 
                 _ => panic!("matching an expression that is not a list with a list destructure pattern"),
             };
 
-            if matched_expr_list.get(list_pool).empty(){
+            if matched_expr_list.get(&context.rustaml_context.list_node_pool).empty(){
                 return false;
             }
 
-            let tail = match matched_expr_list.get(list_pool) {
+            let tail = match matched_expr_list.get(&context.rustaml_context.list_node_pool) {
                 List::Node(_, next ) => next,
                 List::None => unreachable!(),
             };
 
             let tail_val = Val::List(*tail);
-            if !interpret_match_pattern(list_pool, &tail_val, tail_pattern.as_ref()){
+            if !interpret_match_pattern(context, &tail_val, tail_pattern){
                 return false;
             }
 
@@ -713,8 +717,8 @@ fn interpret_match_pattern(list_pool:  &ListPool, matched_val : &Val, pattern : 
     }
 }
 
-fn handle_match_pattern_start(context: &mut InterpretContext, pattern : &Pattern, matched_expr_val : &Val){
-    match pattern {
+fn handle_match_pattern_start(context: &mut InterpretContext, pattern : PatternRef, matched_expr_val : &Val){
+    match pattern.get(&context.rustaml_context.pattern_pool) {
         Pattern::VarName(s) => { 
             context.vars.insert(*s, matched_expr_val.clone());
         },
@@ -729,33 +733,33 @@ fn handle_match_pattern_start(context: &mut InterpretContext, pattern : &Pattern
             };
             context.vars.insert(*head_name, head_val.clone());
             let tail_val = Val::List(*tail);
-            handle_match_pattern_start(context, tail_pattern.as_ref(), &tail_val);
+            handle_match_pattern_start(context, *tail_pattern, &tail_val);
         }
         _ => {},
     }
 }
 
-fn handle_match_pattern_end(context: &mut InterpretContext, pattern : &Pattern){
-    match pattern {
+fn handle_match_pattern_end(context: &mut InterpretContext, pattern : PatternRef){
+    match pattern.get(&context.rustaml_context.pattern_pool) {
         Pattern::VarName(s) => { 
             context.vars.remove(s);
         },
         Pattern::ListDestructure(head_name, tail_pattern) => {
             context.vars.remove(head_name);
-            handle_match_pattern_end(context, tail_pattern);
+            handle_match_pattern_end(context, *tail_pattern);
         },
         _ => {},
     }
 }
 
-fn interpret_match(context: &mut InterpretContext, matched_expr : ASTRef, patterns : &[(Pattern, ASTRef)]) -> Val {
+fn interpret_match(context: &mut InterpretContext, matched_expr : ASTRef, patterns : &[(PatternRef, ASTRef)]) -> Val {
     let matched_expr_val = interpret_node(context, matched_expr);
     for (pattern, pattern_expr) in patterns {
 
-        if interpret_match_pattern(&context.rustaml_context.list_node_pool, &matched_expr_val, pattern) {
-            handle_match_pattern_start(context, pattern, &matched_expr_val);
+        if interpret_match_pattern(context, &matched_expr_val, *pattern) {
+            handle_match_pattern_start(context, *pattern, &matched_expr_val);
             let res_val = interpret_node(context, *pattern_expr);
-            handle_match_pattern_end(context, pattern);
+            handle_match_pattern_end(context, *pattern);
             return res_val;
         }
     }
