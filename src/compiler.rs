@@ -897,7 +897,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             }*/
         },
 
-        ASTNode::VarDecl { name, val, body, var_type } => {
+        ASTNode::VarDecl { name, val, body, var_type: _ } => {
 
             let last_main_bb = compile_context.main_function.get_last_basic_block().unwrap();
             compile_context.builder.position_at_end(last_main_bb);
