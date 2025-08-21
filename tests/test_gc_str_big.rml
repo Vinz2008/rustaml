@@ -6,10 +6,10 @@ let big_str n : int -> str =
 
 
 let test = let big_str_temp = big_str 1000 in 3 ;;
-let test2 = let big_str_temp = big_str 1000 in 3 ;;
-let test3 = let big_str_temp = big_str 1000 in 3 ;;
-let test4 = let big_str_temp = big_str 1000 in 3 ;;
-let test5 = let big_str_temp = big_str 1000 in 3 ;;
+let test = let big_str_temp = big_str 1000 in 3 ;;
+let test = let big_str_temp = big_str 1000 in 3 ;;
+let test = let big_str_temp = big_str 1000 in 3 ;;
+let test = let big_str_temp = big_str 1000 in 3 ;;
 
 
 // useless code to have the gc run when the feature gc-test-collect is enabled

@@ -17,8 +17,8 @@ let f = 2.6 ;;
 
 let test_f f_arg : float -> float = f_arg +. 2.0 ;;
 
-let test_match a_ : int -> int = 
-  match a_ with 
+let test_match a : int -> int = 
+  match a with 
   | 0 -> 1
   | 2..4 -> 4
   | 8=..10 -> 8
@@ -31,7 +31,8 @@ let f = test_match 3 ;;
 
 let g = let h = 7 in h - 2 ;;
 
-let i2 = "aaa" ;;
+let i = 2 ;;
+let i = "aaa" ;;
 
 let test_match_string s : str -> bool = 
     match s with
@@ -69,18 +70,18 @@ let r = test_list [] ;;
 let _ = print r ;;
 let s = test_list [1, 2, 3] ;;
 let _ = print s ;;
-let s_two = test_list [1, 2] ;;
+let s = test_list [1, 2] ;;
 
-let append el l2 = el :: l2 ;;
+let append e l = e :: l ;;
 
 let t = append 1 [] ;;
 
-let append2 el2 l3 = el2 :: el2 :: l3 ;;
+let append2 e l = e :: e :: l ;;
 
 let u = append2 3 [4] ;;
 
-let test_destructure a_3 : list[int] -> list[int] =
-  match a_3 with
-  | ee :: ll -> ll ;;
+let test_destructure a : list[int] -> list[int] =
+  match a with
+  | e :: l -> l ;;
 
 let v = test_destructure [2] ;;

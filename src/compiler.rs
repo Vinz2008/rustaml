@@ -167,7 +167,8 @@ fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
         //let var_type = compile_context.typeinfos.vars_ast.get(&name).unwrap().get_type(&compile_context.rustaml_context.ast_pool);
         let var_id = get_var_id(compile_context, ast_node);
         debug_println!(compile_context.rustaml_context.is_debug_print, "var_id  : {:?}", DebugWrapContext::new(&var_id, compile_context.rustaml_context));
-        let var_type = get_var_type(compile_context, name);
+        let var_type = get_var_type(compile_context, var_id, name);
+        debug_println!(compile_context.rustaml_context.is_debug_print, "var_type decl {:?} : {:?}", name.get_str(&compile_context.rustaml_context.str_interner), var_type);
         let alloca_type = get_llvm_type(compile_context.context, var_type);
         create_var(compile_context, name, val, alloca_type);
     }
@@ -403,7 +404,7 @@ fn compile_binop_float<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
             }
         },
 
-        _ => panic!("Invalid type for float op {:?}", op),
+        _ => panic!("Invalid type for float op {:?} ({:?}, {:?})", op, lhs_val, rhs_val),
     }
 }
 
@@ -513,7 +514,8 @@ fn compile_var_use<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm
     let var_id = get_var_id(compile_context, ast_node);
     
     //let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("Unknown variable {:?}", name.get_str(&compile_context.rustaml_context.str_interner)));
-    let var_type = get_var_type(compile_context, name);
+    let var_type = get_var_type(compile_context, var_id, name);
+    debug_println!(compile_context.rustaml_context.is_debug_print, "var_type use {:?} : {:?}", name.get_str(&compile_context.rustaml_context.str_interner), var_type);
     //let var_type = compile_context.typeinfos.vars_ast.get(&name).unwrap().get_type(&compile_context.rustaml_context.ast_pool);
     let load_type = get_llvm_type(compile_context.context, var_type);
     let load_basic_type = TryInto::<BasicTypeEnum>::try_into(load_type).unwrap();
@@ -821,8 +823,9 @@ fn get_var_id(compile_context: &'_ CompileContext<'_, '_, '_>, ast_node : ASTRef
 }
 
 // TODO : is the second part needed ?
-fn get_var_type<'context>(compile_context: &'context CompileContext<'context, '_, '_>, name : StringRef) -> &'context Type {
-    match compile_context.typeinfos.vars_env.get(&name) {
+// replace panics with unreachables and remove the name arg
+fn get_var_type<'context>(compile_context: &'context CompileContext<'context, '_, '_>, var_id : VarId, name : StringRef) -> &'context Type {
+    match compile_context.typeinfos.vars_env.get(&var_id) {
         Some(t) => match t {
             Type::Any => panic!("Compiler: var {:?} is any", DebugWrapContext::new(&name, compile_context.rustaml_context)),
             t => t,
