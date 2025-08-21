@@ -19,8 +19,7 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     main_function : FunctionValue<'llvm_ctx>,
     pub var_vals : FxHashMap<StringRef, PointerValue<'llvm_ctx>>,
     pub external_symbols_declared : FxHashSet<&'static str>,
-    // TODO : replace this with a hashmap ?
-    internal_functions : Vec<BuiltinFunction<'llvm_ctx>>,
+    internal_functions : Vec<BuiltinFunction<'llvm_ctx>>, // TODO : replace this with a hashmap ?
 }
 
 #[derive(Clone, Default)]

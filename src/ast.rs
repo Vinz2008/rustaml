@@ -18,8 +18,6 @@ pub struct Arg {
 
 // TODO : add imports
 
-// TODO : create a pattern pool ?
-
 // TODO : add a guard clauses (create struct with an enum and guard clauses)
 
 #[derive(Clone, PartialEq, DebugWithContext)]
@@ -168,7 +166,6 @@ impl DebugWithContext<RustamlContext> for ASTRef {
 }
 
 
-// TODO : add a range for astNodes to simplify error messages later
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 #[debug_context(PrintTypedContext)]
@@ -406,7 +403,6 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<Type, ParserErr> {
     }
 }
 
-// TODO : add type system (Hindley–Milner ?) (and move type checking to after building the AST ?)
 fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
     parser.eat_tok(Some(TokenDataTag::Colon))?;
     
@@ -643,7 +639,6 @@ fn parse_if(parser: &mut Parser, if_range : Range<usize>) -> Result<ASTRef, Pars
 }
 
 
-// TODO : return the range
 // parse the form a, b, c] (it doesn't pass the '[') , helper function to deduplicate code between the exprs and patterns
 // second ret (usize) is the end range
 fn parse_list_form<T, F>(parser: &mut Parser, parse_elem_fun : F ) -> Result<(Vec<T>, usize), ParserErr>
@@ -753,7 +748,6 @@ fn parse_match(parser: &mut Parser, match_range : Range<usize>) -> Result<ASTRef
 }
 
 
-// TODO : fix parsing parenthesis in parenthesis ex : (fib_list (i-1))
 fn parse_parenthesis(parser: &mut Parser, open_paren_range : Range<usize>) -> Result<ASTRef, ParserErr> {
     if let Some(t) = parser.current_tok_data() && matches!(t, TokenData::ParenClose){
         debug_println!(parser.rustaml_context.is_debug_print, "FOUND UNIT");
