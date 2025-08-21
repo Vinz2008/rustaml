@@ -121,9 +121,9 @@ dependencies = [
 
 [[package]]
 name = "cfg-if"
-version = "1.0.1"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9555578bc9e57714c812a1f84e4fc5b4d21fcb063490c624de019f7464c91268"
+checksum = "2fd1289c04a9ea8cb22300a459a72a385d7c73d3259e2ed7dcb2af674838cfa9"
 
 [[package]]
 name = "cfg_aliases"
@@ -188,18 +188,18 @@ checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
 name = "debug_with_context"
-version = "0.1.11"
+version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b97b56d51a1828564131f9be165b11172aa71041123b7b67ab2c480cc5cc82c"
+checksum = "b3ed64869aa6fce73d551bc180a69c0344e49973ec6a85d43f69567e66a85758"
 dependencies = [
  "debug_with_context_macros",
 ]
 
 [[package]]
 name = "debug_with_context_macros"
-version = "0.1.11"
+version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5524f810acfd397e49b16215ef7f1d7dbbcc1a857b6b6e39690c506a6b7fae11"
+checksum = "c9bdc0c883fd782e3703505224e7b371a85e9ebb865f70a7d5695952ddd8c7dc"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -561,9 +561,9 @@ dependencies = [
 
 [[package]]
 name = "quick-xml"
-version = "0.38.1"
+version = "0.38.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9845d9dccf565065824e69f9f235fafba1587031eda353c1f1561cd6a6be78f4"
+checksum = "d200a41a7797e6461bd04e4e95c3347053a731c32c87f066f2f0dda22dbdbba8"
 dependencies = [
  "memchr",
 ]
