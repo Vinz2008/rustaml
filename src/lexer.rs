@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::{ast::Type, debug_println, rustaml::RustamlContext};
+use crate::{ast::Type, debug_println, rustaml::RustamlContext, types_debug::PrintTypedContext};
 
 use debug_with_context::DebugWithContext;
 use enum_tags::Tag;
@@ -9,6 +9,7 @@ use enum_tags::Tag;
 
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
+#[debug_context(PrintTypedContext)]
 pub enum Operator {
     Plus,
     Minus,

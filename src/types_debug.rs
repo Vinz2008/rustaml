@@ -3,10 +3,10 @@ use std::{fmt, fs::File, io::{self, Write}};
 use debug_with_context::{DebugWithContext, DebugWrapContext};
 
 
-use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{ASTNode, ASTRef, PatternRef, Type}, rustaml::RustamlContext, string_intern::StringRef};
 
-pub  struct PrintTypedContext<'a> {
-    rustaml_context : &'a RustamlContext,
+pub  struct PrintTypedContext {
+    rustaml_context : RustamlContext,
 }
 
 struct AstWithType<'a> {
@@ -15,14 +15,14 @@ struct AstWithType<'a> {
 }
 
 
-impl<'a> DebugWithContext<PrintTypedContext<'a>> for AstWithType<'a> {
-    fn fmt_with_context(&self, f: &mut fmt::Formatter<'_>, context: &PrintTypedContext<'a>) -> fmt::Result {
+impl<'a> DebugWithContext<PrintTypedContext> for AstWithType<'a> {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter<'_>, context: &PrintTypedContext) -> fmt::Result {
         f.debug_struct("AstWithType").field("node_type", &self.node_type).field_with("ast_node", |fmt| self.ast_node.fmt_with_context(fmt, context)).finish()
     }
 }
 
-impl<'a> DebugWithContext<PrintTypedContext<'a>> for ASTRef {
-    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, context : &PrintTypedContext<'a>) -> std::fmt::Result {
+impl DebugWithContext<PrintTypedContext> for ASTRef {
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, context : &PrintTypedContext) -> std::fmt::Result {
         
         let ast_with_type = AstWithType {
             ast_node: self.get(&context.rustaml_context.ast_pool),
@@ -32,23 +32,19 @@ impl<'a> DebugWithContext<PrintTypedContext<'a>> for ASTRef {
     }
 }
 
-impl<'a> DebugWithContext<PrintTypedContext<'a>> for PatternRef {
-    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, context: &PrintTypedContext<'a>) -> std::fmt::Result {
+impl DebugWithContext<PrintTypedContext> for PatternRef {
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, context: &PrintTypedContext) -> std::fmt::Result {
         self.get(&context.rustaml_context.pattern_pool).fmt_with_context(f, context)
     }
 }
 
-impl<'a> DebugWithContext<PrintTypedContext<'a>>for Type {
-    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, context: &PrintTypedContext) -> std::fmt::Result {
-        self.fmt_with_context(f, context.rustaml_context)
-    }
-}
-
-impl<'a> DebugWithContext<PrintTypedContext<'a>> for StringRef {
+impl DebugWithContext<PrintTypedContext> for StringRef {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, context : &PrintTypedContext) -> fmt::Result {
         write!(f, "{}", context.rustaml_context.str_interner.lookup(*self))
     }
 }
+
+/*
 
 // TODO : make derive generic for contexts and fix the part with lifetimes parameters
 impl<'a> DebugWithContext<PrintTypedContext<'a>> for ASTNode {
@@ -93,7 +89,7 @@ impl<'a> DebugWithContext<PrintTypedContext<'a>> for ASTNode {
                             |fmt| { name.fmt_with_context(fmt, context) },
                         )
                         .field_with("val", |fmt| { val.fmt_with_context(fmt, context) })
-                        .field_with(
+                        .field_with(#[debug_context(RustamlContext)]
                             "body",
                             |fmt| { body.fmt_with_context(fmt, context) },
                         )
@@ -239,11 +235,11 @@ impl<'a> DebugWithContext<PrintTypedContext<'a>> for ASTNode {
                 Self::Underscore => f.write_fmt(format_args!("Underscore")),
             }
         }
-    }
+    }*/
 
 pub fn dump_typed_ast(rustaml_context : &RustamlContext, ast : ASTRef) -> io::Result<()> {
     let context = PrintTypedContext {
-        rustaml_context,
+        rustaml_context: rustaml_context.clone(), // TODO : remove this clone ?
     };
     let mut file = File::create("types.dump")?;
     writeln!(&mut file, "ast_typed : {:#?}", DebugWrapContext::new(&ast, &context))?;

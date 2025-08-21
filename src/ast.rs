@@ -5,11 +5,12 @@ use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
 
-use crate::{debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef, types_debug::PrintTypedContext};
 use debug_with_context::{DebugWithContext, DebugWrapContext};
 
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
+#[debug_context(PrintTypedContext)]
 pub struct Arg {
     pub name : StringRef,
     pub arg_type : Type,
@@ -23,6 +24,7 @@ pub struct Arg {
 
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
+#[debug_context(PrintTypedContext)]
 pub enum Pattern {
     VarName(StringRef), // | x pattern
     Integer(i64), // | 2
@@ -34,7 +36,7 @@ pub enum Pattern {
     Underscore,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct PatternPool {
     pattern_vec : Vec<Pattern>,
     pattern_ranges : Vec<Range<usize>>,
@@ -83,7 +85,7 @@ impl DebugWithContext<RustamlContext> for PatternRef {
 }
 
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ASTPool {
     ast_pool_vec : Vec<ASTNode>,
     pub ast_node_types : Vec<Type>,
@@ -169,6 +171,7 @@ impl DebugWithContext<RustamlContext> for ASTRef {
 // TODO : add a range for astNodes to simplify error messages later
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
+#[debug_context(PrintTypedContext)]
 pub enum ASTNode {
     TopLevel {
         nodes: Vec<ASTRef>,
@@ -244,8 +247,8 @@ pub enum Type {
 }
 
 // TODO : replace with macro (add a flag to say that the type just implements debug)
-impl DebugWithContext<RustamlContext> for Type {
-    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, _rustaml_context: &RustamlContext) -> std::fmt::Result {
+impl <C> DebugWithContext<C> for Type {
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, _context: &C) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
 }

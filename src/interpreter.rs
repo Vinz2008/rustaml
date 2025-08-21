@@ -18,6 +18,7 @@ use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 use crate::gc::collect_gc;
 
 // None values are freed lists that can be reused
+#[derive(Clone)]
 pub struct ListPool(pub Vec<Option<Gc<List>>>);
 
 impl ListPool {

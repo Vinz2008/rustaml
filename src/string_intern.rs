@@ -8,12 +8,13 @@ use crate::{gc::Gc, rustaml::RustamlContext};
 
 // TODO : optimize this (https://matklad.github.io/2020/03/22/fast-simple-rust-interner.html)
 
+#[derive(Clone)]
 pub struct StrInterner {
     map : FxHashMap<String, u32>,
     pub strs : Vec<StrInterned>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StrInterned {
     Compiler(String),
     Runtime(Option<Gc<String>>)

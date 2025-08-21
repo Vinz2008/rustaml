@@ -26,7 +26,7 @@ impl GcContext {
     }
 }
 
-#[derive(Debug, DebugWithContext)]
+#[derive(Debug, Clone, DebugWithContext)]
 #[debug_context(RustamlContext)]
 pub struct Gc<T> {
     pub data : T,

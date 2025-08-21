@@ -4,6 +4,8 @@ use levenshtein::levenshtein;
 use crate::{ast::{self, ASTPool, ASTRef, PatternPool}, interpreter::ListPool, lexer, print_error, string_intern::StrInterner, types::{resolve_and_typecheck, TypeInfos}};
 use std::{fs, path::Path};
 
+// TODO : remove the clone and recursively in every types in it after removing the clone it types_debug
+#[derive(Clone)]
 pub struct RustamlContext {
     pub str_interner : StrInterner,
     pub ast_pool : ASTPool,
