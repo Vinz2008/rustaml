@@ -115,8 +115,16 @@ pub fn create_var<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_
     var_alloca
 }
 
-pub fn create_string<'llvm_ctx>(builder: &Builder<'llvm_ctx>, str : &str) -> PointerValue<'llvm_ctx> {
-    builder.build_global_string_ptr(str, "str").unwrap().as_pointer_value()
+pub fn create_string<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, str : &str) -> PointerValue<'llvm_ctx> {
+    match compile_context.global_strs.get(str){
+        Some(s) => *s,
+        None => {
+            let str_ptr = compile_context.builder.build_global_string_ptr(str, "str").unwrap().as_pointer_value();
+            compile_context.global_strs.insert(str.to_owned(), str_ptr);
+            str_ptr
+        },
+    }
+    
 }
 
 pub fn codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, message : &str){
@@ -129,7 +137,7 @@ pub fn codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_,
 
     let stderr_global = compile_context.get_internal_global_var("stderr", ptr_type.as_basic_type_enum());
     
-    let message_str  = create_string(compile_context.builder, &format!("{}\n", message));
+    let message_str  = create_string(compile_context, &format!("{}\n", message));
     let stderr_load = compile_context.builder.build_load(ptr_type, stderr_global.as_pointer_value(), "stderr_load").unwrap();
     let fprintf_args: Vec<BasicMetadataValueEnum> = vec![stderr_load.into(), message_str.into()];
     compile_context.builder.build_call(fprintf_fun, &fprintf_args, "error_fprintf").unwrap();

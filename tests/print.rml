@@ -1,4 +1,6 @@
 let a = print 2 ;;
+let a = print 3 ;;
+let a = print 4 ;;
 let b = print 3.0 ;;
 let c = print true ;;
 let d = print "test" ;;

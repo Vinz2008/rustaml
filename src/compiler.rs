@@ -20,6 +20,7 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     pub var_vals : FxHashMap<StringRef, PointerValue<'llvm_ctx>>,
     pub external_symbols_declared : FxHashSet<&'static str>,
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>, // TODO : replace this with a hashmap ?
+    pub global_strs : FxHashMap<String, PointerValue<'llvm_ctx>>,
 }
 
 #[derive(Clone, Default)]
@@ -71,7 +72,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
         },
         BuiltinFunction {
             name: "__list_print",
-            args: vec![ptr_type], // TODO : should be ptr or i64 ? (test for code generation by LLVM)
+            args: vec![ptr_type],
             ret: Some(llvm_context.void_type().into()),
             ..Default::default()
         },
@@ -244,7 +245,7 @@ fn get_format_string(print_type : &Type) -> &'static str {
 // TODO : call a c function that will call printf ? (then write the formatting part myself ? under a feature flag ?)
 fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, print_val : AnyValueEnum<'llvm_ctx>, print_val_type : &Type) -> AnyValueEnum<'llvm_ctx> {
     let mut print_val = TryInto::<BasicMetadataValueEnum>::try_into(print_val).unwrap();
-    // TODO : should I trust the e_type ?
+
     if let Type::List(_) = print_val_type {
         let print_list_fun = compile_context.get_internal_function("__list_print");
         let print_list_args = vec![print_val];
@@ -255,7 +256,7 @@ fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     let printf_fun = compile_context.get_internal_function("printf");
     // TODO : change this
     let format_str = get_format_string(print_val_type);
-    let format_str = create_string(compile_context.builder, format_str);
+    let format_str = create_string(compile_context, format_str);
     match print_val_type {
         Type::Bool => {
             let bool_to_str_fun = compile_context.get_internal_function("__bool_to_str");
@@ -263,7 +264,7 @@ fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
             print_val = compile_context.builder.build_call(bool_to_str_fun, &bool_to_str_args, "bool_to_str_internal").unwrap().try_as_basic_value().unwrap_left().into();
         }
         Type::Unit => {
-            print_val = create_string(compile_context.builder, "()").as_basic_value_enum().into();
+            print_val = create_string(compile_context, "()").as_basic_value_enum().into();
         }
         _ => {}
     }
@@ -329,7 +330,7 @@ fn compile_format<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_
     let format_fun = compile_context.get_internal_function("__format_string");
     let format_str = format_str.get_str(&compile_context.rustaml_context.str_interner);
     let format_str = get_format_string_format(format_str, arg_types.as_slice());
-    let mut args= vec![create_string(compile_context.builder, &format_str).into()];
+    let mut args= vec![create_string(compile_context, &format_str).into()];
     let mut args_val = args_val.into_iter().zip(arg_types).map(|(e, t)| promote_val_var_arg(compile_context, t, e)).collect::<Vec<_>>();
     args.append(&mut args_val);
     let args = args.into_iter().map(|e| e.try_into().unwrap()).collect::<Vec<_>>();
@@ -440,7 +441,6 @@ fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
             };
             compile_context.builder.build_float_compare(predicate, f, f2, name).unwrap()
         },
-        // TODO : add comparison of list and strings (need to add a lhs_type arg to match it here to differentiate pointers to lists and pointers to strings)
         (AnyValueEnum::PointerValue(p),  AnyValueEnum::PointerValue(p2)) => {
             let args = vec![p.into(), p2.into()];
             let cmp_call = match operand_type {
@@ -490,7 +490,6 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     let name = format!("{:?}", op).to_lowercase();
     let lhs_val = compile_expr(compile_context, lhs);
     let rhs_val = compile_expr(compile_context, rhs);
-    // TODO : add better error handling to remove unwraps for get_type calls
 
     let lhs_type = lhs.get_type(&compile_context.rustaml_context.ast_pool);
 
@@ -660,7 +659,7 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
         Pattern::String(s) => {
             let str_cmp_fun = compile_context.get_internal_function("__str_cmp");
             // TODO : verify it these strings are deduplicated
-            let pattern_str_val = create_string(compile_context.builder, s.get_str(&compile_context.rustaml_context.str_interner));
+            let pattern_str_val = create_string(compile_context, s.get_str(&compile_context.rustaml_context.str_interner));
 
             let args = vec![pattern_str_val.into(), matched_val.try_into().unwrap()];
             compile_context.builder.build_call(str_cmp_fun, &args, "pattern_match_str_cmp").unwrap().as_any_value_enum().into_int_value()
@@ -792,7 +791,7 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 }
 
 fn compile_str<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, str : StringRef) -> PointerValue<'llvm_ctx> {
-    create_string(compile_context.builder, str.get_str(&compile_context.rustaml_context.str_interner))
+    create_string(compile_context, str.get_str(&compile_context.rustaml_context.str_interner))
 }
 
 // TODO : replace AnyValueEnum with BasicMetadataValueEnum in compile_expr and other functions ?
@@ -1018,7 +1017,8 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         main_function,
         var_vals: FxHashMap::default(),
         internal_functions,
-        external_symbols_declared: FxHashSet::default()
+        external_symbols_declared: FxHashSet::default(),
+        global_strs: FxHashMap::default(),
     };
 
     let top_level_nodes = match frontend_output.ast.get(&rustaml_context.ast_pool) {
