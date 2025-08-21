@@ -69,8 +69,15 @@ pub struct TypeInfos {
     pub functions_env : FxHashMap<StringRef, Type>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct VarId(u32);
+
+impl DebugWithContext<RustamlContext> for VarId {
+    // just print the var id
+    fn fmt_with_context(&self, f: &mut std::fmt::Formatter, context: &RustamlContext) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
 
 pub struct TypeContext<'a> {
     pub rustaml_context : &'a mut RustamlContext,
@@ -87,7 +94,9 @@ pub struct TypeContext<'a> {
     args_and_patterns_type_var : FxHashMap<StringRef, TypeVarId>, // is needed because args are associated with no ast in the node_type_vars
 
 
-    var_names : Vec<StringRef>,
+    current_vars : Vec<StringRef>,
+
+    all_vars : FxHashMap<VarId, TypeVarId>,
 
     // they are the reverse of each other, (TODO : use this https://docs.rs/bidirectional-map/latest/bidirectional_map/struct.Bimap.html ?)
     vars_type_vars : FxHashMap<StringRef, TypeVarId>,
@@ -99,10 +108,21 @@ pub struct TypeContext<'a> {
 
 impl<'a> TypeContext<'a> {
     fn push_var(&mut self, name : StringRef) -> VarId {
-        let new_id = self.var_names.len();
-        self.var_names.push(name);
+        let new_id = self.current_vars.len();
+        self.current_vars.push(name);
         VarId(new_id.try_into().unwrap())
     } 
+
+    fn remove_var(&mut self, name : StringRef){
+        let mut remove_id = None;
+        for (idx, &v) in self.current_vars.iter().enumerate().rev() {
+            if v == name {
+                remove_id = Some(idx);
+            }
+        }
+
+        self.current_vars.remove(remove_id.unwrap());
+    }
 
     fn push_constraint(&mut self, constraint : Constraint, range : Range<usize>){
         self.constraints.push(constraint);
@@ -183,7 +203,12 @@ fn get_function_type_var(context : &TypeContext, name: StringRef, range : Range<
 fn create_var(context : &mut TypeContext, name : StringRef, val_type_var : TypeVarId){
     context.vars_type_vars.insert(name, val_type_var);
     context.vars_types_vars_names.insert(val_type_var, name);
-    context.push_var(name);
+    let var_id = context.push_var(name);
+    context.all_vars.insert(var_id, val_type_var);
+}
+
+fn remove_var(context : &mut TypeContext, name : StringRef){
+    context.remove_var(name);
 }
 
 fn create_function(context : &mut TypeContext, name : StringRef, val_type_var : TypeVarId){
@@ -213,21 +238,31 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
         Pattern::ListDestructure(e, l) => {
             let element_type_var = context.table.new_type_var();
             context.args_and_patterns_type_var.insert(*e, element_type_var);
-            if !is_underscore(context.rustaml_context, *e){
+            let is_var_underscore= is_underscore(context.rustaml_context, *e); 
+            if !is_var_underscore {
                 create_var(context, *e, element_type_var);
             }
 
             context.push_constraint(Constraint::IsElementOf { element: element_type_var, list: matched_type_var }, 0..0);
             collect_constraints_pattern(context, matched_type_var, l.as_ref());
+
+            if !is_var_underscore {
+                remove_var(context, *e);
+            }
         }
         Pattern::VarName(n) => { 
             let var_type_var = context.table.new_type_var();
             context.args_and_patterns_type_var.insert(*n, var_type_var);
-            if !is_underscore(context.rustaml_context, *n) {
+            let is_var_underscore= is_underscore(context.rustaml_context, *n); 
+            if !is_var_underscore {
                 create_var(context, *n, var_type_var);
             }
             
             context.push_constraint(Constraint::SameType(var_type_var, matched_type_var), 0..0);
+
+            if !is_var_underscore {
+                remove_var(context, *n);
+            }
         }, 
         Pattern::Underscore => {}, // no constraints
     }
@@ -326,11 +361,11 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             create_function(context, name, new_type_var);
             
             let mut arg_vars = Vec::new();
-            for arg in args {
+            for arg in &args {
                 let arg_type_var = context.table.new_type_var();
                 arg_vars.push(arg_type_var);
                 if !matches!(arg.arg_type, Type::Any){
-                    context.push_constraint(Constraint::IsType(arg_type_var, arg.arg_type), range.clone());
+                    context.push_constraint(Constraint::IsType(arg_type_var, arg.arg_type.clone()), range.clone());
                 }
 
                 context.args_and_patterns_type_var.insert(arg.name, arg_type_var);
@@ -349,6 +384,12 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             context.push_constraint(Constraint::SameType(body_type_var, ret_type_var), range.clone());
             //context.push_constraint(TypeConstraint::IsType(new_type_var, Type::Function(arg_vars.iter().map(|_| Type::Any).collect(), Box::new(Type::Any), false))); // The Any are replaced later
         
+            for arg in args {
+                if !is_underscore(context.rustaml_context, arg.name) {
+                    remove_var(context, arg.name);
+                }
+            }
+
             context.push_constraint(Constraint::FunctionType { 
                 fun_type_var: new_type_var, 
                 args_type_vars: arg_vars, 
@@ -681,7 +722,7 @@ fn apply_types_to_ast(context : &mut TypeContext){
             context.type_infos.functions_env.insert(*name, t.clone());
         }
 
-        debug_println!(context.rustaml_context.is_debug_print, "set type of node {:?} to {:?}", DebugWrapContext::new(node, context.rustaml_context), DebugWrapContext::new(&t, context.rustaml_context));
+        //debug_println!(context.rustaml_context.is_debug_print, "set type of node {:?} to {:?}", DebugWrapContext::new(node, context.rustaml_context), DebugWrapContext::new(&t, context.rustaml_context));
 
         node.set_type(&mut context.rustaml_context.ast_pool, t);
     }
@@ -727,7 +768,8 @@ pub fn resolve_and_typecheck(rustaml_context: &mut RustamlContext, ast : ASTRef)
         constraints_ranges: Vec::new(),
         node_type_vars: FxHashMap::default(),
         args_and_patterns_type_var: FxHashMap::default(),
-        var_names: Vec::new(),
+        current_vars: Vec::new(),
+        all_vars: FxHashMap::default(),
         vars_type_vars: FxHashMap::default(),
         vars_types_vars_names: FxHashMap::default(),
         functions_type_vars: FxHashMap::default(),
@@ -739,8 +781,8 @@ pub fn resolve_and_typecheck(rustaml_context: &mut RustamlContext, ast : ASTRef)
     collect_constraints(&mut context, ast)?;
 
     debug_println!(context.rustaml_context.is_debug_print, "constraints ranges : {:?}", context.constraints_ranges);
-
-    debug_println!(context.rustaml_context.is_debug_print, "var ids with names : {:?}", context.var_names.iter().enumerate().map(|(idx, e)| (idx, e.get_str(&context.rustaml_context.str_interner))).collect::<Vec<_>>() );
+    debug_println!(context.rustaml_context.is_debug_print, "var ids with names : {:?}", DebugWrapContext::new(&context.current_vars.iter().enumerate().map(|(idx, e)| (idx, e)).collect::<Vec<_>>(), context.rustaml_context ));
+    debug_println!(context.rustaml_context.is_debug_print, "var ids with type vars : {:?}", DebugWrapContext::new(&context.all_vars, context.rustaml_context));
 
     solve_constraints(&mut context.table, &context.constraints, &context.constraints_ranges)?;
 
