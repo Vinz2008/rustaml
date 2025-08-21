@@ -67,10 +67,11 @@ pub enum TypesErrData {
 pub struct TypeInfos {
     pub vars_env : FxHashMap<StringRef, Type>, // TODO : replace these strings with vars indexes, then add a Hashmap from the AstRef of a VarUse to the var index
     pub functions_env : FxHashMap<StringRef, Type>,
+    pub ast_var_ids : FxHashMap<ASTRef, VarId>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct VarId(u32);
+pub struct VarId(u32);
 
 impl DebugWithContext<RustamlContext> for VarId {
     // just print the var id
@@ -179,6 +180,17 @@ impl TypeVarTable {
     }
 }
 
+fn get_var_id(context : &TypeContext, name : StringRef) -> VarId {
+    debug_println!(context.rustaml_context.is_debug_print, "{:?}", DebugWrapContext::new(&context.current_vars, context.rustaml_context));
+    for (idx, &v_name) in context.current_vars.iter().enumerate().rev() {
+        if v_name == name {
+            return VarId(idx.try_into().unwrap());
+        }
+    }
+
+    panic!("No var id found {}", name.get_str(&context.rustaml_context.str_interner)) // return a types err instead, and then replace the one in get_var_type_var with an unreachable
+}
+
 fn get_nearest_var(context : &TypeContext, name : StringRef) -> Option<String> {
     nearest_string(name.get_str(&context.rustaml_context.str_interner), context.vars_type_vars.keys().map(|s| s.get_str(&context.rustaml_context.str_interner)), None).map(|s| s.to_owned())
 }
@@ -200,11 +212,12 @@ fn get_function_type_var(context : &TypeContext, name: StringRef, range : Range<
     }
 }
 
-fn create_var(context : &mut TypeContext, name : StringRef, val_type_var : TypeVarId){
+fn create_var(context : &mut TypeContext, name : StringRef, val_type_var : TypeVarId) -> VarId {
     context.vars_type_vars.insert(name, val_type_var);
     context.vars_types_vars_names.insert(val_type_var, name);
     let var_id = context.push_var(name);
     context.all_vars.insert(var_id, val_type_var);
+    var_id
 }
 
 fn remove_var(context : &mut TypeContext, name : StringRef){
@@ -245,26 +258,35 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
 
             context.push_constraint(Constraint::IsElementOf { element: element_type_var, list: matched_type_var }, 0..0);
             collect_constraints_pattern(context, matched_type_var, l.as_ref());
-
-            if !is_var_underscore {
-                remove_var(context, *e);
-            }
         }
         Pattern::VarName(n) => { 
             let var_type_var = context.table.new_type_var();
             context.args_and_patterns_type_var.insert(*n, var_type_var);
-            let is_var_underscore= is_underscore(context.rustaml_context, *n); 
-            if !is_var_underscore {
+            if !is_underscore(context.rustaml_context, *n) {
+                debug_println!(context.rustaml_context.is_debug_print, "add pattern var {:?}", DebugWrapContext::new(n, context.rustaml_context));
                 create_var(context, *n, var_type_var);
             }
             
             context.push_constraint(Constraint::SameType(var_type_var, matched_type_var), 0..0);
-
-            if !is_var_underscore {
-                remove_var(context, *n);
-            }
         }, 
         Pattern::Underscore => {}, // no constraints
+    }
+}
+
+fn remove_vars_pattern(context : &mut TypeContext, pattern: &Pattern){
+    match pattern {
+        Pattern::ListDestructure(e, l) => {
+            if !is_underscore(context.rustaml_context, *e) {
+                remove_var(context, *e);
+            }
+            remove_vars_pattern(context, l.as_ref());
+        }
+        Pattern::VarName(n) => {
+            if !is_underscore(context.rustaml_context, *n) {
+                remove_var(context, *n);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -308,7 +330,11 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             
         }
         ASTNode::VarUse { name } => {
+            let var_id = get_var_id(context, name);
+
+            // use the var id instead of the name here
             let var_type_var = get_var_type_var(context, name, range.clone())?;
+            context.type_infos.ast_var_ids.insert(ast, var_id);
             context.push_constraint(Constraint::SameType(new_type_var, var_type_var), range);
         }
 
@@ -427,7 +453,8 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             }
             
             if !is_underscore(context.rustaml_context, name){
-                create_var(context, name, val_type_var);
+                let var_id = create_var(context, name, val_type_var);
+                context.type_infos.ast_var_ids.insert(ast, var_id);
             }
 
             let body_var_type = if let Some(b) = body {
@@ -469,6 +496,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 } else {
                     first_branch = Some(pattern_ast_type_var);
                 }
+                remove_vars_pattern(context, &pattern);
             }
 
             if let Some(f) = first_branch {
@@ -708,6 +736,12 @@ fn apply_types_to_ast(context : &mut TypeContext){
         let t = context.table.resolve_type(tv);
         context.type_infos.vars_env.insert(name, t);
     }
+
+    // TODO : uncomment this
+    /*for (&var_id, &var_tv) in &context.all_vars {
+        let t = context.table.resolve_type(var_tv);
+        context.type_infos.vars_env.insert(var_id, v);
+    }*/
 
     for (node, tv) in &context.node_type_vars {
         let t = context.table.resolve_type(*tv);

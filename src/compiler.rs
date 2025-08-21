@@ -1,7 +1,7 @@
 use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::TypeInfos};
+use crate::{ast::{ASTNode, ASTRef, Pattern, Type}, compiler_utils::{codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -153,7 +153,7 @@ impl<'context, 'refs, 'llvm_ctx> CompileContext<'context, 'refs, 'llvm_ctx> {
 
 // TODO : add a print function that returns unit for the compiler
 // the var_type should be resolved at this point : TODO
-fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : ASTRef, body : Option<ASTRef>, is_global : bool) -> AnyValueEnum<'llvm_ctx> {
+fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef, name : StringRef, val : ASTRef, body : Option<ASTRef>, is_global : bool) -> AnyValueEnum<'llvm_ctx> {
     let is_underscore = name.get_str(&compile_context.rustaml_context.str_interner) == "_";
     
     //println!("test vars types : {:#?}", DebugWrapContext::new(&compile_context.var_types, compile_context.rustaml_context));
@@ -165,6 +165,8 @@ fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
     if !is_underscore {
         //let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("No type found for var {}", name.get_str(&compile_context.rustaml_context.str_interner)));
         //let var_type = compile_context.typeinfos.vars_ast.get(&name).unwrap().get_type(&compile_context.rustaml_context.ast_pool);
+        let var_id = get_var_id(compile_context, ast_node);
+        debug_println!(compile_context.rustaml_context.is_debug_print, "var_id  : {:?}", DebugWrapContext::new(&var_id, compile_context.rustaml_context));
         let var_type = get_var_type(compile_context, name);
         let alloca_type = get_llvm_type(compile_context.context, var_type);
         create_var(compile_context, name, val, alloca_type);
@@ -502,12 +504,14 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     }
 }
 
-fn compile_var_use<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef) -> AnyValueEnum<'llvm_ctx> {
+fn compile_var_use<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef, name : StringRef) -> AnyValueEnum<'llvm_ctx> {
     
     /*for (v, v_t) in &compile_context.var_types {
         println!("{} = {:?}", v.get_str(&compile_context.rustaml_context.str_interner), v_t);
     }*/
 
+    let var_id = get_var_id(compile_context, ast_node);
+    
     //let var_type = compile_context.var_types.get(&name).unwrap_or_else(|| panic!("Unknown variable {:?}", name.get_str(&compile_context.rustaml_context.str_interner)));
     let var_type = get_var_type(compile_context, name);
     //let var_type = compile_context.typeinfos.vars_ast.get(&name).unwrap().get_type(&compile_context.rustaml_context.ast_pool);
@@ -797,11 +801,11 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
         ASTNode::Float { nb } => compile_context.context.f64_type().const_float(*nb).into(),
         ASTNode::Boolean { b } => compile_context.context.bool_type().const_int(*b as u64, false).into(),
         ASTNode::String { str } => compile_str(compile_context, *str).into(),
-        ASTNode::VarDecl { name, val, body, var_type: _ } => compile_var_decl(compile_context, *name, *val, *body, false),
+        ASTNode::VarDecl { name, val, body, var_type: _ } => compile_var_decl(compile_context, ast_node, *name, *val, *body, false),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => compile_if(compile_context, *cond_expr, *then_body, *else_body),
         ASTNode::FunctionCall { name, args } => compile_function_call(compile_context, *name, args),
         ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, *op, *lhs, *rhs),
-        ASTNode::VarUse { name } => compile_var_use(compile_context, *name),
+        ASTNode::VarUse { name } => compile_var_use(compile_context, ast_node, *name),
         ASTNode::List { list } => { 
             compile_static_list(compile_context, list, ast_node.get_type(&compile_context.rustaml_context.ast_pool))
         },
@@ -812,6 +816,9 @@ fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
     }
 }
 
+fn get_var_id(compile_context: &'_ CompileContext<'_, '_, '_>, ast_node : ASTRef) -> VarId {
+    *compile_context.typeinfos.ast_var_ids.get(&ast_node).unwrap()
+}
 
 // TODO : is the second part needed ?
 fn get_var_type<'context>(compile_context: &'context CompileContext<'context, '_, '_>, name : StringRef) -> &'context Type {
@@ -892,7 +899,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             let last_main_bb = compile_context.main_function.get_last_basic_block().unwrap();
             compile_context.builder.position_at_end(last_main_bb);
 
-            compile_var_decl(compile_context, *name, *val, *body, true);
+            compile_var_decl(compile_context, ast_node, *name, *val, *body, true);
         }
         t => panic!("top level node = {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)),
         // _ => unreachable!()
