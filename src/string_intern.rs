@@ -20,6 +20,12 @@ pub enum StrInterned {
     Runtime(Option<Gc<String>>)
 }
 
+// TODO : test what happens if there is a string from the compiler and the runtime that are the same)
+// options : 
+// - have a generic StrInterned, one for the compiler, one for the runtime
+// - the same, but using a trait and &dyn (to prevent code duplication, but could have performance overhead)
+// - duplicate strings if they are from the compiler and the runtime (for example have a map for compiler strings and a runtime map)
+
 impl StrInterned {
     fn as_str(&self) -> &str {
         match self {
@@ -78,8 +84,6 @@ impl DebugWithContext<RustamlContext> for StringRef {
         write!(f, "{}", rustaml_context.str_interner.lookup(*self))
     }
 }
-
-// TODO : shrink the string interner in gc when it is full of None
 
 
 impl StrInterner {
