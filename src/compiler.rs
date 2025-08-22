@@ -220,7 +220,8 @@ fn compile_if<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>
     let phi_node = compile_context.builder.build_phi(TryInto::<BasicTypeEnum>::try_into(if_val.get_type()).unwrap(), "if_phi").unwrap();
     let if_val_basic = TryInto::<BasicValueEnum>::try_into(if_val).unwrap();
     let else_val_basic = TryInto::<BasicValueEnum>::try_into(else_val).unwrap();
-    phi_node.add_incoming(vec![(&if_val_basic as _, then_bb_last), (&else_val_basic as _, else_bb_last)].as_slice());
+    
+    phi_node.add_incoming(&[(&if_val_basic as _, then_bb_last), (&else_val_basic as _, else_bb_last)]);
     phi_node.as_any_value_enum()
 }
 
@@ -408,19 +409,6 @@ fn compile_binop_float<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
     }
 }
 
-fn compile_binop_bool_logical<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, name : &str) -> IntValue<'llvm_ctx> {
-    match (lhs_val, rhs_val){
-        (AnyValueEnum::IntValue(b),  AnyValueEnum::IntValue(b2)) => {
-            match op {
-                Operator::And => compile_context.builder.build_and(b, b2, name).unwrap(),
-                Operator::Or => compile_context.builder.build_or(b, b2, name).unwrap(),
-                _ => unreachable!(),
-            }
-        },
-        _ => unreachable!()
-    }
-}
-
 // TODO : replace most of AnyValueEnum with BasicValueEnum ?
 fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, operand_type : Type, name : &str) -> IntValue<'llvm_ctx>{
 
@@ -429,9 +417,9 @@ fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
         return compile_context.context.bool_type().const_int(true as u64, false);
     }
 
-    if matches!(op, Operator::And | Operator::Or){
+    /*if matches!(op, Operator::And | Operator::Or){
         return compile_binop_bool_logical(compile_context, op, lhs_val, rhs_val, name);
-    }
+    }*/
 
     match (lhs_val, rhs_val){
         (AnyValueEnum::IntValue(i),  AnyValueEnum::IntValue(i2)) => {
@@ -503,8 +491,112 @@ fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
     }
 }
 
+fn compile_hotplug_and<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, lhs : ASTRef, rhs : ASTRef) -> IntValue<'llvm_ctx> {
+    let this_function = get_current_function(compile_context.builder);
+    let b1_true_bb = compile_context.context.append_basic_block(this_function, "and_b1_true");
+    let b2_true_bb = compile_context.context.append_basic_block(this_function, "and_b2_true");
+    let after_bb = compile_context.context.append_basic_block(this_function, "and_after");
+    
+    let lhs_val = compile_expr(compile_context, lhs);
+    let b1 = match lhs_val {
+        AnyValueEnum::IntValue(i) => i,
+        _ => unreachable!(),
+    };
+
+    let start_bb = compile_context.builder.get_insert_block().unwrap();
+
+    compile_context.builder.build_conditional_branch(b1, b1_true_bb, after_bb).unwrap();
+
+    move_bb_after_current(compile_context, b1_true_bb);
+    compile_context.builder.position_at_end(b1_true_bb);
+
+    let rhs_val = compile_expr(compile_context, rhs);
+    let b2 = match rhs_val {
+        AnyValueEnum::IntValue(i) => i,
+        _ => unreachable!(),
+    };
+
+    compile_context.builder.build_conditional_branch(b2, b2_true_bb, after_bb).unwrap();
+
+    let b1_true_bb_last = compile_context.builder.get_insert_block().unwrap();
+
+    move_bb_after_current(compile_context, b2_true_bb);
+    compile_context.builder.position_at_end(b2_true_bb);
+    compile_context.builder.build_unconditional_branch(after_bb).unwrap();
+
+    let b2_true_bb_last = compile_context.builder.get_insert_block().unwrap();
+
+    move_bb_after_current(compile_context, after_bb);
+
+    compile_context.builder.position_at_end(after_bb);
+    let const_false = compile_context.context.bool_type().const_int(false as u64, false);
+    let const_true = compile_context.context.bool_type().const_int(true as u64, false);
+
+    let phi_and = compile_context.builder.build_phi(compile_context.context.bool_type(), "and_phi").unwrap();
+    phi_and.add_incoming(&[(&const_false, start_bb), (&const_false, b1_true_bb_last), (&const_true, b2_true_bb_last)]);
+    phi_and.as_basic_value().into_int_value()
+}
+
+fn compile_hotplug_or<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, lhs : ASTRef, rhs : ASTRef) -> IntValue<'llvm_ctx> {
+    let this_function = get_current_function(compile_context.builder);
+    let b1_false_bb = compile_context.context.append_basic_block(this_function, "or_b1_true");
+    let b2_false_bb = compile_context.context.append_basic_block(this_function, "or_b2_true");
+    let after_bb = compile_context.context.append_basic_block(this_function, "or_after");
+    
+    let lhs_val = compile_expr(compile_context, lhs);
+    let b1 = match lhs_val {
+        AnyValueEnum::IntValue(i) => i,
+        _ => unreachable!(),
+    };
+
+    let start_bb = compile_context.builder.get_insert_block().unwrap();
+
+    compile_context.builder.build_conditional_branch(b1, after_bb, b1_false_bb).unwrap();
+
+    move_bb_after_current(compile_context, b1_false_bb);
+    compile_context.builder.position_at_end(b1_false_bb);
+
+    let rhs_val = compile_expr(compile_context, rhs);
+    let b2 = match rhs_val {
+        AnyValueEnum::IntValue(i) => i,
+        _ => unreachable!(),
+    };
+
+    compile_context.builder.build_conditional_branch(b2, after_bb, b2_false_bb).unwrap();
+
+    let b1_false_bb_last = compile_context.builder.get_insert_block().unwrap();
+
+    move_bb_after_current(compile_context, b2_false_bb);
+    compile_context.builder.position_at_end(b2_false_bb);
+    compile_context.builder.build_unconditional_branch(after_bb).unwrap();
+
+    let b2_false_bb_last = compile_context.builder.get_insert_block().unwrap();
+
+    move_bb_after_current(compile_context, after_bb);
+
+    compile_context.builder.position_at_end(after_bb);
+    let const_false = compile_context.context.bool_type().const_int(false as u64, false);
+    let const_true = compile_context.context.bool_type().const_int(true as u64, false);
+
+    let phi_and = compile_context.builder.build_phi(compile_context.context.bool_type(), "or_phi").unwrap();
+    phi_and.add_incoming(&[(&const_true, start_bb), (&const_true, b1_false_bb_last), (&const_false, b2_false_bb_last)]);
+    phi_and.as_basic_value().into_int_value()
+}
+
+fn compile_binop_bool_logical<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs : ASTRef, rhs : ASTRef, name : String) -> IntValue<'llvm_ctx> {
+    match op {
+        Operator::And => compile_hotplug_and(compile_context, lhs, rhs),
+        Operator::Or => compile_hotplug_or(compile_context, lhs, rhs),
+        _ => unreachable!(),
+    }
+}
+
 fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs : ASTRef, rhs : ASTRef) -> AnyValueEnum<'llvm_ctx> {
     let name = format!("{:?}", op).to_lowercase();
+    if matches!(op, Operator::And | Operator::Or){
+        return compile_binop_bool_logical(compile_context, op, lhs, rhs, name).as_any_value_enum();
+    }
+
     let lhs_val = compile_expr(compile_context, lhs);
     let rhs_val = compile_expr(compile_context, rhs);
 
