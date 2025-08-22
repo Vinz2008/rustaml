@@ -180,7 +180,7 @@ impl List {
     }
 
     // intepret nodes here instead of doing before the call and passing a Vec<Val> to avoid not necessary allocations
-    fn new_from(context: &mut InterpretContext, v : &Vec<ASTRef>) -> ListRef {
+    fn new_from(context: &mut InterpretContext, v : &[ASTRef]) -> ListRef {
         let mut l = List::None;
         for e in v {
             let val = interpret_node(context, *e);
@@ -576,7 +576,7 @@ fn interpret_function_call(context: &mut InterpretContext, name : StringRef, arg
         return interpret_std_function(context, name, args_val);
     }
 
-    let func_def = context.functions.get(&name).unwrap_or_else(|| panic!("Function {} not found", name.get_str(&context.rustaml_context.str_interner))).clone();
+    let func_def = context.functions.get(&name).unwrap_or_else(|| panic!("Function {} not found", name.get_str(&context.rustaml_context.str_interner))).to_owned();
 
     if args.len() != func_def.args.len() {
         panic!("Invalid args number in function call, expected {}, got {}", func_def.args.len(), args.len());
@@ -586,7 +586,7 @@ fn interpret_function_call(context: &mut InterpretContext, name : StringRef, arg
     
     let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
     for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
-        if let Some(old_val) = context.vars.get(arg_name) {
+        if let Some(old_val) = context.vars.get(arg_name) { // use var idx instead of names to speedup getting from hashmap the value
             old_vals.push((*arg_name, old_val.clone()));
         }
         context.vars.insert(*arg_name, arg_val.clone());
@@ -772,11 +772,11 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : ASTRef, patter
 
 fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
     let ast_node = ast.get(&context.rustaml_context.ast_pool).clone(); // remove the clone ? (because there are indexes in the ast node, the clone is not a deep copy)
-    match &ast_node {
+    match ast_node {
         ASTNode::TopLevel { nodes } => {
             let mut last_node = Val::Unit;
             for node in nodes {
-                last_node = interpret_node(context, *node);
+                last_node = interpret_node(context, node);
 
                 #[cfg(feature = "gc-test-collect")]
                 collect_gc(context, false);
@@ -785,29 +785,29 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         }
         ASTNode::FunctionDefinition { name, args, body, return_type } => {
             let func_def = FunctionDef { 
-                name: *name, 
+                name: name, 
                 args: args.iter().map(|arg| arg.name).collect(),
-                body: *body,
-                return_type: return_type.clone(),
+                body: body,
+                return_type: return_type,
             };
-            context.functions.insert(*name, func_def);
+            context.functions.insert(name, func_def);
             Val::Unit
         },
-        ASTNode::Float { nb } => Val::Float(*nb),
-        ASTNode::Integer { nb } => Val::Integer(*nb),
-        ASTNode::Boolean { b } => Val::Bool(*b),
+        ASTNode::Float { nb } => Val::Float(nb),
+        ASTNode::Integer { nb } => Val::Integer(nb),
+        ASTNode::Boolean { b } => Val::Bool(b),
         ASTNode::VarDecl { name, val, body, var_type: _ } => {
-            let val_node = interpret_node(context, *val);
+            let val_node = interpret_node(context, val);
             let is_underscore = name.get_str(&context.rustaml_context.str_interner) == "_";
             if !is_underscore {
-                context.vars.insert(*name, val_node);
+                context.vars.insert(name, val_node);
             }
             try_gc_collect(context);
             match body {
                 Some(b) => {
-                    let body_val = interpret_node(context, *b);
+                    let body_val = interpret_node(context, b);
                     if !is_underscore {
-                        context.vars.remove(name);
+                        context.vars.remove(&name);
                     }
                     body_val
                 },
@@ -817,13 +817,13 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
             }
             
         },
-        ASTNode::VarUse { name } => context.vars.get(name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", name.get_str(&context.rustaml_context.str_interner))).clone(),
-        ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, *op, *lhs, *rhs),
-        ASTNode::FunctionCall { name, args } => interpret_function_call(context, *name, args.clone()),
-        ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, *cond_expr, *then_body, *else_body),
-        ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, *matched_expr, patterns.as_slice()),
-        ASTNode::String { str } => Val::String(*str),
-        ASTNode::List { list } => Val::List(List::new_from(context, list)),
+        ASTNode::VarUse { name } => context.vars.get(&name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", name.get_str(&context.rustaml_context.str_interner))).clone(),
+        ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, op, lhs, rhs),
+        ASTNode::FunctionCall { name, args } => interpret_function_call(context, name, args),
+        ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, cond_expr, then_body, else_body),
+        ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr, patterns.as_slice()),
+        ASTNode::String { str } => Val::String(str),
+        ASTNode::List { list } => Val::List(List::new_from(context, &list)),
         ASTNode::Unit => Val::Unit,
         //n => panic!("unexpected ast node when interpreting : {:?}", n),
     }
