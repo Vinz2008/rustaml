@@ -491,6 +491,7 @@ fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
     }
 }
 
+// TODO : make also these work with vals (for example with an enum HotPlugArg that can be an ASTRef or an AnyValue)
 fn compile_hotplug_and<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, lhs : ASTRef, rhs : ASTRef) -> IntValue<'llvm_ctx> {
     let this_function = get_current_function(compile_context.builder);
     let b1_true_bb = compile_context.context.append_basic_block(this_function, "and_b1_true");
