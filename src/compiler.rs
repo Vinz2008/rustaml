@@ -901,6 +901,12 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             compile_context.builder.position_at_end(last_main_bb);
 
             compile_var_decl(compile_context, ast_node, *name, *val, *body, true);
+        },
+        ASTNode::TopLevel { nodes } => {
+            // placeholder for imports (TODO ?)
+            for &n in nodes {
+                compile_top_level_node(compile_context, n);
+            }
         }
         t => panic!("top level node = {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)),
         // _ => unreachable!()
