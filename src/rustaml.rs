@@ -58,7 +58,7 @@ pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<
         },
     };
 
-    let ast = ast::parse(tokens, rustaml_context);
+    let ast = ast::parse(tokens, rustaml_context, filename.to_path_buf());
 
     let ast = match ast {
         Ok(a) => a,
@@ -77,14 +77,20 @@ pub struct FrontendOutput {
     pub type_infos : TypeInfos,
 }
 
-// used for every command (used for code deduplication)
-pub fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<FrontendOutput, ()> {
+pub fn read_file(filename : &Path) -> String {
     let content_bytes = fs::read(filename).unwrap_or_else(|err| {
             panic!("Error when opening {} : {}", filename.display(), err)
     });
     let content = String::from_utf8(content_bytes).unwrap_or_else(|err| {
         panic!("Invalid UTF-8 in {}: {}", filename.display(), err);
     });
+
+    content
+}
+
+// used for every command (used for code deduplication)
+pub fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<FrontendOutput, ()> {
+    let content = read_file(filename);
 
     let content_chars = content.chars().collect::<Vec<_>>();
     

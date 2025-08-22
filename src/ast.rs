@@ -1,11 +1,14 @@
-use std::ops::Range;
+use std::path::PathBuf;
+use std::{ops::Range, path::Path};
 use std::fmt::Debug;
 
 use rustc_hash::FxHashMap;
 
 use enum_tags::{Tag, TaggedEnum};
+use pathbuf::pathbuf;
 
-use crate::{debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::RustamlContext, string_intern::StringRef, types_debug::PrintTypedContext};
+use crate::rustaml::read_file;
+use crate::{debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::{get_ast_from_string, RustamlContext}, string_intern::StringRef, types_debug::PrintTypedContext};
 use debug_with_context::{DebugWithContext, DebugWrapContext};
 
 #[derive(Clone, PartialEq, DebugWithContext)]
@@ -290,6 +293,7 @@ pub struct Parser<'context> {
     // TODO : replace vars with global vars, and add in each function, a local var table
     // pub vars : FxHashMap<StringRef, Type>, // include functions (which are just vars with function types)
     precedences : FxHashMap<Operator, (i32, Associativity)>,
+    filename : PathBuf,
     pub rustaml_context : &'context mut RustamlContext,
 }
 
@@ -309,6 +313,7 @@ pub enum ParserErrData {
     NotFunctionTypeInAnnotationLet {
         function_name: String
     },
+    ImportError,
 }
 
 
@@ -845,6 +850,35 @@ fn parse_binary(parser: &mut Parser, lhs: ASTRef) -> Result<ASTRef, ParserErr> {
     parse_binary_rec(parser, lhs, 0)
 }
 
+// TODO : add a way to namespace (let a = import "..." ? import "..." as a ?) and then namespace the functions and vars ?
+// TODO : make it possible to parse (and codegen ?) with multiple threads (probably need to 1. make it only possible to import at the top of the file and in the top level, so you can run this, then append at the start of the top level part the ast nodes 2. replace the top level returned from get_ast_string to a Imported ast node)
+fn parse_import(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
+    let import_filename_tok = parser.eat_tok(Some(TokenDataTag::String))?;
+    let import_filename = match import_filename_tok.tok_data {
+        TokenData::String(s) => s.iter().collect::<String>(),
+        _ => unreachable!(),
+    };
+
+
+    let import_filename_path = Path::new(&import_filename);
+
+    // for example : test/a.rml becomes test/
+    let filename_path = parser.filename.parent().unwrap_or(Path::new(""));
+    let import_path = pathbuf![filename_path, import_filename_path];
+
+    // TODO : open file
+    let content_str = read_file(&import_path);
+
+    let content_chars = content_str.chars().collect();
+    
+    let ast = match get_ast_from_string(parser.rustaml_context, content_chars, Some(&content_str), &import_path) {
+        Ok(a) => a,
+        Err(()) => return Err(ParserErr::new(ParserErrData::ImportError, 0..0)), // TODO
+    };
+
+   Ok(ast)
+}
+
 fn parse_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     // TODO : problem with precedence 
     // for example match e with | a -> 1 :: a ;; becomes (match ... 1) :: a and not match ... -> (1 :: a) 
@@ -854,6 +888,12 @@ fn parse_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         Some(TokenData::Let) => parse_let(parser)?,
         _ => parse_primary(parser)?,
     };*/
+
+    if matches!(parser.current_tok_data(), Some(TokenData::Import)){
+        parser.eat_tok(None)?;
+        return parse_import(parser);
+    }
+
     let lhs = parse_primary(parser)?;
     let ret_expr = parse_binary(parser, lhs)?;
     Ok(ret_expr)
@@ -872,12 +912,13 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::TopLevel { nodes }, range))
 }
 
-pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext) -> Result<ASTRef, ParserErr> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ParserErr>*/ {
+pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext, filename : PathBuf) -> Result<ASTRef, ParserErr> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ParserErr>*/ {
     let root_node = { 
         let mut parser = Parser { 
             tokens, 
             pos: 0,
             precedences: init_precedences(),
+            filename,
             rustaml_context,
         };
         let root_node = parse_top_level_node(&mut parser)?;

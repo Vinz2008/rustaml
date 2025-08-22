@@ -239,6 +239,7 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
     };
 
     let error_print = match *parser_error.parser_err_data {
+        ParserErrData::ImportError => return, // skip because the error has already be printen by get_ast_from_string
         ParserErrData::UnexpectedEOF => print_unexpected_eof_error(error_basic_infos),
         ParserErrData::WrongTok { expected_tok, got_tok } => print_wrong_tok_error(error_basic_infos, expected_tok, got_tok),
         ParserErrData::UnexpectedTok {tok } => print_unexpected_tok_error(error_basic_infos, tok),

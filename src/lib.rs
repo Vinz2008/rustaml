@@ -53,7 +53,7 @@ pub fn interpret_code(code : &str, filename : &Path, is_debug_print  : bool) -> 
         },
     };*/
 
-    let ast = ast::parse(tokens, &mut rustaml_context);
+    let ast = ast::parse(tokens, &mut rustaml_context, filename.to_path_buf());
     let ast = match ast {
         Ok(a) => a,
         Err(e) => {
