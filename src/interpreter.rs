@@ -586,7 +586,7 @@ fn interpret_function_call(context: &mut InterpretContext, name : StringRef, arg
     
     let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
     for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
-        if let Some(old_val) = context.vars.get(arg_name) { // use var idx instead of names to speedup getting from hashmap the value
+        if let Some(old_val) = context.vars.get(arg_name) {
             old_vals.push((*arg_name, old_val.clone()));
         }
         context.vars.insert(*arg_name, arg_val.clone());
