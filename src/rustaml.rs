@@ -1,8 +1,9 @@
 use cfg_if::cfg_if;
 use levenshtein::levenshtein;
+use rustc_hash::FxHashSet;
 
 use crate::{ast::{self, ASTPool, ASTRef, PatternPool}, interpreter::ListPool, lexer, print_error, string_intern::StrInterner, types::{resolve_and_typecheck, TypeInfos}};
-use std::{fs, path::Path};
+use std::{fs, path::{Path, PathBuf}};
 
 // TODO : remove the clone and recursively in every types in it after removing the clone it types_debug
 #[derive(Clone)]
@@ -42,7 +43,7 @@ pub fn nearest_string<'a>(searched_str : &str, strings : impl IntoIterator<Item 
     nearest
 }
 
-pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<char>, content_str: Option<&str>, filename : &Path) -> Result<ASTRef, ()> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ()>*/ {
+pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<char>, content_str: Option<&str>, filename : &Path, already_added_filenames : Option<FxHashSet<PathBuf>>) -> Result<ASTRef, ()> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ()>*/ {
     
     let content_str = match content_str {
         Some(c) => c,
@@ -58,7 +59,7 @@ pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<
         },
     };
 
-    let ast = ast::parse(tokens, rustaml_context, filename.to_path_buf());
+    let ast = ast::parse(tokens, rustaml_context, filename.to_path_buf(), already_added_filenames);
 
     let ast = match ast {
         Ok(a) => a,
@@ -94,7 +95,7 @@ pub fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Resu
 
     let content_chars = content.chars().collect::<Vec<_>>();
     
-    let ast = get_ast_from_string(rustaml_context, content_chars, Some(&content), filename)?;
+    let ast = get_ast_from_string(rustaml_context, content_chars, Some(&content), filename, None)?;
 
     let type_infos = match resolve_and_typecheck(rustaml_context, ast) {
         Ok(t) => t,

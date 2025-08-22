@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::{ops::Range, path::Path};
 use std::fmt::Debug;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use enum_tags::{Tag, TaggedEnum};
 use pathbuf::pathbuf;
@@ -295,6 +295,7 @@ pub struct Parser<'context> {
     precedences : FxHashMap<Operator, (i32, Associativity)>,
     filename : PathBuf,
     pub rustaml_context : &'context mut RustamlContext,
+    imported_files : FxHashSet<PathBuf>,
 }
 
 #[derive(Debug, Tag)]
@@ -851,8 +852,9 @@ fn parse_binary(parser: &mut Parser, lhs: ASTRef) -> Result<ASTRef, ParserErr> {
 }
 
 // TODO : add a way to namespace (let a = import "..." ? import "..." as a ?) and then namespace the functions and vars ?
-// TODO : make it possible to parse (and codegen ?) with multiple threads (probably need to 1. make it only possible to import at the top of the file and in the top level, so you can run this, then append at the start of the top level part the ast nodes 2. replace the top level returned from get_ast_string to a Imported ast node)
-fn parse_import(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
+// TODO : make it possible to parse (and codegen ?) with multiple threads (probably need to replace the top level returned from get_ast_string to a Imported ast node)
+// if file already imported, return None
+fn parse_import(parser : &mut Parser) -> Result<Option<ASTRef>, ParserErr> {
     let import_filename_tok = parser.eat_tok(Some(TokenDataTag::String))?;
     let import_filename = match import_filename_tok.tok_data {
         TokenData::String(s) => s.iter().collect::<String>(),
@@ -864,19 +866,25 @@ fn parse_import(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
 
     // for example : test/a.rml becomes test/
     let filename_path = parser.filename.parent().unwrap_or(Path::new(""));
-    let import_path = pathbuf![filename_path, import_filename_path];
+    let import_path = pathbuf![filename_path, import_filename_path].canonicalize().unwrap(); // TODO : replace the unwrap with a panic!(filename not found)
+
+    if parser.imported_files.contains(&import_path){
+        return Ok(None);
+    }
+
+    parser.imported_files.insert(import_path.clone());
 
     // TODO : open file
     let content_str = read_file(&import_path);
 
     let content_chars = content_str.chars().collect();
     
-    let ast = match get_ast_from_string(parser.rustaml_context, content_chars, Some(&content_str), &import_path) {
+    let ast = match get_ast_from_string(parser.rustaml_context, content_chars, Some(&content_str), &import_path, Some(parser.imported_files.clone())) {
         Ok(a) => a,
         Err(()) => return Err(ParserErr::new(ParserErrData::ImportError, 0..0)), // TODO
     };
 
-   Ok(ast)
+   Ok(Some(ast))
 }
 
 fn parse_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
@@ -889,11 +897,6 @@ fn parse_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         _ => parse_primary(parser)?,
     };*/
 
-    if matches!(parser.current_tok_data(), Some(TokenData::Import)){
-        parser.eat_tok(None)?;
-        return parse_import(parser);
-    }
-
     let lhs = parse_primary(parser)?;
     let ret_expr = parse_binary(parser, lhs)?;
     Ok(ret_expr)
@@ -901,6 +904,18 @@ fn parse_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
 fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let mut nodes: Vec<ASTRef> = Vec::new();
+
+    // TODO : make it be in the first loop to have imports anywhere
+    // TODO : make this multithreaded ?
+    while parser.has_tokens_left() && matches!(parser.current_tok_data(), Some(TokenData::Import)) {
+        parser.eat_tok(None)?;
+        let import = parse_import(parser)?;
+        if let Some(import) = import {
+            nodes.push(import);
+        }
+        
+    }
+
     while parser.has_tokens_left() {
         nodes.push(parse_node(parser)?);
     }
@@ -912,12 +927,18 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::TopLevel { nodes }, range))
 }
 
-pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext, filename : PathBuf) -> Result<ASTRef, ParserErr> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ParserErr>*/ {
+pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext, filename : PathBuf, already_added_filenames : Option<FxHashSet<PathBuf>>) -> Result<ASTRef, ParserErr> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ParserErr>*/ {
+    let mut imported_files = FxHashSet::from_iter([filename.clone()]);
+    if let Some(already_added_filenames) = already_added_filenames {
+        imported_files.extend(already_added_filenames);
+    }
+
     let root_node = { 
         let mut parser = Parser { 
             tokens, 
             pos: 0,
             precedences: init_precedences(),
+            imported_files,
             filename,
             rustaml_context,
         };
