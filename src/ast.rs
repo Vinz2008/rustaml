@@ -19,8 +19,6 @@ pub struct Arg {
     pub arg_type : Type,
 }
 
-// TODO : add imports
-
 // TODO : add a guard clauses (create struct with an enum and guard clauses)
 
 #[derive(Clone, PartialEq, DebugWithContext)]
