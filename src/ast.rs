@@ -90,7 +90,7 @@ impl DebugWithContext<RustamlContext> for PatternRef {
 pub struct ASTPool {
     ast_pool_vec : Vec<ASTNode>,
     pub ast_node_types : Vec<Type>,
-    ast_node_ranges : Vec<Range<usize>>,
+    ast_node_ranges : Vec<Range<usize>>, // TODO : replace these ranges with FilePlace (or smth like that) with Range and the filename (that is interned ?)
 }
 
 impl ASTPool {
