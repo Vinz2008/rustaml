@@ -1,0 +1,4 @@
+// TODO : work on import loop
+// import "import.rml"
+
+let test_imported a b = a + b ;;

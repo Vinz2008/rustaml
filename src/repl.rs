@@ -13,7 +13,7 @@ use crate::interpreter::interpret_with_val;
 fn interpret_repl_code(rustaml_context : &mut RustamlContext, code : String){
     println!("input string : {}", &code);
     let code_chars = code.chars().collect();
-    let ast = match get_ast_from_string(rustaml_context, code_chars, None, Path::new("")) {
+    let ast = match get_ast_from_string(rustaml_context, code_chars, None, Path::new(""), None) {
         Ok(a) => a,
         Err(()) => return,
     };

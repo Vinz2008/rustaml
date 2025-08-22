@@ -1,0 +1,3 @@
+import "imported.rml"
+
+let a = test_imported 2 3 ;;
