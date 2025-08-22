@@ -1,0 +1,7 @@
+let test a = true ;;
+
+let a = false && test 1 && true ;;
+let _ = print a ;;
+
+let b = true || test 1 || false ;;
+let _ = print b ;;

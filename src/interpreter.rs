@@ -392,7 +392,7 @@ impl<'context> Debug for InterpretContext<'context> {
     }
 }
 
-// TODO : gc allocator (https://crates.io/crates/gc)
+// TODO : replace all these panics in interpret_binop_* with unreachables ?
 
 fn interpret_binop_int(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let lhs_nb = match lhs_val {
@@ -456,6 +456,27 @@ fn interpret_binop_float(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     Val::Float(res_nb)
 }
 
+fn interpret_binop_bool_logical(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+    
+    let lhs_bool = match lhs_val {
+        Val::Bool(b) => b,
+        _ => panic!("Expected bool in left-side of binary operation"),
+    };
+
+    let rhs_bool = match rhs_val {
+        Val::Bool(b) => b,
+        _ => panic!("Expected bool in right-side of binary operation"),
+    };
+
+    let ret_bool = match op {
+        Operator::And => lhs_bool && rhs_bool,
+        Operator::Or => lhs_bool || rhs_bool,
+        _ => unreachable!(),
+    };
+
+    Val::Bool(ret_bool)
+}
+
 fn interpret_binop_bool(list_pool:  &ListPool, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let lhs_val_type = lhs_val.get_type(list_pool);
     let rhs_val_type = rhs_val.get_type(list_pool);
@@ -463,15 +484,18 @@ fn interpret_binop_bool(list_pool:  &ListPool, op : Operator, lhs_val : Val, rhs
         panic!("Not the same types around operators (lhs : {:?}, rhs : {:?})", lhs_val_type, rhs_val_type)
     }
     
-    match op {
-        Operator::IsEqual => Val::Bool(lhs_val == rhs_val),
-        Operator::IsNotEqual => Val::Bool(lhs_val != rhs_val),
-        Operator::SuperiorOrEqual => Val::Bool(lhs_val >= rhs_val),
-        Operator::InferiorOrEqual => Val::Bool(lhs_val <= rhs_val),
-        Operator::Superior => Val::Bool(lhs_val > rhs_val),
-        Operator::Inferior => Val::Bool(lhs_val < rhs_val),
+    let b = match op {
+        Operator::IsEqual => lhs_val == rhs_val,
+        Operator::IsNotEqual => lhs_val != rhs_val,
+        Operator::SuperiorOrEqual => lhs_val >= rhs_val,
+        Operator::InferiorOrEqual => lhs_val <= rhs_val,
+        Operator::Superior => lhs_val > rhs_val,
+        Operator::Inferior => lhs_val < rhs_val,
+        Operator::And | Operator::Or => return interpret_binop_bool_logical(op, lhs_val, rhs_val),
         _ => unreachable!()
-    }
+    };
+
+    Val::Bool(b)
 }
 
 fn interpret_binop_str(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {

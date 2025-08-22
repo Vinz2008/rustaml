@@ -345,6 +345,10 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 Operator::IsEqual | Operator::IsNotEqual | Operator::SuperiorOrEqual | Operator::InferiorOrEqual | Operator::Superior | Operator::Inferior => {
                     context.push_constraint(Constraint::SameType(lhs_type_var, rhs_type_var), range.clone());
                 },
+                Operator::And | Operator::Or => {
+                    context.push_constraint(Constraint::IsType(lhs_type_var, Type::Bool), range.clone());
+                    context.push_constraint(Constraint::IsType(rhs_type_var, Type::Bool), range.clone());
+                },
                 Operator::StrAppend => {
                     context.push_constraint(Constraint::IsType(lhs_type_var, Type::Str), range.clone());
                     context.push_constraint(Constraint::IsType(rhs_type_var, Type::Str), range.clone());
@@ -362,6 +366,9 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                     context.push_constraint(Constraint::IsType(new_type_var, Type::Float), range);
                 },
                 Operator::IsEqual | Operator::IsNotEqual | Operator::SuperiorOrEqual | Operator::InferiorOrEqual | Operator::Superior | Operator::Inferior => {
+                    context.push_constraint(Constraint::IsType(new_type_var, Type::Bool), range);
+                },
+                Operator::And | Operator::Or => {
                     context.push_constraint(Constraint::IsType(new_type_var, Type::Bool), range);
                 },
                 Operator::StrAppend => {

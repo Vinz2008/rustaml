@@ -408,12 +408,29 @@ fn compile_binop_float<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
     }
 }
 
+fn compile_binop_bool_logical<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, name : &str) -> IntValue<'llvm_ctx> {
+    match (lhs_val, rhs_val){
+        (AnyValueEnum::IntValue(b),  AnyValueEnum::IntValue(b2)) => {
+            match op {
+                Operator::And => compile_context.builder.build_and(b, b2, name).unwrap(),
+                Operator::Or => compile_context.builder.build_or(b, b2, name).unwrap(),
+                _ => unreachable!(),
+            }
+        },
+        _ => unreachable!()
+    }
+}
+
 // TODO : replace most of AnyValueEnum with BasicValueEnum ?
 fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, operand_type : Type, name : &str) -> IntValue<'llvm_ctx>{
 
     if let Type::Unit = operand_type {
         // both types should be unit, so return true
         return compile_context.context.bool_type().const_int(true as u64, false);
+    }
+
+    if matches!(op, Operator::And | Operator::Or){
+        return compile_binop_bool_logical(compile_context, op, lhs_val, rhs_val, name);
     }
 
     match (lhs_val, rhs_val){

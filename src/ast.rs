@@ -259,6 +259,9 @@ fn init_precedences() -> FxHashMap<Operator, (i32, Associativity)> {
     // see https://ocaml.org/manual/5.3/expr.html#ss%3Aprecedence-and-associativity for precedence ?
 
     FxHashMap::from_iter([
+        // TODO : should the and and or be Right or Left Associativity ?
+        (Operator::And, (5, Associativity::Right)),
+        (Operator::Or, (5, Associativity::Right)),
         (Operator::IsEqual, (10, Associativity::Left)),
         (Operator::IsNotEqual, (10, Associativity::Left)),
         (Operator::Superior, (10, Associativity::Left)),

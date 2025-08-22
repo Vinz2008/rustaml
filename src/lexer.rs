@@ -26,17 +26,19 @@ pub enum Operator {
     InferiorOrEqual,
     Superior,
     Inferior,
+    And, // &&
+    Or, // ||
     StrAppend, // ^
     ListAppend, // ::
 }
 
 impl Operator {
-    pub const OPERATORS: [&'static str; 16] = ["+", "-", "*", "/", "+.", "-.", "*.", "/.", "==", "!=", ">=", "<=", ">", "<", "^", "::"];
+    pub const OPERATORS: [&'static str; 18] = ["+", "-", "*", "/", "+.", "-.", "*.", "/.", "==", "!=", ">=", "<=", ">", "<", "&&", "||", "^", "::"];
     pub fn get_type(&self) -> Type {
         match self {
             Self::Plus | Self::Minus | Self::Mult | Self::Div => Type::Integer,
             Self::PlusFloat | Self::MinusFloat | Self::MultFloat | Self::DivFloat => Type::Float,
-            Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => Type::Bool,
+            Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior | Self::Or | Self::And => Type::Bool,
             Self::StrAppend => Type::Str,
             Self::ListAppend => Type::List(Box::new(Type::Any)),
         }
@@ -58,7 +60,7 @@ impl Operator {
     }*/
 
     fn is_char_op(c : char) -> bool {
-        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^' | ':' | '!' | '.')
+        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^' | ':' | '!' | '.' | '&' | '|')
     }
 
     pub fn str_to_op(s: &str, range : &Range<usize>) -> Result<Operator, LexerErr> {
@@ -79,6 +81,8 @@ impl Operator {
             "-." => Operator::MinusFloat,
             "*." => Operator::MultFloat,
             "/." => Operator::DivFloat,
+            "&&" => Operator::And,
+            "||" => Operator::Or,
             _ => return Err(LexerErr::new(LexerErrData::InvalidOp(s.to_owned()), range.clone())),
         };
         Ok(op)
@@ -320,6 +324,7 @@ fn lex_op(lexer: &mut Lexer) -> Result<Option<Token>, LexerErr> {
             handle_comment(lexer);
             return Ok(None)
         },
+        "|" => TokenData::Pipe,
         ":" => TokenData::Colon,
         ".." => TokenData::Range(false),
         "=.." => TokenData::Range(true),
@@ -372,7 +377,6 @@ pub fn lex(content: Vec<char>, is_debug_print : bool) -> Result<Vec<Token>, Lexe
                     _ => return Err(LexerErr::new(LexerErrData::NotCompleteEndOfExpr, lexer.pos-1..lexer.pos-1)),
                 }
             },
-            '|' => Some(Token::new(TokenData::Pipe, range)),
             '\"' => Some(lex_string(&mut lexer)?),
             op_char if Operator::is_char_op(op_char) => lex_op(&mut lexer)?,
             '0'..='9' => Some(lex_nb(&mut lexer)?),
