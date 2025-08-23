@@ -1,7 +1,7 @@
 use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, compiler_utils::{codegen_runtime_error, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, compiler_utils::{_codegen_runtime_error, codegen_runtime_error, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -193,13 +193,13 @@ fn compile_if<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>
 
     let bool_val = compile_expr(compile_context, cond_expr);
 
-    compile_context.builder.build_conditional_branch(TryInto::<IntValue>::try_into(bool_val).unwrap(), then_bb, else_bb).unwrap();
+    create_br_conditional(compile_context, TryInto::<IntValue>::try_into(bool_val).unwrap(), then_bb, else_bb);
 
     compile_context.builder.position_at_end(then_bb);
 
 
     let if_val = compile_expr(compile_context, then_body);
-    compile_context.builder.build_unconditional_branch(after_bb).unwrap();
+    let has_br_then = create_br_unconditional(compile_context, after_bb);
 
     let then_bb_last = compile_context.builder.get_insert_block().unwrap();
 
@@ -209,7 +209,7 @@ fn compile_if<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>
     compile_context.builder.position_at_end(else_bb);
 
     let else_val = compile_expr(compile_context, else_body);
-    compile_context.builder.build_unconditional_branch(after_bb).unwrap();
+    let has_br_else = create_br_unconditional(compile_context, after_bb);
 
     let else_bb_last = compile_context.builder.get_insert_block().unwrap();
 
@@ -221,7 +221,18 @@ fn compile_if<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>
     let if_val_basic = TryInto::<BasicValueEnum>::try_into(if_val).unwrap();
     let else_val_basic = TryInto::<BasicValueEnum>::try_into(else_val).unwrap();
     
-    phi_node.add_incoming(&[(&if_val_basic as _, then_bb_last), (&else_val_basic as _, else_bb_last)]);
+    let mut incoming = Vec::new();
+
+    if has_br_then {
+        incoming.push((&if_val_basic as _, then_bb_last));
+    }
+
+    if has_br_else {
+        incoming.push((&else_val_basic as _, else_bb_last));
+    }
+
+    //phi_node.add_incoming(&[(&if_val_basic as _, then_bb_last), (&else_val_basic as _, else_bb_last)]);
+    phi_node.add_incoming(&incoming);
     phi_node.as_any_value_enum()
 }
 
@@ -338,6 +349,12 @@ fn compile_format<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_
     compile_context.builder.build_call(format_fun, &args, "format_string_internal_call").unwrap().as_any_value_enum()
 }
 
+fn compile_panic<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, message_str : PointerValue<'llvm_ctx>) -> AnyValueEnum<'llvm_ctx>{
+    _codegen_runtime_error(compile_context, message_str);
+    get_void_val(compile_context.context)
+
+}
+
 fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, args: &[ASTRef]) -> AnyValueEnum<'llvm_ctx>{
     match name.get_str(&compile_context.rustaml_context.str_interner) {
         "print" => {
@@ -360,6 +377,10 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
             let args_val = args_ast.iter().map(|&a| compile_expr(compile_context, a)).collect::<Vec<_>>();
             
             return compile_format(compile_context, format_str, args_val, args_types);
+        }
+        "panic" => {
+            let message_val = compile_expr(compile_context, args[0]).into_pointer_value();
+            return compile_panic(compile_context, message_val);
         }
         _ => {}
     }
@@ -506,7 +527,7 @@ fn compile_short_circuiting_and<'llvm_ctx>(compile_context: &mut CompileContext<
 
     let start_bb = compile_context.builder.get_insert_block().unwrap();
 
-    compile_context.builder.build_conditional_branch(b1, b1_true_bb, after_bb).unwrap();
+    let has_start_br = create_br_conditional(compile_context, b1, b1_true_bb, after_bb);
 
     move_bb_after_current(compile_context, b1_true_bb);
     compile_context.builder.position_at_end(b1_true_bb);
@@ -517,13 +538,13 @@ fn compile_short_circuiting_and<'llvm_ctx>(compile_context: &mut CompileContext<
         _ => unreachable!(),
     };
 
-    compile_context.builder.build_conditional_branch(b2, b2_true_bb, after_bb).unwrap();
+    let has_b1_true_br = create_br_conditional(compile_context, b2, b2_true_bb, after_bb);
 
     let b1_true_bb_last = compile_context.builder.get_insert_block().unwrap();
 
     move_bb_after_current(compile_context, b2_true_bb);
     compile_context.builder.position_at_end(b2_true_bb);
-    compile_context.builder.build_unconditional_branch(after_bb).unwrap();
+    let has_b2_true_br = create_br_unconditional(compile_context, after_bb);
 
     let b2_true_bb_last = compile_context.builder.get_insert_block().unwrap();
 
@@ -534,7 +555,22 @@ fn compile_short_circuiting_and<'llvm_ctx>(compile_context: &mut CompileContext<
     let const_true = compile_context.context.bool_type().const_int(true as u64, false);
 
     let phi_and = compile_context.builder.build_phi(compile_context.context.bool_type(), "and_phi").unwrap();
-    phi_and.add_incoming(&[(&const_false, start_bb), (&const_false, b1_true_bb_last), (&const_true, b2_true_bb_last)]);
+    let mut incoming: Vec<(&dyn BasicValue<'_>, BasicBlock<'_>)> = Vec::new();
+
+    if has_start_br {
+        incoming.push((&const_false, start_bb));
+    }
+
+    if has_b1_true_br {
+        incoming.push((&const_false, b1_true_bb_last));
+    }
+
+    if has_b2_true_br {
+        incoming.push((&const_true, b2_true_bb_last));
+    }
+
+    phi_and.add_incoming(&incoming);
+    //phi_and.add_incoming(&[(&const_false, start_bb), (&const_false, b1_true_bb_last), (&const_true, b2_true_bb_last)]);
     phi_and.as_basic_value().into_int_value()
 }
 
@@ -552,7 +588,7 @@ fn compile_short_circuiting_or<'llvm_ctx>(compile_context: &mut CompileContext<'
 
     let start_bb = compile_context.builder.get_insert_block().unwrap();
 
-    compile_context.builder.build_conditional_branch(b1, after_bb, b1_false_bb).unwrap();
+    let has_start_br = create_br_conditional(compile_context, b1, after_bb, b1_false_bb);
 
     move_bb_after_current(compile_context, b1_false_bb);
     compile_context.builder.position_at_end(b1_false_bb);
@@ -563,13 +599,14 @@ fn compile_short_circuiting_or<'llvm_ctx>(compile_context: &mut CompileContext<'
         _ => unreachable!(),
     };
 
-    compile_context.builder.build_conditional_branch(b2, after_bb, b2_false_bb).unwrap();
+    let has_b1_false_br = create_br_conditional(compile_context, b2, after_bb, b2_false_bb);
 
     let b1_false_bb_last = compile_context.builder.get_insert_block().unwrap();
 
     move_bb_after_current(compile_context, b2_false_bb);
     compile_context.builder.position_at_end(b2_false_bb);
-    compile_context.builder.build_unconditional_branch(after_bb).unwrap();
+    
+    let has_b2_false_br = create_br_unconditional(compile_context, after_bb);
 
     let b2_false_bb_last = compile_context.builder.get_insert_block().unwrap();
 
@@ -580,7 +617,23 @@ fn compile_short_circuiting_or<'llvm_ctx>(compile_context: &mut CompileContext<'
     let const_true = compile_context.context.bool_type().const_int(true as u64, false);
 
     let phi_and = compile_context.builder.build_phi(compile_context.context.bool_type(), "or_phi").unwrap();
-    phi_and.add_incoming(&[(&const_true, start_bb), (&const_true, b1_false_bb_last), (&const_false, b2_false_bb_last)]);
+    
+    let mut incoming: Vec<(&dyn BasicValue<'_>, BasicBlock<'_>)> = Vec::new();
+
+    if has_start_br {
+        incoming.push((&const_true, start_bb));
+    }
+
+    if has_b1_false_br {
+        incoming.push((&const_true, b1_false_bb_last));
+    }
+
+    if has_b2_false_br {
+        incoming.push((&const_false, b2_false_bb_last));
+    }
+
+    phi_and.add_incoming(&incoming);
+    //phi_and.add_incoming(&[(&const_true, start_bb), (&const_true, b1_false_bb_last), (&const_false, b2_false_bb_last)]);
     phi_and.as_basic_value().into_int_value()
 }
 
@@ -702,7 +755,7 @@ fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut C
             let (bb_is_null, bb_has_matched, ) = bb_list[bb_idx];
 
             if is_first {
-                compile_context.builder.build_unconditional_branch(bb_is_null).unwrap();
+                create_br_unconditional(compile_context, bb_is_null);
             }
 
             compile_context.builder.position_at_end(bb_is_null);
@@ -715,7 +768,7 @@ fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut C
 
             
             let is_null = compile_context.builder.build_is_null(current_node, "match_list_empty").unwrap();
-            compile_context.builder.build_conditional_branch(is_null, after_bb, bb_has_matched).unwrap();
+            create_br_conditional(compile_context, is_null, after_bb, bb_has_matched);
 
             compile_context.builder.position_at_end(bb_has_matched);
             let current_node_val = load_list_val(compile_context, &elem_type, current_node).as_any_value_enum();
@@ -727,17 +780,17 @@ fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut C
                 is_null_last_bb
             };
 
-            compile_context.builder.build_conditional_branch(has_e_matched, next_bb, after_bb).unwrap();
+            create_br_conditional(compile_context, has_e_matched, next_bb, after_bb);
             bb_idx += 1;
         }
 
         compile_context.builder.position_at_end(is_null_last_bb);
         let next_that_should_be_null = load_list_tail(compile_context, current_node);
         let is_null = compile_context.builder.build_is_null(next_that_should_be_null, "match_list_empty").unwrap();
-        compile_context.builder.build_conditional_branch(is_null, has_matched_everything_bb, after_bb).unwrap();
+        create_br_conditional(compile_context, is_null, has_matched_everything_bb, after_bb);
 
         compile_context.builder.position_at_end(has_matched_everything_bb);
-        compile_context.builder.build_unconditional_branch(after_bb).unwrap();
+        create_br_unconditional(compile_context, after_bb);
 
 
         // TODO : for the phi, if we comes from the last cmp, it is true, else it is false
@@ -855,7 +908,7 @@ fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContex
 fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type, bb: BasicBlock<'llvm_ctx>, else_bb : BasicBlock<'llvm_ctx>){
     let bool_val = compile_pattern_match_bool_val(compile_context, pattern, matched_val, matched_val_type);
 
-    compile_context.builder.build_conditional_branch(bool_val, bb, else_bb).unwrap();
+    create_br_conditional(compile_context, bool_val, bb, else_bb);
 }
 
 
@@ -886,6 +939,8 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 
     let mut match_phi_bbs = Vec::new();
 
+    let mut has_br_bb_list = Vec::new();
+
     for (pattern, pattern_bbs) in patterns.iter().zip(&match_bbs) {
         let (pattern, pattern_body) = pattern;
         let (pattern_bb, pattern_else_bb) = pattern_bbs;
@@ -896,7 +951,8 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
         let pattern_body_val = compile_expr(compile_context, *pattern_body);
         //compile_pattern_match_epilogue(compile_context, pattern);
         match_phi_bbs.push(compile_context.builder.get_insert_block().unwrap());
-        compile_context.builder.build_unconditional_branch(after_match).unwrap();
+        let has_br = create_br_unconditional(compile_context, after_match);
+        has_br_bb_list.push(has_br);
         pattern_vals.push(pattern_body_val);
         move_bb_after_current(compile_context, *pattern_else_bb);
         compile_context.builder.position_at_end(*pattern_else_bb);
@@ -910,9 +966,11 @@ fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     compile_context.builder.position_at_end(after_match);
     let phi_node = compile_context.builder.build_phi(TryInto::<BasicTypeEnum>::try_into(match_type_llvm).unwrap(), "match_phi").unwrap();
     let mut incoming_phi = Vec::new();
-    for (val, bb) in pattern_vals.iter().zip(&match_phi_bbs) {
-        let basic_val = TryInto::<BasicValueEnum>::try_into(*val).unwrap();
-        incoming_phi.push((basic_val, *bb));
+    for ((val, bb), has_br) in pattern_vals.iter().zip(&match_phi_bbs).zip(has_br_bb_list) {
+        if has_br {
+            let basic_val = TryInto::<BasicValueEnum>::try_into(*val).unwrap();
+            incoming_phi.push((basic_val, *bb));
+        }
     }
 
     let incoming_phi = incoming_phi.iter().map(|(val, bb)| (val as &dyn BasicValue, *bb)).collect::<Vec<_>>();
@@ -1170,7 +1228,17 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
 
     let last_main_bb = compile_context.main_function.get_last_basic_block().unwrap();
     compile_context.builder.position_at_end(last_main_bb);
-    compile_context.builder.build_return(Some(&compile_context.context.i32_type().const_int(0, false))).unwrap();
+
+    let should_return = match last_main_bb.get_last_instruction(){
+        Some(instr) => {
+            !instr.is_terminator()
+        }
+        None => true,
+    };
+
+    if should_return {
+        compile_context.builder.build_return(Some(&compile_context.context.i32_type().const_int(0, false))).unwrap();
+    }
 
     let filename_without_ext = filename.file_stem().unwrap().to_str().expect("not UTF-8 filename").to_owned();
 

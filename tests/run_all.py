@@ -23,6 +23,10 @@ excluded_files = [
     "interpreter_error.rml",
 ]
 
+should_panic_files = {
+ #    "panic.rml"
+}
+
 def is_error(return_code : int) -> bool:
     return return_code != 0
 
@@ -59,8 +63,13 @@ def test_file(filename : str, is_compiling: bool, is_release_mode : bool):
     # print(out)
     return_code = pipe.returncode
 
+    should_panic = False
+    if filename in should_panic_files:
+        should_panic = True
 
-    if is_error(return_code):
+    is_err = is_error(return_code)
+    should_print_error_message = is_err if is_compiling else (not should_panic and is_err) or (should_panic and not is_err)
+    if should_print_error_message:
         error_message = get_error_message(is_compiling, return_code, filename, is_release_mode)
         return "❌", error_message, out
         

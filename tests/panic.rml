@@ -1,0 +1,6 @@
+// TODO : fix this
+// let a = panic("test") ;;
+
+let b = if 1 < 3 then 2 else panic("impossible") ;;
+
+let _ = print b ;;

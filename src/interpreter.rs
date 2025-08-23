@@ -2,6 +2,7 @@ use rustc_hash::FxHashMap;
 use std::cmp::max;
 use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
+use std::panic;
 use debug_with_context::DebugWithContext;
 use rand::prelude::*;
 
@@ -564,10 +565,21 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
 
 }
 
+// TODO : add line number and file ?
+fn rustaml_panic(message : &str) -> ! {
+    eprintln!("PANIC in rustaml code : {}", message);
+    // set hook to deactivate printing
+    panic::set_hook(Box::new(|_| {
+        // do nothing
+    }));
+    panic!()
+}
+
 const STD_FUNCTIONS : &[&str] = &[
     "print",
     "rand",
     "format",
+    "panic",
 ];
 
 fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args_val : Vec<Val>) -> Val {
@@ -586,6 +598,10 @@ fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args
         },
         "format" => {
             todo!()
+        }
+        "panic" => {
+            let message = format!("{}", args_val[0].display(context.rustaml_context)) ;
+            rustaml_panic(&message)
         }
         _ => unreachable!()
     }

@@ -128,6 +128,11 @@ pub fn create_string<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
 }
 
 pub fn codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, message : &str){
+    let message_str = create_string(compile_context, message);
+    _codegen_runtime_error(compile_context, message_str)
+}
+
+pub fn _codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, message_str : PointerValue<'llvm_ctx>){
     // TODO : only if in a hashset of already added symbols (is it needed ?)
     let ptr_type = compile_context.context.ptr_type(AddressSpace::default());
     
@@ -137,7 +142,6 @@ pub fn codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_,
 
     let stderr_global = compile_context.get_internal_global_var("stderr", ptr_type.as_basic_type_enum());
     
-    let message_str  = create_string(compile_context, &format!("{}\n", message));
     let stderr_load = compile_context.builder.build_load(ptr_type, stderr_global.as_pointer_value(), "stderr_load").unwrap();
     let fprintf_args: Vec<BasicMetadataValueEnum> = vec![stderr_load.into(), message_str.into()];
     compile_context.builder.build_call(fprintf_fun, &fprintf_args, "error_fprintf").unwrap();
@@ -145,6 +149,32 @@ pub fn codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_,
     let exit_args = vec![compile_context.context.i32_type().const_int(1, false).into()];
     compile_context.builder.build_call(exit_fun, &exit_args, "error_exit").unwrap();
     compile_context.builder.build_unreachable().unwrap();
+}
+
+fn is_last_instruction_terminator<'llvm_ctx>(compile_context: &CompileContext<'_, '_, 'llvm_ctx>) -> bool {
+    let current_bb = compile_context.builder.get_insert_block().unwrap();
+    match current_bb.get_last_instruction() {
+        Some(instr) => instr.is_terminator(),
+        None => false,
+    }
+}
+
+pub fn create_br_conditional<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, comparison: IntValue<'llvm_ctx>, then_block: BasicBlock<'llvm_ctx>, else_block: BasicBlock<'llvm_ctx>) -> bool {
+    if !is_last_instruction_terminator(compile_context) {
+        compile_context.builder.build_conditional_branch(comparison, then_block, else_block).unwrap();
+        true
+    } else {
+        false
+    }
+}
+
+pub fn create_br_unconditional<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, dest_bb: BasicBlock<'llvm_ctx>) -> bool {
+    if !is_last_instruction_terminator(compile_context) {
+        compile_context.builder.build_unconditional_branch(dest_bb).unwrap();
+        true
+    } else {
+        false
+    }
 }
 
 fn load_type_tag<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : PointerValue<'llvm_ctx>) -> IntValue<'llvm_ctx> {

@@ -508,6 +508,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
 
 fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
     let merged_type = match (t1, t2){
+        (t, Type::Never) | (Type::Never, t) => Some(t.clone()),
         (t, Type::Any) | (Type::Any, t) => Some(t.clone()),
         (t1, t2) if t1 == t2 => Some(t1.clone()),
         (Type::List(e1), Type::List(e2)) => {
@@ -778,6 +779,7 @@ fn std_functions_constraints_types(context : &mut TypeContext) {
     std_function_constraint(context, "print", vec![Type::Any], Type::Unit, false);
     std_function_constraint(context, "rand", vec![Type::Unit], Type::Integer, false);
     std_function_constraint(context, "format", vec![Type::Str], Type::Str, true);
+    std_function_constraint(context, "panic", vec![Type::Str], Type::Never, true);
     // TODO : add a rand_f ? or make the rand function generic with its return ?
 }
 
