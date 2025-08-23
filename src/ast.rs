@@ -869,11 +869,11 @@ fn parse_import(parser : &mut Parser) -> Result<Option<ASTRef>, ParserErr> {
     let filename_path = parser.filename.parent().unwrap_or(Path::new(""));
     let import_path = pathbuf![filename_path, import_filename_path].canonicalize().unwrap(); // TODO : replace the unwrap with a panic!(filename not found)
 
-    dbg!(&parser.imported_files);
-    println!("TRY TO IMPORT {}", import_path.display());
+    //dbg!(&parser.imported_files);
+    //println!("TRY TO IMPORT {}", import_path.display());
 
     if parser.imported_files.contains(&import_path){
-        println!("ALREADY IMPORTED {}", import_path.display());
+        //println!("ALREADY IMPORTED {}", import_path.display());
         return Ok(None);
     }
 

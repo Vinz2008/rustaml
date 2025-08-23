@@ -678,6 +678,112 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
 }
 
 
+// TODO : when will be added or patterns (TODO) (for ex : match a with | [1, 2, 3] | [2, 3, 4]) I can create a more optimized version when matching multiple lists by creating a decision tree in the compiled program
+fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list_val : PointerValue<'llvm_ctx>, pattern_list : &[PatternRef], elem_type : &Type) -> IntValue<'llvm_ctx>{
+    if pattern_list.is_empty(){
+        return compile_context.builder.build_is_null(list_val, "match_list_empty").unwrap();
+    } else {
+        let this_function = get_current_function(compile_context.builder);
+        let bb_list = (0..pattern_list.len()).map(|_|{
+            (compile_context.context.append_basic_block(this_function, "is_null") ,compile_context.context.append_basic_block(this_function, "has_matched_element"))
+        }).collect::<Vec<_>>();
+
+        let is_null_last_bb = compile_context.context.append_basic_block(this_function, "is_null_last");
+        let has_matched_everything_bb = compile_context.context.append_basic_block(this_function, "has_matched_everything");
+
+        let after_bb = compile_context.context.append_basic_block(this_function, "after_bb");
+
+        let mut current_node = list_val;
+
+        let mut is_first = true;
+        let mut bb_idx= 0;
+
+        for p in pattern_list.iter() {
+            let (bb_is_null, bb_has_matched, ) = bb_list[bb_idx];
+
+            if is_first {
+                compile_context.builder.build_unconditional_branch(bb_is_null).unwrap();
+            }
+
+            compile_context.builder.position_at_end(bb_is_null);
+
+            if is_first {
+                is_first = false;
+            } else {
+                current_node = load_list_tail(compile_context, current_node);
+            }
+
+            
+            let is_null = compile_context.builder.build_is_null(current_node, "match_list_empty").unwrap();
+            compile_context.builder.build_conditional_branch(is_null, after_bb, bb_has_matched).unwrap();
+
+            compile_context.builder.position_at_end(bb_has_matched);
+            let current_node_val = load_list_val(compile_context, &elem_type, current_node).as_any_value_enum();
+            let has_e_matched = compile_pattern_match_bool_val(compile_context, *p, current_node_val, &elem_type);
+            
+            let next_bb = if let Some(bb) = bb_list.get(bb_idx+1) {
+                bb.0
+            } else {
+                is_null_last_bb
+            };
+
+            compile_context.builder.build_conditional_branch(has_e_matched, next_bb, after_bb).unwrap();
+            bb_idx += 1;
+        }
+
+        compile_context.builder.position_at_end(is_null_last_bb);
+        let next_that_should_be_null = load_list_tail(compile_context, current_node);
+        let is_null = compile_context.builder.build_is_null(next_that_should_be_null, "match_list_empty").unwrap();
+        compile_context.builder.build_conditional_branch(is_null, has_matched_everything_bb, after_bb).unwrap();
+
+        compile_context.builder.position_at_end(has_matched_everything_bb);
+        compile_context.builder.build_unconditional_branch(after_bb).unwrap();
+
+
+        // TODO : for the phi, if we comes from the last cmp, it is true, else it is false
+
+        compile_context.builder.position_at_end(after_bb);
+        let phi_node = compile_context.builder.build_phi(compile_context.context.bool_type(), "phi_match_static_list").unwrap();
+        let mut incoming_phi : Vec<(&dyn BasicValue<'_>, inkwell::basic_block::BasicBlock<'_>)> = Vec::new();
+        let const_false = compile_context.context.bool_type().const_int(false as u64, false);
+        for (bb_is_null, bb_has_matched) in bb_list.iter() {
+            incoming_phi.push((&const_false, *bb_is_null));
+            incoming_phi.push((&const_false, *bb_has_matched));
+        }
+        incoming_phi.push((&const_false, is_null_last_bb));
+        let const_true = compile_context.context.bool_type().const_int(true as u64, false);
+        incoming_phi.push((&const_true, has_matched_everything_bb));
+        // TODO
+
+        phi_node.add_incoming(&incoming_phi);
+
+        phi_node.as_basic_value().into_int_value()
+
+        /*let mut bools_patterns = Vec::new();
+        let mut current_node = list_val;
+
+        let mut is_first = true;
+                    
+        for p in pattern_list.iter() {
+            if is_first {
+                is_first = false;
+            } else {
+                current_node = load_list_tail(compile_context, current_node);
+            }
+                        
+            let current_node_val = load_list_val(compile_context, &elem_type, current_node).as_any_value_enum();
+
+            let b = compile_pattern_match_bool_val(compile_context, *p, current_node_val, &elem_type);
+            bools_patterns.push(b);
+        }
+
+        let bools_patterns_first = *bools_patterns.first().unwrap(); 
+        let pattern_cmp_bool  = bools_patterns.iter().skip(1).fold(bools_patterns_first, |acc, e| compile_context.builder.build_and(acc, *e, "match_pattern_and_list").unwrap());
+
+        pattern_cmp_bool*/
+    }
+}
+
 fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_expr_type : &Type) -> IntValue<'llvm_ctx>{
     match pattern.get(&compile_context.rustaml_context.pattern_pool) {
         Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap_or_else(|_| panic!("not an int value : {:?}", matched_val)), compile_context.context.i64_type().const_int(*i as u64, false), "match_int_cmp").unwrap(),
@@ -698,48 +804,12 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
         Pattern::VarName(_) => compile_context.context.bool_type().const_int(true as u64, false),
         Pattern::List(pattern_list) => {
             
-            // empty list (just for now before the todo is done ? (TODO ?))
-            if pattern_list.is_empty(){
-                return compile_context.builder.build_is_null(matched_val.into_pointer_value(), "match_list_empty").unwrap();
-            } else {
+            let elem_type = match matched_expr_type {
+                Type::List(e) => *e.to_owned(),
+                _ => unreachable!(),   
+            };
 
-                let elem_type = match matched_expr_type {
-                    Type::List(e) => *e.to_owned(),
-                    _ => unreachable!(),   
-                };
-
-                let this_function = get_current_function(compile_context.builder);
-                // TODO : position these bbs ?
-
-            
-                // TODO : add real short circuiting (check each of the element and if one is not the same, make it false)
-                // either:
-                // - create the list in a static list form, then loop through it
-                // - unwrap the loop (so no branching, but bigger code size)
-                // add both with a flag, then test them and remove one ?
-                let mut bools_patterns = Vec::new();
-                let mut current_node = matched_val.into_pointer_value();
-
-                let mut is_first = true;
-                
-                for p in pattern_list.iter() {
-                    if is_first {
-                        is_first = false;
-                    } else {
-                        current_node = load_list_tail(compile_context, current_node);
-                    }
-                    
-                    let current_node_val = load_list_val(compile_context, &elem_type, current_node).as_any_value_enum();
-
-                    let b = compile_pattern_match_bool_val(compile_context, *p, current_node_val, &elem_type);
-                    bools_patterns.push(b);
-                }
-
-                let bools_patterns_first = *bools_patterns.first().unwrap(); 
-                let pattern_cmp_bool  = bools_patterns.iter().skip(1).fold(bools_patterns_first, |acc, e| compile_context.builder.build_and(acc, *e, "match_pattern_and_list").unwrap());
-
-                pattern_cmp_bool
-            }
+            compile_short_circuiting_match_static_list(compile_context, matched_val.into_pointer_value(), &pattern_list, &elem_type)
         },
         Pattern::String(s) => {
             let str_cmp_fun = compile_context.get_internal_function("__str_cmp");
