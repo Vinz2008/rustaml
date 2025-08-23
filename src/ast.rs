@@ -296,7 +296,7 @@ pub struct Parser<'context> {
     precedences : FxHashMap<Operator, (i32, Associativity)>,
     filename : PathBuf,
     pub rustaml_context : &'context mut RustamlContext,
-    imported_files : FxHashSet<PathBuf>,
+    imported_files : &'context mut FxHashSet<PathBuf>,
 }
 
 #[derive(Debug, Tag)]
@@ -869,7 +869,11 @@ fn parse_import(parser : &mut Parser) -> Result<Option<ASTRef>, ParserErr> {
     let filename_path = parser.filename.parent().unwrap_or(Path::new(""));
     let import_path = pathbuf![filename_path, import_filename_path].canonicalize().unwrap(); // TODO : replace the unwrap with a panic!(filename not found)
 
+    dbg!(&parser.imported_files);
+    println!("TRY TO IMPORT {}", import_path.display());
+
     if parser.imported_files.contains(&import_path){
+        println!("ALREADY IMPORTED {}", import_path.display());
         return Ok(None);
     }
 
@@ -880,7 +884,7 @@ fn parse_import(parser : &mut Parser) -> Result<Option<ASTRef>, ParserErr> {
 
     let content_chars = content_str.chars().collect();
     
-    let ast = match get_ast_from_string(parser.rustaml_context, content_chars, Some(&content_str), &import_path, Some(parser.imported_files.clone())) {
+    let ast = match get_ast_from_string(parser.rustaml_context, content_chars, Some(&content_str), &import_path, Some(parser.imported_files)) {
         Ok(a) => a,
         Err(()) => return Err(ParserErr::new(ParserErrData::ImportError, 0..0)), // TODO
     };
@@ -928,11 +932,16 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::TopLevel { nodes }, range))
 }
 
-pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext, filename : PathBuf, already_added_filenames : Option<FxHashSet<PathBuf>>) -> Result<ASTRef, ParserErr> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ParserErr>*/ {
-    let mut imported_files = FxHashSet::from_iter([filename.clone()]);
-    if let Some(already_added_filenames) = already_added_filenames {
-        imported_files.extend(already_added_filenames);
-    }
+pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext, filename : PathBuf, already_added_filenames : Option<&mut FxHashSet<PathBuf>>) -> Result<ASTRef, ParserErr> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ParserErr>*/ {
+    //let mut imported_files = FxHashSet::from_iter([filename.clone()]);
+    let filename_complete_path = filename.canonicalize().unwrap().clone();
+    let imported_files = if let Some(already_added_filenames) = already_added_filenames {
+        //imported_files.extend(already_added_filenames);
+        already_added_filenames.insert(filename_complete_path);
+        already_added_filenames
+    } else {
+        &mut FxHashSet::from_iter([filename_complete_path])
+    };
 
     let root_node = { 
         let mut parser = Parser { 

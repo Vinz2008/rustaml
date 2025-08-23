@@ -1,0 +1,3 @@
+import "import_loop1.rml"
+
+let b = 3 ;;
