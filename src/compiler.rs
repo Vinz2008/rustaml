@@ -758,29 +758,6 @@ fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut C
         phi_node.add_incoming(&incoming_phi);
 
         phi_node.as_basic_value().into_int_value()
-
-        /*let mut bools_patterns = Vec::new();
-        let mut current_node = list_val;
-
-        let mut is_first = true;
-                    
-        for p in pattern_list.iter() {
-            if is_first {
-                is_first = false;
-            } else {
-                current_node = load_list_tail(compile_context, current_node);
-            }
-                        
-            let current_node_val = load_list_val(compile_context, &elem_type, current_node).as_any_value_enum();
-
-            let b = compile_pattern_match_bool_val(compile_context, *p, current_node_val, &elem_type);
-            bools_patterns.push(b);
-        }
-
-        let bools_patterns_first = *bools_patterns.first().unwrap(); 
-        let pattern_cmp_bool  = bools_patterns.iter().skip(1).fold(bools_patterns_first, |acc, e| compile_context.builder.build_and(acc, *e, "match_pattern_and_list").unwrap());
-
-        pattern_cmp_bool*/
     }
 }
 
