@@ -491,8 +491,8 @@ fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
     }
 }
 
-// TODO : make also these work with vals (for example with an enum HotPlugArg that can be an ASTRef or an AnyValue)
-fn compile_hotplug_and<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, lhs : ASTRef, rhs : ASTRef) -> IntValue<'llvm_ctx> {
+// TODO : make also these work with vals (for example with an enum ShortCircuitingArg that can be an ASTRef or an AnyValue)
+fn compile_short_circuiting_and<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, lhs : ASTRef, rhs : ASTRef) -> IntValue<'llvm_ctx> {
     let this_function = get_current_function(compile_context.builder);
     let b1_true_bb = compile_context.context.append_basic_block(this_function, "and_b1_true");
     let b2_true_bb = compile_context.context.append_basic_block(this_function, "and_b2_true");
@@ -538,7 +538,7 @@ fn compile_hotplug_and<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
     phi_and.as_basic_value().into_int_value()
 }
 
-fn compile_hotplug_or<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, lhs : ASTRef, rhs : ASTRef) -> IntValue<'llvm_ctx> {
+fn compile_short_circuiting_or<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, lhs : ASTRef, rhs : ASTRef) -> IntValue<'llvm_ctx> {
     let this_function = get_current_function(compile_context.builder);
     let b1_false_bb = compile_context.context.append_basic_block(this_function, "or_b1_true");
     let b2_false_bb = compile_context.context.append_basic_block(this_function, "or_b2_true");
@@ -586,8 +586,8 @@ fn compile_hotplug_or<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
 
 fn compile_binop_bool_logical<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs : ASTRef, rhs : ASTRef, name : String) -> IntValue<'llvm_ctx> {
     match op {
-        Operator::And => compile_hotplug_and(compile_context, lhs, rhs),
-        Operator::Or => compile_hotplug_or(compile_context, lhs, rhs),
+        Operator::And => compile_short_circuiting_and(compile_context, lhs, rhs),
+        Operator::Or => compile_short_circuiting_or(compile_context, lhs, rhs),
         _ => unreachable!(),
     }
 }
@@ -691,7 +691,7 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
             let lower_cmp = compile_context.builder.build_int_compare(lower_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*lower as u64, false), "match_int_cmp_range_lower").unwrap();
             let upper_cmp = compile_context.builder.build_int_compare(upper_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*upper as u64, false), "match_int_cmp_range_upper").unwrap();
             
-            // TODO : instead of creating a and, hotplug this with multiple branches ? (return a vec with the branches that need to be made ?)
+            // TODO : instead of creating a and, short circuit this with multiple branches ? (return a vec with the branches that need to be made ?)
             let combined_bool_val = compile_context.builder.build_and(lower_cmp, upper_cmp, "match_range_and").unwrap();
             combined_bool_val
         }
@@ -710,24 +710,8 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
 
                 let this_function = get_current_function(compile_context.builder);
                 // TODO : position these bbs ?
-                let list_len_cmp = compile_context.context.append_basic_block(this_function, "match_list_len_cmp");
-                let patterns_cmp = compile_context.context.append_basic_block(this_function, "match_list_element_cmp");
-                let after_bb = compile_context.context.append_basic_block(this_function, "math_after_list_cmp");
 
-
-                compile_context.builder.build_unconditional_branch(list_len_cmp).unwrap();
-                compile_context.builder.position_at_end(list_len_cmp);
-                
-                let const_list_pattern_len = compile_context.context.i64_type().const_int(pattern_list.len() as u64, false);
-                
-                let list_len_fun = compile_context.get_internal_function("__list_len");
-                let list_len = compile_context.builder.build_call(list_len_fun, &[matched_val.try_into().unwrap()], "list_len_internal").unwrap().as_any_value_enum().into_int_value();
-
-                let is_same_len = compile_context.builder.build_int_compare(IntPredicate::EQ, list_len, const_list_pattern_len, "match_list_len_cmp").unwrap();
-                compile_context.builder.build_conditional_branch(is_same_len, patterns_cmp, after_bb).unwrap();
-                
-                
-                compile_context.builder.position_at_end(patterns_cmp);
+            
                 // TODO : add real short circuiting (check each of the element and if one is not the same, make it false)
                 // either:
                 // - create the list in a static list form, then loop through it
@@ -751,19 +735,10 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
                     bools_patterns.push(b);
                 }
 
-                let true_val = compile_context.context.bool_type().const_int(true as u64, false);
-                let pattern_cmp_bool  = bools_patterns.iter().fold(true_val, |acc, e| compile_context.builder.build_and(acc, *e, "match_pattern_and_list").unwrap());
-                
-                compile_context.builder.build_unconditional_branch(after_bb).unwrap();
+                let bools_patterns_first = *bools_patterns.first().unwrap(); 
+                let pattern_cmp_bool  = bools_patterns.iter().skip(1).fold(bools_patterns_first, |acc, e| compile_context.builder.build_and(acc, *e, "match_pattern_and_list").unwrap());
 
-                compile_context.builder.position_at_end(after_bb);
-
-                let false_val = compile_context.context.bool_type().const_int(false as u64, false);
-                let bool_phi = compile_context.builder.build_phi(compile_context.context.bool_type(), "match_list_cmp_phi").unwrap();
-                let incoming_branches = &[(&false_val as _, list_len_cmp), (&pattern_cmp_bool as _, patterns_cmp)];
-                bool_phi.add_incoming(incoming_branches);
-                
-                bool_phi.as_basic_value().into_int_value()
+                pattern_cmp_bool
             }
         },
         Pattern::String(s) => {
