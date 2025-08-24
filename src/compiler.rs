@@ -8,7 +8,7 @@ use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
 // TODO : add generic enums to have results for error handling
 // TODO : add a C FFI
-
+// TODO : add debuginfos
 pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     pub rustaml_context : &'context RustamlContext,
     pub context : &'llvm_ctx Context,
