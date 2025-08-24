@@ -730,6 +730,7 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
     current_node.into()
 }
 
+// TODO : move all this matching code in a compiler_match.rs
 
 // TODO : when will be added or patterns (TODO) (for ex : match a with | [1, 2, 3] | [2, 3, 4]) I can create a more optimized version when matching multiple lists by creating a decision tree in the compiled program
 fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list_val : PointerValue<'llvm_ctx>, pattern_list : &[PatternRef], elem_type : &Type) -> IntValue<'llvm_ctx>{
@@ -831,7 +832,7 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
             let combined_bool_val = compile_context.builder.build_and(lower_cmp, upper_cmp, "match_range_and").unwrap();
             combined_bool_val
         }
-        Pattern::VarName(_) => compile_context.context.bool_type().const_int(true as u64, false),
+        Pattern::VarName(_) | Pattern::Underscore => compile_context.context.bool_type().const_int(true as u64, false),
         Pattern::List(pattern_list) => {
             
             let elem_type = match matched_expr_type {
@@ -912,19 +913,125 @@ fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
 }
 
 
+fn match_can_use_switch(compile_context: &CompileContext<'_, '_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
+    
+    matches!(matched_val_type, Type::Integer) // TODO : what other types match ? 
+    // TODO : when guard are added, verify that there is no guard
+        && patterns.iter().map(|(p, _)| matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::Integer(_) | Pattern::VarName(_) | Pattern::Underscore)).all(|e| e)
+        && patterns.iter().filter(|(p, _)| matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::VarName(_) | Pattern::Underscore)).count() == 1
+}
+
+fn match_switch_is_fallback(compile_context: &CompileContext<'_, '_, '_>, p : PatternRef) -> bool {
+    matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::VarName(_) | Pattern::Underscore)
+}
+
+fn compile_match_switch<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, matched_val : AnyValueEnum<'llvm_ctx>, match_type_ret_llvm : AnyTypeEnum<'llvm_ctx>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
+    let function = get_current_function(compile_context.builder);
+    
+    let mut match_bbs = Vec::new();
+    let mut fallback_bb = None;
+    let mut normal_patterns = Vec::new();
+    let mut fallback = None;
+    for (p, a) in patterns {
+        if match_switch_is_fallback(compile_context, *p){
+            fallback = Some((*p, *a));
+            fallback_bb = Some(compile_context.context.append_basic_block(function, "fallback_switch"));
+        } else {
+            let match_bb = compile_context.context.append_basic_block(function, "match_case");
+            match_bbs.push(match_bb);
+
+            normal_patterns.push((*p, *a));
+        }
+        
+    }
+
+    let fallback_bb = fallback_bb.unwrap();
+    let fallback = fallback.unwrap();
+
+    let mut cases= Vec::new();
+
+    for ((p, a), bb) in normal_patterns.iter().zip(&match_bbs) {
+        match p.get(&compile_context.rustaml_context.pattern_pool){
+            Pattern::Integer(i) => {
+                let int_val = compile_context.context.i64_type().const_int(*i as u64 , false);
+                cases.push((int_val, *bb))
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    compile_context.builder.build_switch(matched_val.into_int_value(), fallback_bb, &cases).unwrap();
+
+    let after_match = compile_context.context.append_basic_block(function, "after_match");
+
+    let mut pattern_vals = Vec::new();
+    let mut match_phi_bbs = Vec::new();
+    let mut has_br_bb_list = Vec::new();
+
+    for ((_pattern, pattern_body), pattern_bb) in normal_patterns.iter().zip(&match_bbs) {
+        move_bb_after_current(compile_context, *pattern_bb);
+        compile_context.builder.position_at_end(*pattern_bb);
+        let pattern_val = compile_expr(compile_context, *pattern_body);
+        pattern_vals.push(pattern_val);
+        match_phi_bbs.push(compile_context.builder.get_insert_block().unwrap());
+        let has_br = create_br_unconditional(compile_context, after_match);
+        has_br_bb_list.push(has_br);
+    }
+
+    move_bb_after_current(compile_context, fallback_bb);
+    compile_context.builder.position_at_end(fallback_bb);
+    compile_pattern_match_prologue(compile_context, fallback.0, matched_val, matched_val_type);
+    let fallback_val = compile_expr(compile_context, fallback.1);
+    let after_fallback_bb = compile_context.builder.get_insert_block().unwrap();
+    let has_br_fallback = create_br_unconditional(compile_context, after_match);
+
+
+    move_bb_after_current(compile_context, after_match);
+    compile_context.builder.position_at_end(after_match);
+    let phi_node = compile_context.builder.build_phi(TryInto::<BasicTypeEnum>::try_into(match_type_ret_llvm).unwrap(), "match_phi").unwrap();
+
+    let mut incoming_phi = Vec::new();
+    for ((val, bb), has_br) in pattern_vals.iter().zip(&match_phi_bbs).zip(has_br_bb_list) {
+        if has_br {
+            let basic_val = TryInto::<BasicValueEnum>::try_into(*val).unwrap();
+            incoming_phi.push((basic_val, *bb));
+        }
+    }
+
+    if has_br_fallback {
+        let fallback_basic_val = TryInto::<BasicValueEnum>::try_into(fallback_val).unwrap();
+        incoming_phi.push((fallback_basic_val, after_fallback_bb));
+    }
+
+    let incoming_phi = incoming_phi.iter().map(|(val, bb)| (val as &dyn BasicValue, *bb)).collect::<Vec<_>>();
+
+    phi_node.add_incoming(&incoming_phi);
+    
+    phi_node.as_any_value_enum()
+}
+
 // TODO : test nested matchs for problem with bb placement (use move_bb_after_current ?)
+// TODO : add an optimization for switch and test code generation 
 fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, match_node : ASTRef, matched_expr : ASTRef, patterns : &[(PatternRef, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
     
     let matched_val = compile_expr(compile_context, matched_expr);
     //let matched_val_type = matched_expr.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
     let matched_val_type = matched_expr.get_type(&compile_context.rustaml_context.ast_pool);
-    let function = get_current_function(compile_context.builder);
 
+    let match_type = match_node.get_type(&compile_context.rustaml_context.ast_pool);
+    let match_type_llvm = get_llvm_type(compile_context.context, match_type);
+    
+
+    // TODO : what other types match ?
+    if match_can_use_switch(compile_context, matched_val_type, patterns) {
+        return compile_match_switch(compile_context, matched_val, match_type_llvm, matched_val_type, patterns);
+    }
+
+    let function = get_current_function(compile_context.builder);
 
     // TODO : instead of calling get_type here, get all the types and store them in the nodes during parsing ?
     //let match_type = match_node.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
-    let match_type = match_node.get_type(&compile_context.rustaml_context.ast_pool);
-    let match_type_llvm: AnyTypeEnum = get_llvm_type(compile_context.context, match_type);
+    
 
     let mut match_bbs = Vec::new();
     for _ in patterns {
