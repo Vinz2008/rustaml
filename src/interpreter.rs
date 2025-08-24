@@ -1,3 +1,4 @@
+use debug_with_context::DebugWrapContext;
 use rustc_hash::FxHashMap;
 use std::cmp::max;
 use std::cmp::Ordering;
@@ -575,6 +576,77 @@ fn rustaml_panic(message : &str) -> ! {
     panic!()
 }
 
+#[derive(DebugWithContext)]
+#[debug_context(RustamlContext)]
+enum FormatChunk {
+    Arg(Val), // TODO ? : put ref instead
+    Str(String), // TODO ? : put ref instead
+}
+
+#[derive(DebugWithContext)]
+#[debug_context(RustamlContext)]
+struct FormatChunks {
+    format : Vec<FormatChunk>,
+}
+
+impl FormatChunks {
+    fn new() -> FormatChunks {
+        FormatChunks {
+            format: Vec::new()
+        }
+    }
+
+    fn append(&mut self, c : char){
+        match self.format.last_mut() {
+            Some(f_c) => {
+                match f_c {
+                    FormatChunk::Arg(_) => self.format.push(FormatChunk::Str(c.to_string())),
+                    FormatChunk::Str(s) => s.push(c),
+                }
+            }
+            None => self.format.push(FormatChunk::Str(c.to_string())),
+        }
+    }
+}
+
+fn interpret_format(context: &mut InterpretContext, arg_format_str: StringRef, args_format : &[Val]) -> Val {
+    let mut format_chunks = FormatChunks::new();
+
+    let arg_format_chars = arg_format_str.get_str(&context.rustaml_context.str_interner).chars().collect::<Vec<_>>();
+    let mut pos = 0;
+
+    let mut arg_pos = 0;
+    while pos < arg_format_chars.len() {
+        match arg_format_chars[pos] {
+            '{' => {
+                if let Some('}') = arg_format_chars.get(pos+1){
+                    format_chunks.format.push(FormatChunk::Arg(args_format[arg_pos].clone()));
+                    arg_pos += 1;
+                    pos += 1; // pas '}'
+                } else {
+                    format_chunks.append('{');
+                }
+                
+            },
+            c => format_chunks.append(c),
+        }
+        pos += 1;
+    }
+
+    //dbg!(DebugWrapContext::new(&format_chunks, context.rustaml_context));
+
+    let mut formatted_str = String::new();
+
+    for f_c in format_chunks.format {
+        match f_c {
+            FormatChunk::Str(s) => formatted_str.push_str(&s),
+            FormatChunk::Arg(v) => formatted_str.push_str(&format!("{}", v.display(context.rustaml_context))),
+        }
+    }
+
+    Val::String(context.rustaml_context.str_interner.intern_runtime(&formatted_str))
+}
+
 const STD_FUNCTIONS : &[&str] = &[
     "print",
     "rand",
@@ -597,7 +669,13 @@ fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args
             Val::Integer(rand_nb)
         },
         "format" => {
-            todo!()
+            let (arg_first, args_format) = args_val.split_first().unwrap();
+            let arg_format_str = match arg_first {
+                Val::String(s) => *s,
+                _ => panic!("expected string for format"),
+            };
+
+            interpret_format(context, arg_format_str, args_format)
         }
         "panic" => {
             let message = format!("{}", args_val[0].display(context.rustaml_context)) ;
