@@ -38,6 +38,7 @@ cfg_if! {
     if #[cfg(feature = "native")] {
         mod compiler;
         mod compiler_utils;
+        mod compiler_match;
 
         use crate::compiler::compile;
     }

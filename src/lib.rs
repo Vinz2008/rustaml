@@ -27,6 +27,7 @@ cfg_if! {
     if #[cfg(feature = "native")] {
         pub mod compiler;
         pub mod compiler_utils;
+        pub mod compiler_match;
     }
 }
 

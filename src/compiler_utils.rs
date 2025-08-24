@@ -202,3 +202,8 @@ pub fn promote_val_var_arg<'llvm_ctx>(compile_context: &CompileContext<'_, '_, '
         _ => val,
     }
 }
+
+// dummy val for void, if it is used as a real value, it is a bug
+pub fn get_void_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> AnyValueEnum<'llvm_ctx> {
+    llvm_context.i64_type().get_undef().into()
+}
