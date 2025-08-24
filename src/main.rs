@@ -91,6 +91,9 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         enable_sanitizer : bool,
 
+        #[arg(long, short = 'g', default_value_t = false)]
+        enable_debuginfos : bool,
+
         // TODO : add a flag to build statically libgc
 
         #[arg(long, short = 'd', default_value_t = false)]
@@ -121,7 +124,7 @@ struct Args {
 }
 
 #[cfg(not(feature = "native"))]
-pub fn compile(_frontend_output : FrontendOutput, _rustaml_context: &mut RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer : bool) {
+pub fn compile(_frontend_output : FrontendOutput, _rustaml_context: &mut RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer : bool, _enable_debuginfos : bool) {
     panic!("the compiler feature was not enabled");
 }
 
@@ -140,7 +143,7 @@ fn main() -> ExitCode {
 
     let debug_print = match args.command {
         Some(Commands::Check { filename: _, dump_types: _, debug_print }) => debug_print,
-        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, disable_gc: _, enable_sanitizer: _, debug_print }) => {
+        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, disable_gc: _, enable_sanitizer: _, debug_print, enable_debuginfos: _ }) => {
             debug_print
         },
         Some(Commands::Interpret { filename: _, debug_print }) => {
@@ -168,7 +171,7 @@ fn main() -> ExitCode {
 
             interpreter::interpret(frontend_output.ast, &mut rustaml_context);
         }
-        Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _ } => {
+        Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _, enable_debuginfos } => {
 
             // create a frontend fonction instead of get_ast ?
             let frontend_output = frontend(&filename, &mut rustaml_context);
@@ -180,7 +183,7 @@ fn main() -> ExitCode {
             // TODO : proper error printing
             //debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&vars, &rustaml_context));
 
-            compile(frontend_output, &mut rustaml_context,  &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, disable_gc, enable_sanitizer);
+            compile(frontend_output, &mut rustaml_context,  &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, disable_gc, enable_sanitizer, enable_debuginfos);
         },
 
         Commands::Check { filename, dump_types, debug_print: _ } => {

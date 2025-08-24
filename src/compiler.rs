@@ -2,7 +2,7 @@ use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use crate::{ast::{ASTNode, ASTRef, Type}, compiler_match::compile_match, compiler_utils::{_codegen_runtime_error, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
-use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
+use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DICompileUnit, DWARFEmissionKind, DWARFSourceLanguage, DebugInfoBuilder}, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
@@ -14,6 +14,7 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     pub context : &'llvm_ctx Context,
     pub module : &'refs Module<'llvm_ctx>,
     pub builder : &'refs Builder<'llvm_ctx>,
+    pub debug_info : DebugInfo<'llvm_ctx>,
     pub typeinfos : TypeInfos,
     functions : FxHashMap<StringRef, FunctionValue<'llvm_ctx>>,
     main_function : FunctionValue<'llvm_ctx>,
@@ -21,6 +22,27 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     pub external_symbols_declared : FxHashSet<&'static str>,
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>, // TODO : replace this with a hashmap ?
     pub global_strs : FxHashMap<String, PointerValue<'llvm_ctx>>,
+}
+
+
+// TODO : put this in another file
+// TODO : add a way to transform a range to a line number and column
+
+pub struct DebugInfosInner<'llvm_ctx> {
+    debug_builder : DebugInfoBuilder<'llvm_ctx>,
+    debug_compile_unit : DICompileUnit<'llvm_ctx>,
+}
+
+pub struct DebugInfo<'llvm_ctx> {
+    inner : Option<DebugInfosInner<'llvm_ctx>>
+}
+
+impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
+    fn finalize(&self){
+        if let Some(i) = &self.inner {
+            i.debug_builder.finalize();
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -912,9 +934,11 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
 }
 
 // TODO : pass all the args after optimization level as a struct named OptionalArgs
-pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level : u8, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool) {
+pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level_nb : u8, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool) {
     let context = Context::create();
     let builder = context.create_builder();
+    let filename_path = filename.parent().map(|e| e.as_os_str().to_str().unwrap()).unwrap();
+    let filename_end = filename.file_name().unwrap().to_str().unwrap();
 
     let filename_str = filename.as_os_str().to_str().expect("not UTF-8 filename");
     let module = context.create_module(filename_str);
@@ -924,7 +948,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
 
     let target = Target::from_triple(&target_triple).unwrap();
 
-    let optimization_level = match optimization_level {
+    let optimization_level = match optimization_level_nb {
         0 => OptimizationLevel::None,
         1 => OptimizationLevel::Less,
         2 => OptimizationLevel::Default,
@@ -948,6 +972,20 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
     module.set_triple(&target_triple);
     module.set_data_layout(&data_layout);
 
+    
+    let debug_info = DebugInfo { 
+        inner: if enable_debuginfos {
+            let is_optimized = optimization_level_nb > 0;
+            let (debug_builder, debug_compile_unit) = module.create_debug_info_builder(true, DWARFSourceLanguage::C, filename_end, filename_path, "rustaml compiler", is_optimized, "", 0, "", DWARFEmissionKind::Full, 0, false, false, "", "");
+            Some(DebugInfosInner {
+                debug_builder,
+                debug_compile_unit,
+            })
+        } else {
+            None
+        }
+     };
+
     let main_function = get_main_function(&context, &module);
 
     let internal_functions = get_internal_functions(&context);
@@ -957,6 +995,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         context : &context,
         module: &module,
         builder: &builder,
+        debug_info,
         typeinfos: frontend_output.type_infos,
         functions: FxHashMap::default(),
         main_function,
@@ -989,6 +1028,8 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         compile_context.builder.build_return(Some(&compile_context.context.i32_type().const_int(0, false))).unwrap();
     }
 
+    compile_context.debug_info.finalize();
+    
     let filename_without_ext = filename.file_stem().unwrap().to_str().expect("not UTF-8 filename").to_owned();
 
     #[cfg(feature = "debug-llvm")]{}
