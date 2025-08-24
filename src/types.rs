@@ -231,6 +231,7 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
     match pattern.get(&context.rustaml_context.pattern_pool).clone() {
         Pattern::Integer(_) | Pattern::Range(_, _, _) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Integer), range),
         Pattern::Float(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Float), range),
+        Pattern::Bool(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Bool), range),
         Pattern::String(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Str), range), 
         Pattern::List(pattern_list) => {
             context.push_constraint(Constraint::ListType(matched_type_var), range.clone());

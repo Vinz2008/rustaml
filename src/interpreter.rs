@@ -678,6 +678,14 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
                 _ => panic!("matching an expression that is not a float with a float pattern"),
             }
         },
+        Pattern::Bool(b) => {
+            match matched_val {
+                Val::Bool(matched_b) => {
+                    b == *matched_b
+                }
+                _ => panic!("matching an expression that is not a bool with a bool pattern"),
+            }
+        }
         Pattern::Range(start, end, inclusivity) => {
             match matched_val {
                 Val::Integer(matched_nb) => {

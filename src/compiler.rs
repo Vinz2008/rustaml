@@ -818,6 +818,8 @@ fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut C
 fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_expr_type : &Type) -> IntValue<'llvm_ctx>{
     match pattern.get(&compile_context.rustaml_context.pattern_pool) {
         Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap_or_else(|_| panic!("not an int value : {:?}", matched_val)), compile_context.context.i64_type().const_int(*i as u64, false), "match_int_cmp").unwrap(),
+        Pattern::Float(f) => compile_context.builder.build_float_compare(FloatPredicate::OEQ, matched_val.into_float_value(), compile_context.context.f64_type().const_float(*f), "match_float_cmp").unwrap(),
+        Pattern::Bool(b) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.into_int_value(), compile_context.context.bool_type().const_int(*b as u64, false), "match_bool_cmp").unwrap(),
         Pattern::Range(lower, upper, inclusivity) => {
             let (lower_predicate, upper_predicate) = if *inclusivity {
                 (IntPredicate::SLE, IntPredicate::SGE)
@@ -854,7 +856,7 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
         // TODO : need to recursively make compares if there is more than one destructuring
         Pattern::ListDestructure(_, _) => compile_context.builder.build_int_compare(IntPredicate::NE, matched_val.into_pointer_value(), compile_context.context.ptr_type(AddressSpace::default()).const_null(), "cmp_destructure_not_empty").unwrap(),
         // TODO
-        p => panic!("unknown pattern {:?}", DebugWrapContext::new(p, compile_context.rustaml_context)),
+        //p => panic!("unknown pattern {:?}", DebugWrapContext::new(p, compile_context.rustaml_context)),
         //_ => unreachable!()
     }
 }
@@ -912,13 +914,29 @@ fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
     create_br_conditional(compile_context, bool_val, bb, else_bb);
 }
 
+// for analyzing the ranges of match (make it smarter ?)
+fn match_is_all_range(compile_context: &CompileContext<'_, '_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
+    match matched_val_type {
+        Type::Bool => {
+            let has_true = patterns.iter().any(|e| matches!(e.0.get(&compile_context.rustaml_context.pattern_pool), Pattern::Bool(true)));
+            let has_false = patterns.iter().any(|e| matches!(e.0.get(&compile_context.rustaml_context.pattern_pool), Pattern::Bool(false)));
+            has_true && has_false
+        }, 
+        _ => false, // TODO
+    }
+}
+
+fn match_has_enough_fallback_switch(compile_context: &CompileContext<'_, '_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
+    match_is_all_range(compile_context, matched_val_type, patterns) 
+        ||  patterns.iter().filter(|(p, _)| matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::VarName(_) | Pattern::Underscore)).count() == 1
+}
 
 fn match_can_use_switch(compile_context: &CompileContext<'_, '_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
     
-    matches!(matched_val_type, Type::Integer) // TODO : what other types match ? 
+    matches!(matched_val_type, Type::Integer | Type::Bool) // TODO : what other types match ? 
     // TODO : when guard are added, verify that there is no guard
-        && patterns.iter().map(|(p, _)| matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::Integer(_) | Pattern::VarName(_) | Pattern::Underscore)).all(|e| e)
-        && patterns.iter().filter(|(p, _)| matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::VarName(_) | Pattern::Underscore)).count() == 1
+        && patterns.iter().map(|(p, _)| matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::Integer(_) | Pattern::Bool(_) | Pattern::VarName(_) | Pattern::Underscore)).all(|e| e)
+        && match_has_enough_fallback_switch(compile_context, matched_val_type, patterns)
 }
 
 fn match_switch_is_fallback(compile_context: &CompileContext<'_, '_, '_>, p : PatternRef) -> bool {
@@ -945,17 +963,20 @@ fn compile_match_switch<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
         
     }
 
-    let fallback_bb = fallback_bb.unwrap();
-    let fallback = fallback.unwrap();
+    let fallback_bb = fallback_bb.unwrap_or_else(|| compile_context.context.append_basic_block(function, "fallback_switch"));
 
     let mut cases= Vec::new();
 
-    for ((p, a), bb) in normal_patterns.iter().zip(&match_bbs) {
+    for ((p, _a), bb) in normal_patterns.iter().zip(&match_bbs) {
         match p.get(&compile_context.rustaml_context.pattern_pool){
             Pattern::Integer(i) => {
                 let int_val = compile_context.context.i64_type().const_int(*i as u64 , false);
                 cases.push((int_val, *bb))
             },
+            Pattern::Bool(b) => {
+                let bool_val = compile_context.context.bool_type().const_int(*b as u64 , false);
+                cases.push((bool_val, *bb))
+            }
             _ => unreachable!(),
         }
     }
@@ -980,10 +1001,22 @@ fn compile_match_switch<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
 
     move_bb_after_current(compile_context, fallback_bb);
     compile_context.builder.position_at_end(fallback_bb);
-    compile_pattern_match_prologue(compile_context, fallback.0, matched_val, matched_val_type);
-    let fallback_val = compile_expr(compile_context, fallback.1);
+
+    let fallback_val= if let Some(fallback) = fallback {
+        compile_pattern_match_prologue(compile_context, fallback.0, matched_val, matched_val_type);
+        let fallback_val = compile_expr(compile_context, fallback.1);
+        fallback_val
+    } else {
+        // no need for fallback because all the range is already used (it was already checked in match_can_use_switch)
+        // just generate an unreachable
+        compile_context.builder.build_unreachable().unwrap();
+        get_void_val(compile_context.context)
+    };
+
     let after_fallback_bb = compile_context.builder.get_insert_block().unwrap();
+
     let has_br_fallback = create_br_unconditional(compile_context, after_match);
+    
 
 
     move_bb_after_current(compile_context, after_match);

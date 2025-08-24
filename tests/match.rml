@@ -13,3 +13,10 @@ let _ = print m1 ;;
 
 let m2 = match_switch2 (rand ()) ;;
 let _ = print m2 ;;
+
+let match_bool a = match a with
+  | true -> 12
+  | false -> 6 ;;
+
+let m_b = match_bool ((rand ()) == 3) ;;
+let _ = print m_b ;;

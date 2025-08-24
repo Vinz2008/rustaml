@@ -28,6 +28,7 @@ pub enum Pattern {
     VarName(StringRef), // | x pattern
     Integer(i64), // | 2
     Float(f64), // | 2.6
+    Bool(bool), // | true
     Range(i64, i64, bool), // bool is for the inclusivity | 0..1
     String(StringRef), // | "test"
     List(Vec<PatternRef>), // | [1, 2, 3] // TODO : replace vec with Box<[Pattern]>
@@ -703,6 +704,8 @@ fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
             } 
         },
         TokenData::Float(nb) => (Pattern::Float(nb), pattern_first_tok_range),
+        TokenData::True => (Pattern::Bool(true) , pattern_first_tok_range),
+        TokenData::False => (Pattern::Bool(false), pattern_first_tok_range),
         TokenData::String(s) => (Pattern::String(parser.rustaml_context.str_interner.intern_compiler(&s.iter().collect::<String>())), pattern_first_tok_range),
         TokenData::ArrayOpen => {
             let (elems, range_end) = parse_list_form(parser, parse_pattern)?;
