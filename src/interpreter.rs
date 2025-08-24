@@ -36,9 +36,9 @@ impl ListPool {
         &mut self.0[list_node.0 as usize].as_mut().unwrap().data
     }
     
-    fn get_gc(&self, list_node : ListRef) -> &Gc<List> {
+    /*fn get_gc(&self, list_node : ListRef) -> &Gc<List> {
         self.0[list_node.0 as usize].as_ref().unwrap()
-    }
+    }*/
 
     fn get_gc_mut(&mut self, list_node : ListRef) -> &mut Gc<List> {
         self.0[list_node.0 as usize].as_mut().unwrap()
@@ -147,9 +147,9 @@ impl ListRef {
         list_pool.get_mut(self)
     }
 
-    pub fn get_gc(self, list_pool : &ListPool) -> &Gc<List> {
+    /*pub fn get_gc(self, list_pool : &ListPool) -> &Gc<List> {
         list_pool.get_gc(self)
-    }
+    }*/
     
     pub fn get_gc_mut(self, list_pool : &mut ListPool) -> &mut Gc<List> {
         list_pool.get_gc_mut(self)
@@ -729,7 +729,7 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
             // TODO : refactor this if it is a performance problem (profile it ?)
             let mut pattern_matched_nb = 0;
             // TODO : remove these clones -need these because we can't borrow as mut context while borrowing those vals)
-            let matched_list = matched_expr_list_node.iter(&context.rustaml_context.list_node_pool).map(|e| e.clone()).collect::<Vec<_>>();
+            let matched_list = matched_expr_list_node.iter(&context.rustaml_context.list_node_pool).cloned().collect::<Vec<_>>();
             for (&p, v) in l.iter().zip(matched_list) {
                 if !interpret_match_pattern(context, &v, p){
                     return false;
@@ -833,10 +833,10 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         }
         ASTNode::FunctionDefinition { name, args, body, return_type } => {
             let func_def = FunctionDef { 
-                name: name, 
+                name, 
                 args: args.iter().map(|arg| arg.name).collect(),
-                body: body,
-                return_type: return_type,
+                body,
+                return_type,
             };
             context.functions.insert(name, func_def);
             Val::Unit

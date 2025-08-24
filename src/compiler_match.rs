@@ -20,9 +20,8 @@ fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut C
         let mut current_node = list_val;
 
         let mut is_first = true;
-        let mut bb_idx= 0;
 
-        for p in pattern_list.iter() {
+        for (bb_idx, p) in pattern_list.iter().enumerate() {
             let (bb_is_null, bb_has_matched, ) = bb_list[bb_idx];
 
             if is_first {
@@ -42,8 +41,8 @@ fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut C
             create_br_conditional(compile_context, is_null, after_bb, bb_has_matched);
 
             compile_context.builder.position_at_end(bb_has_matched);
-            let current_node_val = load_list_val(compile_context, &elem_type, current_node).as_any_value_enum();
-            let has_e_matched = compile_pattern_match_bool_val(compile_context, *p, current_node_val, &elem_type);
+            let current_node_val = load_list_val(compile_context, elem_type, current_node).as_any_value_enum();
+            let has_e_matched = compile_pattern_match_bool_val(compile_context, *p, current_node_val, elem_type);
             
             let next_bb = if let Some(bb) = bb_list.get(bb_idx+1) {
                 bb.0
@@ -52,7 +51,6 @@ fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut C
             };
 
             create_br_conditional(compile_context, has_e_matched, next_bb, after_bb);
-            bb_idx += 1;
         }
 
         compile_context.builder.position_at_end(is_null_last_bb);
@@ -112,7 +110,7 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
                 _ => unreachable!(),   
             };
 
-            compile_short_circuiting_match_static_list(compile_context, matched_val.into_pointer_value(), &pattern_list, &elem_type)
+            compile_short_circuiting_match_static_list(compile_context, matched_val.into_pointer_value(), pattern_list, &elem_type)
         },
         Pattern::String(s) => {
             let str_cmp_fun = compile_context.get_internal_function("__str_cmp");
@@ -181,7 +179,7 @@ fn match_can_use_switch(compile_context: &CompileContext<'_, '_, '_>, matched_va
     
     matches!(matched_val_type, Type::Integer | Type::Bool) // TODO : what other types match ? 
     // TODO : when guard are added, verify that there is no guard
-        && patterns.iter().map(|(p, _)| matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::Integer(_) | Pattern::Bool(_) | Pattern::VarName(_) | Pattern::Underscore)).all(|e| e)
+        && patterns.iter().all(|(p, _)| matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::Integer(_) | Pattern::Bool(_) | Pattern::VarName(_) | Pattern::Underscore))
         && match_has_enough_fallback_switch(compile_context, matched_val_type, patterns)
 }
 
@@ -307,9 +305,6 @@ pub fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     }
 
     let function = get_current_function(compile_context.builder);
-
-    // TODO : instead of calling get_type here, get all the types and store them in the nodes during parsing ?
-    //let match_type = match_node.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
     
 
     let mut match_bbs = Vec::new();
