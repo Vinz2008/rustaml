@@ -39,6 +39,7 @@ cfg_if! {
         mod compiler;
         mod compiler_utils;
         mod compiler_match;
+        mod debuginfo;
 
         use crate::compiler::compile;
     }

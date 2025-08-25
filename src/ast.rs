@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::{ops::Range, path::Path};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Write};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -230,7 +230,7 @@ pub enum ASTNode {
 
 // TODO : add a type pool to remove boxes (test performance ? normally should be useful for lowering the type size, it would become only 64 bit and we could make it Copy, but we wouldn't use it everywhere there is Type like for other types, just in refence in the type to other types to lower the size while only indexing in the vector when it is really needed)
 // THE PROBLEM : would need to make the type system only have functions with only one args, but could do it by returning type of function types, which could even help for currying
-#[derive(Debug, Clone, PartialEq, Eq, Tag)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Tag)]
 pub enum Type {
     Integer,
     Float,
@@ -249,6 +249,25 @@ pub enum Type {
 impl <C> DebugWithContext<C> for Type {
     fn fmt_with_context(&self, f: &mut std::fmt::Formatter, _context: &C) -> std::fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Type::Integer => f.write_str("int"),
+            Type::Float => f.write_str("float"),
+            Type::Bool => f.write_str("bool"),
+            Type::Str => f.write_str("str"),
+            Type::List(e) => {
+                f.write_str(&format!("list[{}]", e.as_ref()))
+            },
+            Type::Unit => f.write_str("()"),
+            Type::Never => f.write_char('!'),
+            Type::Any => f.write_str("Any"), // TODO
+            Type::Function(_, _, _) => unreachable!(),
+        }
+        
     }
 }
 

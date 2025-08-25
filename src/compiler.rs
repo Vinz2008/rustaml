@@ -1,8 +1,8 @@
 use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Type}, compiler_match::compile_match, compiler_utils::{_codegen_runtime_error, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debug_println, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
-use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DICompileUnit, DWARFEmissionKind, DWARFSourceLanguage, DebugInfoBuilder}, module::{Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
+use crate::{ast::{ASTNode, ASTRef, Type}, compiler_match::compile_match, compiler_utils::{_codegen_runtime_error, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debug_println, debuginfo::{DebugInfo, DebugInfosInner}, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
@@ -22,28 +22,9 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     pub external_symbols_declared : FxHashSet<&'static str>,
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>, // TODO : replace this with a hashmap ?
     pub global_strs : FxHashMap<String, PointerValue<'llvm_ctx>>,
+    pub is_optimized : bool,
 }
 
-
-// TODO : put this in another file
-// TODO : add a way to transform a range to a line number and column
-
-pub struct DebugInfosInner<'llvm_ctx> {
-    debug_builder : DebugInfoBuilder<'llvm_ctx>,
-    debug_compile_unit : DICompileUnit<'llvm_ctx>,
-}
-
-pub struct DebugInfo<'llvm_ctx> {
-    inner : Option<DebugInfosInner<'llvm_ctx>>
-}
-
-impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
-    fn finalize(&self){
-        if let Some(i) = &self.inner {
-            i.debug_builder.finalize();
-        }
-    }
-}
 
 #[derive(Clone, Default)]
 struct BuiltinFunction<'llvm_ctx> {
@@ -406,6 +387,12 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
     let fun = *compile_context.functions.get(&name).unwrap();
     let name_str = name.get_str(&compile_context.rustaml_context.str_interner);
     let args_vals = args.iter().map(|&a| compile_expr(compile_context, a).try_into().unwrap()).collect::<Vec<BasicMetadataValueEnum>>();
+    
+    let function_call_dbg = compile_context.debug_info.get_function_call_dbg(compile_context.context, 0, 0);
+    if let Some(function_call_dbg) = function_call_dbg {
+        compile_context.builder.set_current_debug_location(function_call_dbg);
+    }
+
     let ret = compile_context.builder.build_call(fun, args_vals.as_slice(), name_str).unwrap().try_as_basic_value();
     match ret {
         Either::Left(l) => l.into(),
@@ -812,20 +799,26 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             //let param_types = args.iter().map(|a| get_var_type(compile_context, a.name)).collect::<Vec<_>>();
             let param_types = arg_types;
             debug_println!(compile_context.rustaml_context.is_debug_print, "function {:?} param types : {:?}", DebugWrapContext::new(name, compile_context.rustaml_context), param_types);
-            let param_types = param_types.iter().map(|t| get_llvm_type(compile_context.context, t)).collect::<Vec<_>>();
-            let param_types_metadata = param_types.iter().map(|t| (*t).try_into().unwrap()).collect::<Vec<_>>();
+            let param_types_llvm = param_types.iter().map(|t| get_llvm_type(compile_context.context, t)).collect::<Vec<_>>();
+            let param_types_metadata = param_types_llvm.iter().map(|t| (*t).try_into().unwrap()).collect::<Vec<_>>();
             let function_type = get_fn_type(compile_context.context, return_type_llvm, &param_types_metadata, false);
             let function = compile_context.module.add_function(name.get_str(&compile_context.rustaml_context.str_interner), function_type, Some(inkwell::module::Linkage::Internal));
+            let di_subprogram = compile_context.debug_info.add_function(name.get_str(&compile_context.rustaml_context.str_interner), &param_types, &return_type, compile_context.is_optimized);
+            if let Some(di_subprogram) = di_subprogram {
+                function.set_subprogram(di_subprogram);
+                // TODO : set debuginfo location on builder
+            }
+            
             compile_context.functions.insert(*name, function);
             
             let entry = compile_context.context.append_basic_block(function, "entry");
             compile_context.builder.position_at_end(entry);
 
-            debug_println!(compile_context.rustaml_context.is_debug_print,"function {:?} param types llvm : {:?}", DebugWrapContext::new(name, compile_context.rustaml_context), param_types);
+            debug_println!(compile_context.rustaml_context.is_debug_print,"function {:?} param types llvm : {:?}", DebugWrapContext::new(name, compile_context.rustaml_context), param_types_llvm);
 
             //let mut old_arg_name_type = Vec::new(); // to save the types that have the same of the args in the global vars 
 
-            for ((arg, arg_val), arg_type) in args.iter().zip(function.get_param_iter()).zip(param_types) {
+            for ((arg, arg_val), arg_type) in args.iter().zip(function.get_param_iter()).zip(param_types_llvm) {
                 /*match compile_context.var_types.insert(arg.name, arg.arg_type.clone()) {
                     Some(old_type) => old_arg_name_type.push((arg.name, old_type)),
                     None => {}
@@ -890,7 +883,7 @@ fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : O
 // TODO : instead install file in filesystem ?
 const STD_C_CONTENT: &str = include_str!("../std.c");
 
-fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : OptimizationLevel, disable_gc : bool, enable_sanitizer : bool){
+fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : OptimizationLevel, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool){
     // use cc ?
     // TODO : use lld (https://github.com/mun-lang/lld-rs) for linking instead ?
     // TODO : use libclang ? (clang-rs ? https://github.com/llvm/llvm-project/blob/main/clang/tools/driver/cc1_main.cpp#L85 ?)
@@ -905,6 +898,10 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
 
     if !disable_gc {
         clang_std.arg("-D_GC_");
+    }
+
+    if enable_debuginfos {
+        clang_std.arg("-g");
     }
     
     let mut clang_std = clang_std.arg("-").arg("-o").arg(out_std_path_str).stdin(Stdio::piped()).spawn().expect("compiling std failed");
@@ -932,6 +929,8 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
     }
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
 }
+
+const DEBUGINFO_VERSION: u64 = 3;
 
 // TODO : pass all the args after optimization level as a struct named OptionalArgs
 pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level_nb : u8, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool) {
@@ -967,20 +966,29 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         )
         .unwrap();
 
-    let data_layout = target_machine.get_target_data().get_data_layout();
+    let target_data = target_machine.get_target_data();
+
+    
+    
+    let data_layout = target_data.get_data_layout();
 
     module.set_triple(&target_triple);
     module.set_data_layout(&data_layout);
 
+    let is_optimized = optimization_level_nb > 0;
     
     let debug_info = DebugInfo { 
         inner: if enable_debuginfos {
-            let is_optimized = optimization_level_nb > 0;
+            let ptr_size_in_bit = target_data.get_pointer_byte_size(None) * 8;
+            let ptr_alignement_in_bits = target_data.get_abi_alignment(&context.ptr_type(AddressSpace::default()));
+            let debug_info_version = context.i32_type().const_int(DEBUGINFO_VERSION, false);
+            let list_type = get_list_type(&context);
+            let list_size_in_bit = target_data.get_bit_size(&list_type);
+            let list_alignement_in_bits = target_data.get_abi_alignment(&list_type) * 8;
+
+            module.add_basic_value_flag("Debug Info Version", FlagBehavior::Warning, debug_info_version);
             let (debug_builder, debug_compile_unit) = module.create_debug_info_builder(true, DWARFSourceLanguage::C, filename_end, filename_path, "rustaml compiler", is_optimized, "", 0, "", DWARFEmissionKind::Full, 0, false, false, "", "");
-            Some(DebugInfosInner {
-                debug_builder,
-                debug_compile_unit,
-            })
+            Some(DebugInfosInner::new(ptr_size_in_bit, ptr_alignement_in_bits, list_size_in_bit, list_alignement_in_bits, debug_builder, debug_compile_unit))
         } else {
             None
         }
@@ -996,6 +1004,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         module: &module,
         builder: &builder,
         debug_info,
+        is_optimized,
         typeinfos: frontend_output.type_infos,
         functions: FxHashMap::default(),
         main_function,
@@ -1077,7 +1086,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
 
 
     if let Some(f_out) = filename_out {
-        link_exe(f_out,  &temp_path_bitcode, optimization_level, disable_gc, enable_sanitizer);
+        link_exe(f_out,  &temp_path_bitcode, optimization_level, disable_gc, enable_sanitizer, enable_debuginfos);
         if !keep_temp {
             std::fs::remove_file(temp_path_bitcode).expect("Couldn't delete bitcode file");
         }
