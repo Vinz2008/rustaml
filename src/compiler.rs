@@ -792,7 +792,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
     if let Some(loc) = compile_context.debug_info.create_debug_location(compile_context.context, compile_context.rustaml_context.content.as_ref().unwrap(),0..0){
         compile_context.builder.set_current_debug_location(loc);
     }
-    
+
     match ast_node.get(&compile_context.rustaml_context.ast_pool) {
         ASTNode::FunctionDefinition { name, args, body, return_type: _ } => {
             //println!("typeinfos function_env : {:?}", DebugWrapContext::new(&compile_context.typeinfos.functions_env, compile_context.rustaml_context));
@@ -858,6 +858,12 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
 
             compile_context.debug_info.end_lexical_block();
             compile_context.debug_info.end_function();
+
+            // TODO : is it really needed
+            compile_context.debug_info.enter_top_level();
+            if let Some(loc) = compile_context.debug_info.create_debug_location(compile_context.context, compile_context.rustaml_context.content.as_ref().unwrap(), 0..0) {
+                compile_context.builder.set_current_debug_location(loc);
+            }
 
             /*for (n, t) in old_arg_name_type {
                 compile_context.var_types.insert(n, t);
