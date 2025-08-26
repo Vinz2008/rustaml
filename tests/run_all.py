@@ -49,12 +49,15 @@ def get_error_message(is_compiling : bool, return_code : int, filename : str, is
         case _:
             sys.exit(f"Unknown error return code {return_code}")
 
-def test_file(filename : str, is_compiling: bool, is_release_mode : bool):
+def test_file(filename : str, is_compiling: bool, is_release_mode : bool, is_debuginfo : bool):
     cmd = f"{exe_path} "
     if is_compiling:
         cmd += "compile -o out "
+        if is_debuginfo:
+            cmd += "-g "
     else:
         cmd += "interpret "
+
     
     cmd += os.path.join(scripts_dir, filename)
 
@@ -81,7 +84,7 @@ def print_error(filename: str, error_message : str, out : bytes):
     print(f"{out.decode("utf-8", errors="replace")}")
 
 
-def test_all_files(is_compiling : bool, is_release_mode: bool):
+def test_all_files(is_compiling : bool, is_release_mode: bool, is_debuginfo : bool):
     print(f"--\n{Fore.BLUE}START TESTING {"COMPILED" if is_compiling else "INTERPRETED"}{Style.RESET_ALL}")
 
     summary_filenames.clear()
@@ -90,7 +93,7 @@ def test_all_files(is_compiling : bool, is_release_mode: bool):
         if extension == ".rml" and file not in excluded_files:
             print(f"{file} ", end='', flush=True)
             summary_filenames.append(file)
-            output_print, error_message, out = test_file(file, is_compiling, is_release_mode)
+            output_print, error_message, out = test_file(file, is_compiling, is_release_mode, is_debuginfo)
             if is_compiling:
                 summary_compiler.append(output_print)
             else:
@@ -145,6 +148,7 @@ def print_summary():
 if __name__ == '__main__':
     command = COMMAND.ALL
     is_release_mode = False
+    is_debuginfo = False
     for arg in sys.argv:
         if arg == "--interpret":
             command = COMMAND.INTERPRET
@@ -156,6 +160,8 @@ if __name__ == '__main__':
             is_release_mode = True
         elif arg == "--debug":
             is_release_mode = False
+        elif arg == "--debuginfo":
+            is_debuginfo = True
     
     ensure_compiler_built(is_release_mode)
     
@@ -164,12 +170,12 @@ if __name__ == '__main__':
     
     match command:
         case COMMAND.ALL:
-            test_all_files(False, is_release_mode)
-            test_all_files(True, is_release_mode)
+            test_all_files(False, is_release_mode, is_debuginfo)
+            test_all_files(True, is_release_mode, is_debuginfo)
         case COMMAND.INTERPRET:
-            test_all_files(False, is_release_mode)
+            test_all_files(False, is_release_mode, is_debuginfo)
         case COMMAND.COMPILE:
-            test_all_files(True, is_release_mode)
+            test_all_files(True, is_release_mode, is_debuginfo)
     print_summary()
 
             

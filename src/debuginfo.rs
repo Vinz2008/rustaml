@@ -3,13 +3,45 @@ use rustc_hash::FxHashMap;
 
 use crate::ast::Type;
 
+pub struct TargetInfos {
+    ptr_size : u32,
+    ptr_alignement : u32,
+    list_size : u64,
+    list_alignement : u32,
+}
+
+impl TargetInfos {
+    pub fn new(ptr_size : u32, ptr_alignement : u32, list_size : u64, list_alignement : u32) -> TargetInfos {
+        TargetInfos {
+            ptr_size,
+            ptr_alignement,
+            list_size,
+            list_alignement,
+        }
+    }
+
+    fn get_ptr_size_in_bits(&self) -> u32 {
+        return self.ptr_size * 8;
+    }
+
+    fn get_ptr_alignement_in_bits(&self) -> u32 {
+        return self.ptr_alignement * 8;
+    }
+
+    fn get_list_size_in_bits(&self) -> u64 {
+        return self.list_size * 8;
+    }
+
+    fn get_list_alignement_in_bits(&self) -> u32 {
+        return self.list_alignement * 8;
+    }
+}
+
 pub struct DebugInfosInner<'llvm_ctx> {
     debug_builder : DebugInfoBuilder<'llvm_ctx>,
     debug_compile_unit : DICompileUnit<'llvm_ctx>,
-    ptr_size_in_bit : u32,
-    ptr_alignement_in_bit : u32,
-    list_size_in_bit : u64,
-    list_alignement_in_bit : u32,
+    target_infos : TargetInfos,
+
     types : FxHashMap<Type, DIType<'llvm_ctx>>,
     type_data : FxHashMap<Type, TypeData>,
     last_func_scope : Option<DISubprogram<'llvm_ctx>>,
@@ -35,16 +67,14 @@ fn init_type_data(ptr_size_in_bit : u32) -> FxHashMap<Type, TypeData> {
 }
 
 impl<'llvm_ctx> DebugInfosInner<'llvm_ctx>{
-    pub fn new(ptr_size_in_bit : u32, ptr_alignement_in_bit : u32, list_size_in_bit : u64, list_alignement_in_bit : u32, debug_builder : DebugInfoBuilder<'llvm_ctx>, debug_compile_unit : DICompileUnit<'llvm_ctx>) -> DebugInfosInner<'llvm_ctx> {
+    pub fn new(target_infos : TargetInfos, debug_builder : DebugInfoBuilder<'llvm_ctx>, debug_compile_unit : DICompileUnit<'llvm_ctx>) -> DebugInfosInner<'llvm_ctx> {
+        let type_data = init_type_data(target_infos.get_ptr_size_in_bits());
         DebugInfosInner { 
             debug_builder, 
             debug_compile_unit,
             types: FxHashMap::default(),
-            ptr_size_in_bit,
-            ptr_alignement_in_bit,
-            list_size_in_bit,
-            list_alignement_in_bit,
-            type_data: init_type_data(ptr_size_in_bit),
+            target_infos,
+            type_data,
             last_func_scope: None,
         }
     }
@@ -67,13 +97,13 @@ fn get_list_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>) -> DIType<'
     let i8_ty = inner.debug_builder.create_basic_type("i8_list_tag", 8, DW_ATE_SIGNED, LLVMDIFlagPublic).unwrap().as_type();
     let val_ty = get_debug_info_type(inner, &Type::Integer); // TODO : use an union instead
     let unit_ty = get_debug_info_type(inner, &Type::Unit);
-    let ptr_ty = inner.debug_builder.create_pointer_type("list_pointer", unit_ty, inner.ptr_size_in_bit as u64, inner.ptr_alignement_in_bit, AddressSpace::default()).as_type();
+    let ptr_ty = inner.debug_builder.create_pointer_type("list_pointer", unit_ty, inner.target_infos.get_list_size_in_bits() as u64, inner.target_infos.get_ptr_alignement_in_bits(), AddressSpace::default()).as_type();
     let elements = &[i8_ty, val_ty, ptr_ty]; // TODO
     let unique_id = "list_struct"; // TODO ?
     let runtime_language = 0; // TODO
     let line_nb = 0;
-    let list_struct_ty = inner.debug_builder.create_struct_type(scope, "list_struct", file, line_nb, inner.list_size_in_bit as u64, inner.list_alignement_in_bit, 0x0, None, elements, runtime_language, None, unique_id);
-    inner.debug_builder.create_pointer_type("list_pointer", list_struct_ty.as_type(), inner.ptr_size_in_bit as u64, inner.ptr_alignement_in_bit, AddressSpace::default()).as_type()
+    let list_struct_ty = inner.debug_builder.create_struct_type(scope, "list_struct", file, line_nb, inner.target_infos.get_list_size_in_bits() as u64, inner.target_infos.get_list_alignement_in_bits(), 0x0, None, elements, runtime_language, None, unique_id);
+    inner.debug_builder.create_pointer_type("list_pointer", list_struct_ty.as_type(), inner.target_infos.get_ptr_size_in_bits() as u64, inner.target_infos.get_ptr_alignement_in_bits(), AddressSpace::default()).as_type()
 }
 
 fn get_debug_info_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>, t : &Type) -> DIType<'llvm_ctx> {
@@ -87,7 +117,7 @@ fn get_debug_info_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>, t : &
             let line_nb = 0;
             let pointer_to_struct_ty = get_list_type(inner);
             let scope = inner.debug_compile_unit.as_debug_info_scope();
-            let align_in_bits = inner.ptr_alignement_in_bit;
+            let align_in_bits = inner.target_infos.get_ptr_alignement_in_bits();
             inner.debug_builder.create_typedef(pointer_to_struct_ty, &format!("list[{}]", e.as_ref()), inner.debug_compile_unit.get_file(), line_nb, scope, align_in_bits).as_type()
         }
         _ => {

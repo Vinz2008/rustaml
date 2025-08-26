@@ -1,7 +1,7 @@
 use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Type}, compiler_match::compile_match, compiler_utils::{_codegen_runtime_error, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debug_println, debuginfo::{DebugInfo, DebugInfosInner}, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, Type}, compiler_match::compile_match, compiler_utils::{_codegen_runtime_error, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debug_println, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos}, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -979,16 +979,19 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
     
     let debug_info = DebugInfo { 
         inner: if enable_debuginfos {
-            let ptr_size_in_bit = target_data.get_pointer_byte_size(None) * 8;
-            let ptr_alignement_in_bits = target_data.get_abi_alignment(&context.ptr_type(AddressSpace::default()));
+            let ptr_size = target_data.get_pointer_byte_size(None);
+            let ptr_alignement = target_data.get_abi_alignment(&context.ptr_type(AddressSpace::default()));
             let debug_info_version = context.i32_type().const_int(DEBUGINFO_VERSION, false);
             let list_type = get_list_type(&context);
-            let list_size_in_bit = target_data.get_bit_size(&list_type);
-            let list_alignement_in_bits = target_data.get_abi_alignment(&list_type) * 8;
+            let list_size = target_data.get_bit_size(&list_type)/8;
+            let list_alignement = target_data.get_abi_alignment(&list_type);
 
+            let target_infos = TargetInfos::new(ptr_size, ptr_alignement, list_size, list_alignement);
+            
             module.add_basic_value_flag("Debug Info Version", FlagBehavior::Warning, debug_info_version);
+            
             let (debug_builder, debug_compile_unit) = module.create_debug_info_builder(true, DWARFSourceLanguage::C, filename_end, filename_path, "rustaml compiler", is_optimized, "", 0, "", DWARFEmissionKind::Full, 0, false, false, "", "");
-            Some(DebugInfosInner::new(ptr_size_in_bit, ptr_alignement_in_bits, list_size_in_bit, list_alignement_in_bits, debug_builder, debug_compile_unit))
+            Some(DebugInfosInner::new(target_infos, debug_builder, debug_compile_unit))
         } else {
             None
         }
