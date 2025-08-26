@@ -170,10 +170,11 @@ fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
         //let var_type = compile_context.typeinfos.vars_ast.get(&name).unwrap().get_type(&compile_context.rustaml_context.ast_pool);
         let var_id = get_var_id(compile_context, ast_node);
         debug_println!(compile_context.rustaml_context.is_debug_print, "var_id  : {:?}", DebugWrapContext::new(&var_id, compile_context.rustaml_context));
-        let var_type = get_var_type(compile_context, var_id, name);
+        let var_type = get_var_type(compile_context, var_id, name).clone();
         debug_println!(compile_context.rustaml_context.is_debug_print, "var_type decl {:?} : {:?}", name.get_str(&compile_context.rustaml_context.str_interner), var_type);
-        let alloca_type = get_llvm_type(compile_context.context, var_type);
-        create_var(compile_context, name, val, alloca_type);
+        let alloca_type = get_llvm_type(compile_context.context, &var_type);
+        let var_ptr = create_var(compile_context, name, val, alloca_type);
+        compile_context.debug_info.declare_var(name.get_str(&compile_context.rustaml_context.str_interner), &var_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), ast_node.get_range(&compile_context.rustaml_context.ast_pool));
     }
         
     let ret = match body {
@@ -184,6 +185,7 @@ fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
     if !is_global && !is_underscore {
         compile_context.var_vals.remove(&name);
     }
+
 
     ret
 }

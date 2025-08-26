@@ -6,3 +6,4 @@ out
 tests/big_file.rml
 flamegraph.svg
 perf.data*
+.env

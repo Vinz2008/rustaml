@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use inkwell::{context::Context, debug_info::{AsDIScope, DICompileUnit, DILexicalBlock, DILocation, DISubprogram, DIType, DebugInfoBuilder, LLVMDWARFTypeEncoding}, llvm_sys::debuginfo::{LLVMDIFlagPrivate, LLVMDIFlagPublic}, values::FunctionValue, AddressSpace};
+use inkwell::{basic_block::BasicBlock, context::Context, debug_info::{AsDIScope, DICompileUnit, DILexicalBlock, DILocation, DISubprogram, DIType, DebugInfoBuilder, LLVMDWARFTypeEncoding}, llvm_sys::debuginfo::{LLVMDIFlagPrivate, LLVMDIFlagPublic}, values::{FunctionValue, PointerValue}, AddressSpace};
 use rustc_hash::FxHashMap;
 
 use crate::ast::Type;
@@ -49,6 +49,7 @@ pub struct DebugInfosInner<'llvm_ctx> {
     last_func_scope : Option<DISubprogram<'llvm_ctx>>,
     main_func_scope : DISubprogram<'llvm_ctx>, // will always be some, but need it to call get_debug_info_type which needs to have constructed the DebugInfosInner
     current_lexical_block : Option<DILexicalBlock<'llvm_ctx>>,
+    current_debug_loc : Option<DILocation<'llvm_ctx>>,
     main_lexical_block : DILexicalBlock<'llvm_ctx>,
 }
 
@@ -111,6 +112,7 @@ impl<'llvm_ctx> DebugInfosInner<'llvm_ctx>{
             type_data,
             last_func_scope: None,
             main_func_scope: main_func,
+            current_debug_loc: None,
             current_lexical_block: None,
             main_lexical_block, 
         }
@@ -227,14 +229,15 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
         }
     }
 
-    pub fn create_debug_location(&self, context : &'llvm_ctx Context, content : &[char], range : Range<usize>) -> Option<DILocation<'llvm_ctx>>{
+    pub fn create_debug_location(&mut self, context : &'llvm_ctx Context, content : &[char], range : Range<usize>) -> Option<DILocation<'llvm_ctx>>{
         // add real lexical blocks instead of creating one for each function call (put them in self)
         
         // TODO : move to a set_function_call_dbg
-        if let Some(i) = &self.inner {
+        if let Some(i) = &mut self.inner {
             let debug_loc = get_debug_loc(range, content);
             let lexical_block = i.current_lexical_block.unwrap();
-            Some(i.debug_builder.create_debug_location(context, debug_loc.line_nb, debug_loc.column, lexical_block.as_debug_info_scope(), None))
+            i.current_debug_loc = Some(i.debug_builder.create_debug_location(context, debug_loc.line_nb, debug_loc.column, lexical_block.as_debug_info_scope(), None));
+            i.current_debug_loc
         } else {
             None
         }
@@ -243,6 +246,24 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
     pub fn end_function(&mut self){
         if let Some(i) = &mut self.inner {
             i.last_func_scope.take();
+        }
+    }
+
+    pub fn declare_var(&mut self, name : &str, var_type : &Type, storage : PointerValue<'llvm_ctx>, current_bb : BasicBlock<'llvm_ctx>, content : &[char], range : Range<usize>){
+        if let Some(i) = &mut self.inner {
+            let scope = i.last_func_scope.unwrap().as_debug_info_scope();
+            let file = i.debug_compile_unit.get_file();
+            let debug_location_var = get_debug_loc(range, content);
+            let var_ty_debug = get_debug_info_type(i, var_type);
+            let always_preserve = true; // TODO : will it affect optimizations
+            let flags = 0; // TODO
+            let align_in_bits = 0; // TODO
+            let var_info = Some(i.debug_builder.create_auto_variable(scope, name, file, debug_location_var.line_nb, var_ty_debug, always_preserve, flags, align_in_bits));
+            let expr = None; // TODO
+
+            let debug_loc = i.current_debug_loc.unwrap();
+            // TODO : reactivate this after resolving the linking problem with LLVM 20
+            i.debug_builder.insert_declare_at_end(storage, var_info, expr, debug_loc, current_bb);
         }
     }
 
