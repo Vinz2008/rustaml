@@ -14,6 +14,7 @@ pub struct RustamlContext {
     pub list_node_pool : ListPool,
 
     pub is_debug_print : bool,
+    pub content : Option<Vec<char>>,
 }
 
 impl RustamlContext {
@@ -24,7 +25,12 @@ impl RustamlContext {
             pattern_pool: PatternPool::new(),
             list_node_pool: ListPool::new(), 
             is_debug_print,
+            content: None,
         }
+    }
+
+    pub fn set_content_chars(&mut self, content_chars : Vec<char>){
+        self.content = Some(content_chars);
     }
 }
 
@@ -94,6 +100,8 @@ pub fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Resu
     let content = read_file(filename);
 
     let content_chars = content.chars().collect::<Vec<_>>();
+
+    rustaml_context.set_content_chars(content_chars.clone()); // do only do this when compiling (it is only needed for debuginfos so only do when it is activated ?)
     
     let ast = get_ast_from_string(rustaml_context, content_chars, Some(&content), filename, None)?;
 

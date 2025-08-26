@@ -1,5 +1,5 @@
 use core::panic;
-use std::{hash::{Hash, Hasher}, io::Write, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
+use std::{hash::{Hash, Hasher}, io::Write, ops::Range, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use crate::{ast::{ASTNode, ASTRef, Type}, compiler_match::compile_match, compiler_utils::{_codegen_runtime_error, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debug_println, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos}, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
@@ -353,7 +353,7 @@ fn compile_panic<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 
 }
 
-fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, args: &[ASTRef]) -> AnyValueEnum<'llvm_ctx>{
+fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, args: &[ASTRef], range : Range<usize>) -> AnyValueEnum<'llvm_ctx>{
     match name.get_str(&compile_context.rustaml_context.str_interner) {
         "print" => {
             //let print_val_type = args[0].get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
@@ -388,7 +388,7 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
     let name_str = name.get_str(&compile_context.rustaml_context.str_interner);
     let args_vals = args.iter().map(|&a| compile_expr(compile_context, a).try_into().unwrap()).collect::<Vec<BasicMetadataValueEnum>>();
     
-    let function_call_dbg = compile_context.debug_info.get_function_call_dbg(compile_context.context, 0, 0);
+    let function_call_dbg = compile_context.debug_info.create_debug_location(compile_context.context, compile_context.rustaml_context.content.as_ref().unwrap(), range);
     if let Some(function_call_dbg) = function_call_dbg {
         compile_context.builder.set_current_debug_location(function_call_dbg);
     }
@@ -742,6 +742,7 @@ fn compile_str<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx
 
 // TODO : replace AnyValueEnum with BasicMetadataValueEnum in compile_expr and other functions ?
 pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef) -> AnyValueEnum<'llvm_ctx> {
+    let range = ast_node.get_range(&compile_context.rustaml_context.ast_pool);
     match ast_node.get(&compile_context.rustaml_context.ast_pool){
         ASTNode::Integer { nb } => create_int(compile_context, *nb).into(), // TODO : sign extend or not ?
         ASTNode::Float { nb } => compile_context.context.f64_type().const_float(*nb).into(),
@@ -749,7 +750,7 @@ pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
         ASTNode::String { str } => compile_str(compile_context, *str).into(),
         ASTNode::VarDecl { name, val, body, var_type: _ } => compile_var_decl(compile_context, ast_node, *name, *val, *body, false),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => compile_if(compile_context, *cond_expr, *then_body, *else_body),
-        ASTNode::FunctionCall { name, args } => compile_function_call(compile_context, *name, args),
+        ASTNode::FunctionCall { name, args } => compile_function_call(compile_context, *name, args, range),
         ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, *op, *lhs, *rhs),
         ASTNode::VarUse { name } => compile_var_use(compile_context, ast_node, *name),
         ASTNode::List { list } => { 
@@ -786,6 +787,12 @@ fn get_var_type<'context>(compile_context: &'context CompileContext<'context, '_
 
 // TODO : test to replace AnyValueEnum with &dyn AnyValue ?
 fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRef) {
+    compile_context.debug_info.enter_top_level();
+    // TODO : add this in enter_top_level
+    if let Some(loc) = compile_context.debug_info.create_debug_location(compile_context.context, compile_context.rustaml_context.content.as_ref().unwrap(),0..0){
+        compile_context.builder.set_current_debug_location(loc);
+    }
+    
     match ast_node.get(&compile_context.rustaml_context.ast_pool) {
         ASTNode::FunctionDefinition { name, args, body, return_type: _ } => {
             //println!("typeinfos function_env : {:?}", DebugWrapContext::new(&compile_context.typeinfos.functions_env, compile_context.rustaml_context));
@@ -808,11 +815,18 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
                 function.set_subprogram(di_subprogram);
                 // TODO : set debuginfo location on builder
             }
+
+            compile_context.debug_info.create_lexical_block();
             
             compile_context.functions.insert(*name, function);
             
             let entry = compile_context.context.append_basic_block(function, "entry");
             compile_context.builder.position_at_end(entry);
+
+            let range = 0..0; // TODO
+            if let Some(loc) = compile_context.debug_info.create_debug_location(compile_context.context, compile_context.rustaml_context.content.as_ref().unwrap(), range) {
+                compile_context.builder.set_current_debug_location(loc);
+            }
 
             debug_println!(compile_context.rustaml_context.is_debug_print,"function {:?} param types llvm : {:?}", DebugWrapContext::new(name, compile_context.rustaml_context), param_types_llvm);
 
@@ -841,6 +855,9 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
                 compile_context.var_vals.remove(&arg.name);
                 //compile_context.var_types.remove(&arg.name);
             }
+
+            compile_context.debug_info.end_lexical_block();
+            compile_context.debug_info.end_function();
 
             /*for (n, t) in old_arg_name_type {
                 compile_context.var_types.insert(n, t);
@@ -991,7 +1008,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
             module.add_basic_value_flag("Debug Info Version", FlagBehavior::Warning, debug_info_version);
             
             let (debug_builder, debug_compile_unit) = module.create_debug_info_builder(true, DWARFSourceLanguage::C, filename_end, filename_path, "rustaml compiler", is_optimized, "", 0, "", DWARFEmissionKind::Full, 0, false, false, "", "");
-            Some(DebugInfosInner::new(target_infos, debug_builder, debug_compile_unit))
+            Some(DebugInfosInner::new(target_infos, is_optimized, debug_builder, debug_compile_unit))
         } else {
             None
         }
@@ -1040,7 +1057,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         compile_context.builder.build_return(Some(&compile_context.context.i32_type().const_int(0, false))).unwrap();
     }
 
-    compile_context.debug_info.finalize();
+    compile_context.debug_info.finalize(&mut compile_context.main_function);
     
     let filename_without_ext = filename.file_stem().unwrap().to_str().expect("not UTF-8 filename").to_owned();
 

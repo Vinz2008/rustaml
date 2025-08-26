@@ -35,8 +35,8 @@ cfg_if! {
 
 // make it not return ExitCode, just a empty error ?
 pub fn interpret_code(code : &str, filename : &Path, is_debug_print  : bool) -> Result<(), ()> {
-    let mut rustaml_context = RustamlContext::new(is_debug_print);
     let content = code.chars().collect::<Vec<_>>();
+    let mut rustaml_context = RustamlContext::new(is_debug_print);
     let tokens = lexer::lex(content, is_debug_print);
     let tokens = match tokens {
         Ok(t) => t,

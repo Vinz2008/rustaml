@@ -1,4 +1,6 @@
-use inkwell::{context::Context, debug_info::{AsDIScope, DICompileUnit, DILocation, DISubprogram, DIType, DebugInfoBuilder, LLVMDWARFTypeEncoding}, llvm_sys::debuginfo::{LLVMDIFlagPrivate, LLVMDIFlagPublic}, AddressSpace};
+use std::ops::Range;
+
+use inkwell::{context::Context, debug_info::{AsDIScope, DICompileUnit, DILexicalBlock, DILocation, DISubprogram, DIType, DebugInfoBuilder, LLVMDWARFTypeEncoding}, llvm_sys::debuginfo::{LLVMDIFlagPrivate, LLVMDIFlagPublic}, values::FunctionValue, AddressSpace};
 use rustc_hash::FxHashMap;
 
 use crate::ast::Type;
@@ -45,6 +47,9 @@ pub struct DebugInfosInner<'llvm_ctx> {
     types : FxHashMap<Type, DIType<'llvm_ctx>>,
     type_data : FxHashMap<Type, TypeData>,
     last_func_scope : Option<DISubprogram<'llvm_ctx>>,
+    main_func_scope : DISubprogram<'llvm_ctx>, // will always be some, but need it to call get_debug_info_type which needs to have constructed the DebugInfosInner
+    current_lexical_block : Option<DILexicalBlock<'llvm_ctx>>,
+    main_lexical_block : DILexicalBlock<'llvm_ctx>,
 }
 
 // TODO : add a way to transform a range to a line number and column
@@ -54,6 +59,12 @@ const DW_ATE_BOOLEAN: LLVMDWARFTypeEncoding = 0x02;
 const DW_ATE_FLOAT: LLVMDWARFTypeEncoding = 0x04;
 const DW_ATE_SIGNED: LLVMDWARFTypeEncoding = 0x05;
 const DW_ATE_NUMERIC_STRING: LLVMDWARFTypeEncoding = 0x0b;
+
+struct TypeData {
+    name : String,
+    size_in_bits : u64,
+    encoding : LLVMDWARFTypeEncoding,
+}
 
 fn init_type_data(ptr_size_in_bit : u32) -> FxHashMap<Type, TypeData> {
     FxHashMap::from_iter([
@@ -66,9 +77,32 @@ fn init_type_data(ptr_size_in_bit : u32) -> FxHashMap<Type, TypeData> {
     ])
 }
 
+fn create_main_function<'llvm_ctx>(target_infos : &TargetInfos, debug_builder: &DebugInfoBuilder<'llvm_ctx>, debug_compile_unit: &DICompileUnit<'llvm_ctx>, is_optimized : bool) -> DISubprogram<'llvm_ctx> {
+
+    let i32_ty = debug_builder.create_basic_type("i32_main_ret", 32, DW_ATE_SIGNED, LLVMDIFlagPublic).unwrap().as_type();
+    let i8_ty = debug_builder.create_basic_type("i8_main_arg", 8, DW_ATE_SIGNED, LLVMDIFlagPublic).unwrap().as_type();
+    let i8_ptr_ty = debug_builder.create_pointer_type("i8_ptr_main_arg", i8_ty, target_infos.get_ptr_size_in_bits().try_into().unwrap(), target_infos.get_ptr_alignement_in_bits(), AddressSpace::default()).as_type();
+    let flags = LLVMDIFlagPrivate;
+    let subroutine_type = debug_builder.create_subroutine_type(
+        debug_compile_unit.get_file(),
+        Some(i32_ty),
+        &[i32_ty, i8_ptr_ty],
+        flags,
+    );
+    let line_nb = 0;
+    let scope_line = 0;
+    debug_builder.create_function(debug_compile_unit.as_debug_info_scope(), "main", None, debug_compile_unit.get_file(), line_nb, subroutine_type, true, true, scope_line, LLVMDIFlagPublic, is_optimized)
+}
+
+fn create_main_func_lexical_block<'llvm_ctx>(debug_builder: &DebugInfoBuilder<'llvm_ctx>, debug_compile_unit: &DICompileUnit<'llvm_ctx>, main_func : DISubprogram<'llvm_ctx>) -> DILexicalBlock<'llvm_ctx> {
+    debug_builder.create_lexical_block(main_func.as_debug_info_scope(), debug_compile_unit.get_file(), 0, 0)
+}
+
 impl<'llvm_ctx> DebugInfosInner<'llvm_ctx>{
-    pub fn new(target_infos : TargetInfos, debug_builder : DebugInfoBuilder<'llvm_ctx>, debug_compile_unit : DICompileUnit<'llvm_ctx>) -> DebugInfosInner<'llvm_ctx> {
+    pub fn new(target_infos : TargetInfos, is_optimized : bool, debug_builder : DebugInfoBuilder<'llvm_ctx>, debug_compile_unit : DICompileUnit<'llvm_ctx>) -> DebugInfosInner<'llvm_ctx> {
         let type_data = init_type_data(target_infos.get_ptr_size_in_bits());
+        let main_func = create_main_function(&target_infos, &debug_builder, &debug_compile_unit, is_optimized);
+        let main_lexical_block = create_main_func_lexical_block(&debug_builder, &debug_compile_unit, main_func);
         DebugInfosInner { 
             debug_builder, 
             debug_compile_unit,
@@ -76,15 +110,26 @@ impl<'llvm_ctx> DebugInfosInner<'llvm_ctx>{
             target_infos,
             type_data,
             last_func_scope: None,
+            main_func_scope: main_func,
+            current_lexical_block: None,
+            main_lexical_block, 
         }
     }
 }
 
+struct DebugLoc {
+    line_nb : u32,
+    column : u32,
+}
 
-struct TypeData {
-    name : String,
-    size_in_bits : u64,
-    encoding : LLVMDWARFTypeEncoding,
+// TODO : add better way (for example when generating ranges, when lexing, add it in a hashmap ?)
+fn get_debug_loc(range : Range<usize>, content_chars : &[char]) -> DebugLoc {
+    let slice_before_range = &content_chars[0..range.start];
+    let line_nb = slice_before_range.iter().fold(1, |acc, e| acc + (if *e == '\n' { 1 } else { 0}));
+    DebugLoc { 
+        line_nb: line_nb,
+        column: 0, // TOD0 
+    }
 }
 
 fn get_list_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>) -> DIType<'llvm_ctx> {
@@ -97,7 +142,7 @@ fn get_list_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>) -> DIType<'
     let i8_ty = inner.debug_builder.create_basic_type("i8_list_tag", 8, DW_ATE_SIGNED, LLVMDIFlagPublic).unwrap().as_type();
     let val_ty = get_debug_info_type(inner, &Type::Integer); // TODO : use an union instead
     let unit_ty = get_debug_info_type(inner, &Type::Unit);
-    let ptr_ty = inner.debug_builder.create_pointer_type("list_pointer", unit_ty, inner.target_infos.get_list_size_in_bits() as u64, inner.target_infos.get_ptr_alignement_in_bits(), AddressSpace::default()).as_type();
+    let ptr_ty = inner.debug_builder.create_pointer_type("list_pointer", unit_ty, inner.target_infos.get_ptr_size_in_bits() as u64, inner.target_infos.get_ptr_alignement_in_bits(), AddressSpace::default()).as_type();
     let elements = &[i8_ty, val_ty, ptr_ty]; // TODO
     let unique_id = "list_struct"; // TODO ?
     let runtime_language = 0; // TODO
@@ -141,15 +186,11 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
             
             let ditype = get_debug_info_type(i, ret_type);
 
-            let flags = if function_name == "main" {
-                LLVMDIFlagPublic
-            } else {
-                LLVMDIFlagPrivate
-            };
+            let flags = LLVMDIFlagPrivate;
             let subroutine_type = i.debug_builder.create_subroutine_type(
                 i.debug_compile_unit.get_file(),
                 Some(ditype),
-                &[],
+                &[], // TODO
                 flags,
             );
             let line_nb = 0; // TODO
@@ -163,24 +204,67 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
         
     }
 
-    pub fn get_function_call_dbg(&self, context : &'llvm_ctx Context, line_nb : u32, column : u32) -> Option<DILocation<'llvm_ctx>>{
-        // add real lexical blocks instead of creating one for each function call (put them in self)
-        
-        // TODO : move to a set_function_call_dbg
-        if let Some(i) = &self.inner {
+    pub fn create_lexical_block(&mut self) -> Option<DILexicalBlock<'llvm_ctx>> {
+        if let Some(i) = &mut self.inner {
             let func_scope = i.last_func_scope.unwrap().as_debug_info_scope();
-            let lexical_block = i.debug_builder.create_lexical_block(func_scope, i.debug_compile_unit.get_file(), 0, 0);
-            Some(i.debug_builder.create_debug_location(context, line_nb, column, lexical_block.as_debug_info_scope(), None))
+            i.current_lexical_block = Some(i.debug_builder.create_lexical_block(func_scope, i.debug_compile_unit.get_file(), 0, 0));
+            i.current_lexical_block
         } else {
             None
         }
     }
 
+    pub fn end_lexical_block(&mut self){
+        if let Some(i) = &mut self.inner {
+            i.current_lexical_block.take();
+        }
+    }
+
+    pub fn enter_top_level(&mut self){
+        if let Some(i) = &mut self.inner {
+            i.last_func_scope = Some(i.main_func_scope);
+            i.current_lexical_block = Some(i.main_lexical_block);
+        }
+    }
+
+    pub fn create_debug_location(&self, context : &'llvm_ctx Context, content : &[char], range : Range<usize>) -> Option<DILocation<'llvm_ctx>>{
+        // add real lexical blocks instead of creating one for each function call (put them in self)
+        
+        // TODO : move to a set_function_call_dbg
+        if let Some(i) = &self.inner {
+            let debug_loc = get_debug_loc(range, content);
+            let lexical_block = i.current_lexical_block.unwrap();
+            Some(i.debug_builder.create_debug_location(context, debug_loc.line_nb, debug_loc.column, lexical_block.as_debug_info_scope(), None))
+        } else {
+            None
+        }
+    }
+
+    pub fn end_function(&mut self){
+        if let Some(i) = &mut self.inner {
+            i.last_func_scope.take();
+        }
+    }
+
     
 
-    pub fn finalize(&self){
+    pub fn finalize(&self, function_value : &mut FunctionValue<'llvm_ctx>){
         if let Some(i) = &self.inner {
+            function_value.set_subprogram(i.main_func_scope);
             i.debug_builder.finalize();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debuginfo_get_debug_loc() {
+        let content = "aa\nbbb\ncd".chars().collect::<Vec<_>>();
+        let range = 7..9;
+        let debug_loc = get_debug_loc(range, &content);
+        assert_eq!(debug_loc.line_nb, 3);
     }
 }
