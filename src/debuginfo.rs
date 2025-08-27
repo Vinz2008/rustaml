@@ -126,7 +126,7 @@ struct DebugLoc {
 
 #[derive(Clone)]
 pub struct ContentLoc {
-    content_chars : Vec<char>,
+    content_chars : Vec<char>, // TODO : remove this and only pass to the new function as ref the Vec<char>
     newlines_idx : Vec<usize>,
 }
 
@@ -293,7 +293,8 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
             let expr = None; // TODO
 
             let debug_loc = i.current_debug_loc.unwrap();
-            // TODO : reactivate this after resolving the linking problem with LLVM 20
+
+            // TODO : at some point (when the inkwell release supports llvm 20), switch to debug record instead of this instrisic (because the intrisic is being dropped in llvm 20)
             i.debug_builder.insert_declare_at_end(storage, var_info, expr, debug_loc, current_bb);
         }
     }
