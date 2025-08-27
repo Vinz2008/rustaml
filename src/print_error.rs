@@ -341,13 +341,13 @@ pub fn print_type_error(type_error : TypesErr, filename : &Path, content : &str)
 
     let error_print = match *type_error.err_data {
         TypesErrData::FunctionNotFound { name } => print_function_not_found_error(error_basic_infos, &name),
-        TypesErrData::FunctionTypeExpected { wrong_type } => todo!(), // TODO
+        TypesErrData::FunctionTypeExpected { wrong_type } => todo!(), // TODO (for now can't even be produced because you can only call on identifiers and there is an function not found in this case, need to remove it and replace it with this in the case that the var is not a function)
         TypesErrData::IncompatibleTypes { type1, type2 } => print_incompatible_types_error(error_basic_infos, type1, type2),
         TypesErrData::ListTypeExpected { wrong_type } => print_list_type_expected_error(error_basic_infos, wrong_type),
         TypesErrData::VarNotFound { name, nearest_var_name } => print_var_not_found_error(error_basic_infos, &name, nearest_var_name),
         TypesErrData::WrongArgNb { function_name, expected_nb, got_nb } => print_wrong_arg_nb(error_basic_infos, &function_name, expected_nb, got_nb),
         TypesErrData::WrongArgType { function_name, expected_type, got_type } => print_wrong_arg_type(error_basic_infos, &function_name, expected_type, got_type),
-        TypesErrData::WrongRetType { function_name, expected_type, got_type } => todo!(), // TODO
+        TypesErrData::WrongRetType { function_name, expected_type, got_type } => todo!(), // TODO (can you create this error, have not been able to do it)
         TypesErrData::WrongType { expected_type, got_type } => print_wrong_type_error(error_basic_infos, expected_type, got_type),
     };
 

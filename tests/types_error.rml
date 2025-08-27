@@ -20,5 +20,5 @@
 // let _ = f 1 ;;
 
 // wrong arg type
-let f a b = a + b ;;
-let _ = f 2.0 3.0 ;;
+// let f a b = a + b ;;
+// let _ = f 2.0 3.0 ;;
