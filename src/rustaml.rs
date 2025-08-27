@@ -5,6 +5,19 @@ use rustc_hash::FxHashSet;
 use crate::{ast::{self, ASTPool, ASTRef, PatternPool}, interpreter::ListPool, lexer, print_error, string_intern::StrInterner, types::{resolve_and_typecheck, TypeInfos}};
 use std::{fs, path::{Path, PathBuf}};
 
+cfg_if! {
+    if #[cfg(feature = "native")] {
+        use crate::debuginfo::ContentLoc;
+    } else {
+        #[derive(Clone)]
+        pub struct ContentLoc;
+
+        impl ContentLoc {
+            fn new(_v : Vec<char>) -> ContentLoc { ContentLoc }
+        }
+    }
+}
+
 // TODO : remove the clone and recursively in every types in it after removing the clone it types_debug
 #[derive(Clone)]
 pub struct RustamlContext {
@@ -14,7 +27,7 @@ pub struct RustamlContext {
     pub list_node_pool : ListPool,
 
     pub is_debug_print : bool,
-    pub content : Option<Vec<char>>,
+    pub content : Option<ContentLoc>,
 }
 
 impl RustamlContext {
@@ -30,7 +43,7 @@ impl RustamlContext {
     }
 
     pub fn set_content_chars(&mut self, content_chars : Vec<char>){
-        self.content = Some(content_chars);
+        self.content = Some(ContentLoc::new(content_chars));
     }
 }
 

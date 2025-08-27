@@ -124,14 +124,43 @@ struct DebugLoc {
     column : u32,
 }
 
-// TODO : add better way (for example when generating ranges, when lexing, add it in a hashmap ?)
-fn get_debug_loc(range : Range<usize>, content_chars : &[char]) -> DebugLoc {
-    let slice_before_range = &content_chars[0..range.start];
-    let line_nb = slice_before_range.iter().fold(1, |acc, e| acc + (if *e == '\n' { 1 } else { 0}));
-    DebugLoc { 
-        line_nb: line_nb,
-        column: 0, // TOD0 
+#[derive(Clone)]
+pub struct ContentLoc {
+    content_chars : Vec<char>,
+    newlines_idx : Vec<usize>,
+}
+
+impl ContentLoc {
+    pub fn new(content_chars : Vec<char>) -> ContentLoc {
+        let newlines_idx = content_chars.iter().enumerate().filter(|(_, e)| **e == '\n').map(|(idx, _)| idx).collect();
+
+        ContentLoc { 
+            content_chars, 
+            newlines_idx 
+        }
     }
+}
+
+// TODO : add better way (for example when generating ranges, when lexing, add it in a hashmap ?)
+fn get_debug_loc(content_loc : &ContentLoc, range : Range<usize>) -> DebugLoc {
+    let newline_idx = content_loc.newlines_idx.partition_point(|e| *e <= range.start);
+
+    let new_line_before_line_offset = if let Some(i) = newline_idx.checked_sub(1) {
+        content_loc.newlines_idx[i]
+    } else {
+        0
+    };
+
+    let column_nb =  range.start - new_line_before_line_offset;
+    
+    let line_nb = newline_idx + 1;
+
+
+    DebugLoc { 
+        line_nb: line_nb.try_into().unwrap(),
+        column: column_nb.try_into().unwrap(),
+    }
+
 }
 
 fn get_list_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>) -> DIType<'llvm_ctx> {
@@ -189,10 +218,12 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
             let ditype = get_debug_info_type(i, ret_type);
 
             let flags = LLVMDIFlagPrivate;
+
+            let args_debug_types = param_types.iter().map(|t| get_debug_info_type(i, t)).collect::<Vec<_>>();
             let subroutine_type = i.debug_builder.create_subroutine_type(
                 i.debug_compile_unit.get_file(),
                 Some(ditype),
-                &[], // TODO
+                &args_debug_types, // TODO
                 flags,
             );
             let line_nb = 0; // TODO
@@ -229,12 +260,12 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
         }
     }
 
-    pub fn create_debug_location(&mut self, context : &'llvm_ctx Context, content : &[char], range : Range<usize>) -> Option<DILocation<'llvm_ctx>>{
+    pub fn create_debug_location(&mut self, context : &'llvm_ctx Context, content : &ContentLoc, range : Range<usize>) -> Option<DILocation<'llvm_ctx>>{
         // add real lexical blocks instead of creating one for each function call (put them in self)
         
         // TODO : move to a set_function_call_dbg
         if let Some(i) = &mut self.inner {
-            let debug_loc = get_debug_loc(range, content);
+            let debug_loc = get_debug_loc(content, range);
             let lexical_block = i.current_lexical_block.unwrap();
             i.current_debug_loc = Some(i.debug_builder.create_debug_location(context, debug_loc.line_nb, debug_loc.column, lexical_block.as_debug_info_scope(), None));
             i.current_debug_loc
@@ -249,11 +280,11 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
         }
     }
 
-    pub fn declare_var(&mut self, name : &str, var_type : &Type, storage : PointerValue<'llvm_ctx>, current_bb : BasicBlock<'llvm_ctx>, content : &[char], range : Range<usize>){
+    pub fn declare_var(&mut self, name : &str, var_type : &Type, storage : PointerValue<'llvm_ctx>, current_bb : BasicBlock<'llvm_ctx>, content : &ContentLoc, range : Range<usize>){
         if let Some(i) = &mut self.inner {
             let scope = i.last_func_scope.unwrap().as_debug_info_scope();
             let file = i.debug_compile_unit.get_file();
-            let debug_location_var = get_debug_loc(range, content);
+            let debug_location_var = get_debug_loc(content, range);
             let var_ty_debug = get_debug_info_type(i, var_type);
             let always_preserve = true; // TODO : will it affect optimizations
             let flags = 0; // TODO
@@ -283,9 +314,9 @@ mod tests {
 
     #[test]
     fn debuginfo_get_debug_loc() {
-        let content = "aa\nbbb\ncd".chars().collect::<Vec<_>>();
+        let content = ContentLoc::new("aa\nbbb\ncd".chars().collect::<Vec<_>>());
         let range = 7..9;
-        let debug_loc = get_debug_loc(range, &content);
+        let debug_loc = get_debug_loc(&content, range);
         assert_eq!(debug_loc.line_nb, 3);
     }
 }
