@@ -348,7 +348,7 @@ impl Val {
         }
     }
 
-    fn get_type(&self, list_pool: &ListPool) -> Type {
+    /*fn get_type(&self, list_pool: &ListPool) -> Type {
         match self {
             Val::Integer(_) => Type::Integer,
             Val::Float(_) => Type::Float,
@@ -367,7 +367,7 @@ impl Val {
             }
             Val::Unit => Type::Unit,
         }
-    }
+    }*/
 }
 
 #[derive(Clone, PartialEq, DebugWithContext)]
@@ -484,12 +484,12 @@ fn interpret_binop_bool_logical(op : Operator, lhs_val : Val, rhs_val : Val) -> 
     Val::Bool(ret_bool)
 }
 
-fn interpret_binop_bool(list_pool:  &ListPool, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
-    let lhs_val_type = lhs_val.get_type(list_pool);
+fn interpret_binop_bool(/*list_pool:  &ListPool,*/ op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+    /*let lhs_val_type = lhs_val.get_type(list_pool);
     let rhs_val_type = rhs_val.get_type(list_pool);
-    if rhs_val.get_type(list_pool) != lhs_val.get_type(list_pool) {
+    if rhs_val_type != lhs_val_type {
         panic!("Not the same types around operators (lhs : {:?}, rhs : {:?})", lhs_val_type, rhs_val_type)
-    }
+    }*/
     
     let b = match op {
         Operator::IsEqual => lhs_val == rhs_val,
@@ -528,26 +528,27 @@ fn interpret_binop_str(context: &mut InterpretContext, op : Operator, lhs_val : 
 
 fn interpret_binop_list(list_pool : &mut ListPool, is_debug : bool, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
 
-    let rhs_type = rhs_val.get_type(list_pool);
+    //let rhs_type = rhs_val.get_type(list_pool);
 
     let rhs_list = match rhs_val {
         Val::List(l) => l,
-        _ => panic!("Expected list in right-side of binary operation, got val of type {:?}", rhs_type),
+        _ => unreachable!(),
+        //_ => panic!("Expected list in right-side of binary operation, got val of type {:?}", rhs_type),
     };
 
-    let rhs_elem_type = match rhs_type {
+    /*let rhs_elem_type = match rhs_type {
         Type::List(e_t) => *e_t,  
         _ => unreachable!(),
-    };
+    };*/
 
-    debug_println!(is_debug, "lhs_val.get_type(list_pool) : {:#?}", lhs_val.get_type(list_pool));
+    //debug_println!(is_debug, "lhs_val.get_type(list_pool) : {:#?}", lhs_val.get_type(list_pool));
     //dbg!(lhs_val.get_type(list_pool))
-    debug_println!(is_debug, "rhs_elem_type : {:#?}", &rhs_elem_type);
+    //debug_println!(is_debug, "rhs_elem_type : {:#?}", &rhs_elem_type);
     //dbg!(&rhs_elem_type);
 
-    if !rhs_list.get(list_pool).empty() && lhs_val.get_type(list_pool) != rhs_elem_type {
+    /*if !rhs_list.get(list_pool).empty() && lhs_val.get_type(list_pool) != rhs_elem_type {
         panic!("Trying to add to an array of a type an element of another type");
-    }
+    }*/
 
     match op {
         // use the already existing subtree, should it be clone ?
@@ -563,7 +564,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
     match op.get_type() {
         Type::Integer => interpret_binop_int(op, lhs_val, rhs_val),
         Type::Float => interpret_binop_float(op, lhs_val, rhs_val),
-        Type::Bool => interpret_binop_bool(&context.rustaml_context.list_node_pool, op, lhs_val, rhs_val),
+        Type::Bool => interpret_binop_bool(op, lhs_val, rhs_val),
         Type::Str => interpret_binop_str(context, op, lhs_val, rhs_val),
         Type::List(_) => interpret_binop_list(&mut context.rustaml_context.list_node_pool, context.rustaml_context.is_debug_print, op, lhs_val, rhs_val),
         _ => unreachable!(),

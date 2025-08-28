@@ -879,7 +879,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             let function_id = get_var_id(compile_context, ast_node);
 
             let (return_type, arg_types) = match compile_context.typeinfos.vars_env.get(&function_id).unwrap() {
-                Type::Function(args, ret, _) => (ret.as_ref().clone(), args),
+                Type::Function(args, ret, _) => (ret.as_ref().clone(), args.clone()),
                 t => panic!("BUG : the function definition has not a function type, it is {:?} instead", t), // TODO : replace this with an unreachable
             };
             /*let (return_type, arg_types) = match compile_context.typeinfos.functions_env.get(name).unwrap(){
@@ -911,8 +911,8 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             let entry = compile_context.context.append_basic_block(function, "entry");
             compile_context.builder.position_at_end(entry);
 
-            let range = 0..0; // TODO
-            if let Some(loc) = compile_context.debug_info.create_debug_location(compile_context.context, compile_context.rustaml_context.content.as_ref().unwrap(), range) {
+            let range = ast_node.get_range(&compile_context.rustaml_context.ast_pool); // TODO
+            if let Some(loc) = compile_context.debug_info.create_debug_location(compile_context.context, compile_context.rustaml_context.content.as_ref().unwrap(), range.clone()) {
                 compile_context.builder.set_current_debug_location(loc);
             }
 
@@ -920,12 +920,13 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
 
             //let mut old_arg_name_type = Vec::new(); // to save the types that have the same of the args in the global vars 
 
-            for ((arg, arg_val), arg_type) in args.iter().zip(function.get_param_iter()).zip(param_types_llvm) {
+            for (((arg, arg_val), arg_type_llvm), arg_type) in args.iter().zip(function.get_param_iter()).zip(param_types_llvm).zip(param_types) {
                 /*match compile_context.var_types.insert(arg.name, arg.arg_type.clone()) {
                     Some(old_type) => old_arg_name_type.push((arg.name, old_type)),
                     None => {}
                 }*/
-                create_var(compile_context, arg.name, arg_val.as_any_value_enum(), arg_type);
+                let var_ptr = create_var(compile_context, arg.name, arg_val.as_any_value_enum(), arg_type_llvm);
+                compile_context.debug_info.declare_var(arg.name.get_str(&compile_context.rustaml_context.str_interner), &arg_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), range.clone());
             }
 
             let ret = compile_expr(compile_context, *body);
