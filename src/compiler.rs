@@ -812,7 +812,9 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             let param_types_metadata = param_types_llvm.iter().map(|t| (*t).try_into().unwrap()).collect::<Vec<_>>();
             let function_type = get_fn_type(compile_context.context, return_type_llvm, &param_types_metadata, false);
             let function = compile_context.module.add_function(name.get_str(&compile_context.rustaml_context.str_interner), function_type, Some(inkwell::module::Linkage::Internal));
-            let di_subprogram = compile_context.debug_info.add_function(name.get_str(&compile_context.rustaml_context.str_interner), &param_types, &return_type, compile_context.is_optimized);
+            
+            let function_range = ast_node.get_range(&compile_context.rustaml_context.ast_pool);
+            let di_subprogram = compile_context.debug_info.add_function(name.get_str(&compile_context.rustaml_context.str_interner), &param_types, &return_type, compile_context.rustaml_context.content.as_ref().unwrap(), function_range, compile_context.is_optimized);
             if let Some(di_subprogram) = di_subprogram {
                 function.set_subprogram(di_subprogram);
                 // TODO : set debuginfo location on builder

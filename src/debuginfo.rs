@@ -212,7 +212,7 @@ pub struct DebugInfo<'llvm_ctx> {
 
 impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
 
-    pub fn add_function(&mut self, function_name : &str, param_types : &[Type], ret_type : &Type, is_optimized : bool) -> Option<DISubprogram<'llvm_ctx>> {
+    pub fn add_function(&mut self, function_name : &str, param_types : &[Type], ret_type : &Type, content_loc : &ContentLoc, range : Range<usize>, is_optimized : bool) -> Option<DISubprogram<'llvm_ctx>> {
         if let Some(i) = &mut self.inner {
             
             let ditype = get_debug_info_type(i, ret_type);
@@ -223,11 +223,11 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
             let subroutine_type = i.debug_builder.create_subroutine_type(
                 i.debug_compile_unit.get_file(),
                 Some(ditype),
-                &args_debug_types, // TODO
+                &args_debug_types,
                 flags,
             );
-            let line_nb = 0; // TODO
-            let scope_line = 0; // TODO ?
+            let line_nb = get_debug_loc(content_loc, range).line_nb; // TODO (does it has a use ?)
+            let scope_line = line_nb; // TODO ? change this ?
             let func_scope: DISubprogram<'_> = i.debug_builder.create_function(i.debug_compile_unit.as_debug_info_scope(), function_name, None, i.debug_compile_unit.get_file(), line_nb, subroutine_type, true, true, scope_line, LLVMDIFlagPublic, is_optimized);
             i.last_func_scope = Some(func_scope);
             Some(func_scope) // must use set_subprogram on FunctionValue on this value
