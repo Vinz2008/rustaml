@@ -817,6 +817,12 @@ fn compile_str<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx
     create_string(compile_context, str.get_str(&compile_context.rustaml_context.str_interner))
 }
 
+fn compile_anon_func<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, args : &[StringRef], body : ASTRef) -> FunctionValue<'llvm_ctx> {
+    let body_ret = compile_expr(compile_context, body);
+
+    todo!()
+}
+
 // TODO : replace AnyValueEnum with BasicMetadataValueEnum in compile_expr and other functions ?
 pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef) -> AnyValueEnum<'llvm_ctx> {
     let range = ast_node.get_range(&compile_context.rustaml_context.ast_pool);
@@ -835,6 +841,7 @@ pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
             compile_static_list(compile_context, list, ast_node.get_type(&compile_context.rustaml_context.ast_pool))
         },
         ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, *matched_expr, patterns),
+        ASTNode::AnonFunc { args, body, type_annotation: _ } => compile_anon_func(compile_context, args, *body).as_any_value_enum(),
         ASTNode::Unit => get_void_val(compile_context.context),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)), 
         //_ => todo!()

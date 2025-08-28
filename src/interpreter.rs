@@ -653,11 +653,48 @@ fn interpret_format(context: &mut InterpretContext, arg_format_str: StringRef, a
     Val::String(context.rustaml_context.str_interner.intern_runtime(&formatted_str))
 }
 
+fn interpret_map(context: &mut InterpretContext, list_val : Val, fun_val : Val) -> Val {
+    let list = match list_val {
+        Val::List(l) => l,
+        _ => unreachable!(),
+    };
+
+    let fun_val = match fun_val {
+        Val::Function(f) => f,
+        _ => unreachable!(),
+    };
+
+    let mut new_list = List::None;
+
+    let mut vals= Vec::new();
+    
+    {
+        let mut current = list.get(&context.rustaml_context.list_node_pool);
+
+        while let List::Node(val, next ) = current { 
+            vals.push(val.clone());
+            current = next.get(&context.rustaml_context.list_node_pool);
+        }
+    }
+
+    
+    // TODO : create a function which will be another new_from to create from a val slice to not go throught the whole list at each append ?
+    for v in vals {
+        let new_val = call_function(context, &fun_val, vec![v]);
+        new_list.append(&mut context.rustaml_context.list_node_pool, new_val);
+    }
+
+    let new_list_ref = context.rustaml_context.list_node_pool.push(new_list);
+
+    Val::List(new_list_ref)
+}
+
 const STD_FUNCTIONS : &[&str] = &[
     "print",
     "rand",
     "format",
     "panic",
+    "map",
 ];
 
 fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args_val : Vec<Val>) -> Val {
@@ -684,8 +721,15 @@ fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args
             interpret_format(context, arg_format_str, args_format)
         }
         "panic" => {
+            assert_eq!(args_val.len(), 1);
             let message = format!("{}", args_val[0].display(context.rustaml_context)) ;
             rustaml_panic(&message)
+        }
+        "map" => {
+            assert_eq!(args_val.len(), 2);
+            let list = args_val[0].clone();
+            let fun = args_val[1].clone();
+            interpret_map(context, list, fun)
         }
         _ => unreachable!()
     }
@@ -741,6 +785,27 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_bo
     }
 }
 
+fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val> ) -> Val {
+    let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
+    for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
+        if let Some(old_val) = context.vars.get(arg_name) {
+            old_vals.push((*arg_name, old_val.clone()));
+        }
+        context.vars.insert(*arg_name, arg_val.clone());
+    }
+
+
+    let res_val = ensure_stack(|| interpret_node(context, func_def.body));
+
+    for arg_name in &func_def.args {
+        context.vars.remove(arg_name);
+    }
+    for (old_name, old_val) in old_vals {
+        context.vars.insert(old_name, old_val);
+    }
+    res_val
+}
+
 fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args : Vec<ASTRef>) -> Val {
 
     let args_val = args.iter().map(|e| interpret_node(context, *e)).collect::<Vec<_>>();
@@ -760,30 +825,14 @@ fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args
 
     //let func_def = context.functions.get(&name).unwrap_or_else(|| panic!("Function {} not found", name.get_str(&context.rustaml_context.str_interner))).to_owned();
 
+    // TODO : remove this
     if args.len() != func_def.args.len() {
         panic!("Invalid args number in function call, expected {}, got {}", func_def.args.len(), args.len());
     }
 
     
     
-    let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
-    for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
-        if let Some(old_val) = context.vars.get(arg_name) {
-            old_vals.push((*arg_name, old_val.clone()));
-        }
-        context.vars.insert(*arg_name, arg_val.clone());
-    }
-
-
-    let res_val = ensure_stack(|| interpret_node(context, func_def.body));
-
-    for arg_name in &func_def.args {
-        context.vars.remove(arg_name);
-    }
-    for (old_name, old_val) in old_vals {
-        context.vars.insert(old_name, old_val);
-    }
-    res_val
+    call_function(context, &func_def, args_val)
 }
 
 fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, pattern : PatternRef) -> bool {

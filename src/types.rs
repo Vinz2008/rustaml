@@ -850,6 +850,8 @@ fn std_functions_constraints_types(context : &mut TypeContext) {
     std_function_constraint(context, "rand", vec![Type::Unit], Type::Integer, false);
     std_function_constraint(context, "format", vec![Type::Str], Type::Str, true);
     std_function_constraint(context, "panic", vec![Type::Str], Type::Never, true);
+    // TODO : improve the type information of map with numbered generics
+    std_function_constraint(context, "map", vec![Type::List(Box::new(Type::Any)), Type::Function(vec![Type::Any], Box::new(Type::Any), false)], Type::List(Box::new(Type::Any)), false);
     // TODO : add a rand_f ? or make the rand function generic with its return ?
 }
 
