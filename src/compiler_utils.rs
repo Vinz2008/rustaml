@@ -40,7 +40,7 @@ pub fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type 
         Type::Function(args, ret, is_variadic) => {
             let ret_llvm = get_llvm_type(llvm_context, ret);
             // TODO for expect : create a function that would be get_basic_metatadata_type which will transform the function pointers into pointers ?
-            let param_types = args.iter().map(|t| get_llvm_type(llvm_context, t).try_into().expect("arg is not a basic metadata type")).collect::<Vec<BasicMetadataTypeEnum>>();
+            let param_types = args.iter().map(|t| any_type_to_metadata(llvm_context, get_llvm_type(llvm_context, t)) ).collect::<Vec<_>>();
             get_fn_type(llvm_context, ret_llvm, &param_types, *is_variadic).into()
         },
 
@@ -92,6 +92,27 @@ pub fn append_bb_just_after<'llvm_ctx>(compile_context: &mut CompileContext<'_, 
     bb
 }
 
+pub fn any_type_to_metadata<'llvm_ctx>(context : &'llvm_ctx Context, t : AnyTypeEnum<'llvm_ctx>) -> BasicMetadataTypeEnum<'llvm_ctx> {
+    match t {
+        AnyTypeEnum::FunctionType(_) => BasicMetadataTypeEnum::PointerType(context.ptr_type(AddressSpace::default())),
+        t => t.try_into().unwrap(),
+    }
+}
+
+pub fn any_type_to_basic<'llvm_ctx>(context : &'llvm_ctx Context, t : AnyTypeEnum<'llvm_ctx>) -> BasicTypeEnum<'llvm_ctx> {
+    match t {
+        AnyTypeEnum::FunctionType(_) => BasicTypeEnum::PointerType(context.ptr_type(AddressSpace::default())),
+        t => t.try_into().unwrap(),
+    }
+}
+
+pub fn any_val_to_metadata<'llvm_ctx>(v : AnyValueEnum<'llvm_ctx>) -> BasicMetadataValueEnum<'llvm_ctx> {
+    match v {
+        AnyValueEnum::FunctionValue(f) => BasicMetadataValueEnum::PointerValue(f.as_global_value().as_pointer_value()),
+        v => v.try_into().unwrap(),
+    }
+}
+
 fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : &str, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> 
 {
     let builder = compile_context.context.create_builder();
@@ -102,7 +123,7 @@ fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_,
     }
 
     //dbg!(alloca_type);
-    builder.build_alloca(TryInto::<BasicTypeEnum>::try_into(alloca_type).unwrap(), name).unwrap()
+    builder.build_alloca(any_type_to_basic(compile_context.context, alloca_type), name).unwrap()
 }
 
 pub fn create_var<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : AnyValueEnum<'llvm_ctx>, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
