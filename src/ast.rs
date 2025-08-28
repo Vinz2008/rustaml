@@ -222,7 +222,7 @@ pub enum ASTNode {
     },
     // TODO : UnaryOp
     FunctionCall {
-        name : StringRef,
+        callee : ASTRef,
         args : Vec<ASTRef>,
     },
     Unit,
@@ -600,8 +600,34 @@ fn parse_function_arg(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
 
 // parse what could be a function call
 // TODO : make this work for any expression for the function
-fn parse_function_call(parser: &mut Parser, name : StringRef, first_tok_start: usize) -> Result<ASTRef, ParserErr> {
-    let start_range = first_tok_start;
+fn parse_function_call(parser: &mut Parser, mut callee : ASTRef) -> Result<ASTRef, ParserErr> {
+
+    loop {
+        if !is_function_arg_start(parser.current_tok_data()){
+            break;
+        }
+
+        let mut args = Vec::new();
+        let mut last_arg = None;
+
+
+        while parser.has_tokens_left() && is_function_arg_start(parser.current_tok_data()) {
+            let arg= parse_function_arg(parser)?;
+            last_arg = Some(arg);
+            args.push(arg);
+        }
+
+        // TODO : is it needed ?
+        if args.is_empty(){
+            break;
+        }
+
+        let range = callee.get_range(&parser.rustaml_context.ast_pool).start..last_arg.unwrap().get_range(&parser.rustaml_context.ast_pool).end;
+        callee = parser.rustaml_context.ast_pool.push(ASTNode::FunctionCall { callee, args }, range);
+    }
+
+    Ok(callee)
+    /*let start_range = first_tok_start;
     let mut args = Vec::new();
 
     let mut last_arg = None;
@@ -622,25 +648,27 @@ fn parse_function_call(parser: &mut Parser, name : StringRef, first_tok_start: u
         }
     } else {
         ASTNode::FunctionCall { 
-            name, 
+            callee, 
             args,
         }
     };
     
     //dbg!(&args);
-    Ok(parser.rustaml_context.ast_pool.push(ast_node, start_range..end_range))
+    Ok(parser.rustaml_context.ast_pool.push(ast_node, start_range..end_range))*/
 }
 
 fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Vec<char>, identifier_range : Range<usize>) -> Result<ASTRef, ParserErr> {
     let identifier = parser.rustaml_context.str_interner.intern_compiler(&identifier_buf.iter().collect::<String>());
 
-    let is_function = is_function_arg_start(parser.current_tok_data());
+    /*let is_function = is_function_arg_start(parser.current_tok_data());
     if is_function {
         parse_function_call(parser, identifier, identifier_range.start)
     } else {
         // var use
         Ok(parser.rustaml_context.ast_pool.push(ASTNode::VarUse { name: identifier }, identifier_range))
-    }
+    }*/
+
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::VarUse { name: identifier }, identifier_range))
     
 }
 
@@ -837,7 +865,7 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTRef, min_precedence: i32) -> Re
             break;
         }
         parser.eat_tok(Some(TokenDataTag::Op)).unwrap();
-        let mut rhs = parse_primary(parser)?;
+        let mut rhs = parse_application(parser)?; // will parse primary and application
 
         while parser.has_tokens_left() {
             let current_tok_data = parser.current_tok_data();
@@ -914,6 +942,12 @@ fn parse_import(parser : &mut Parser) -> Result<Option<ASTRef>, ParserErr> {
    Ok(Some(ast))
 }
 
+fn parse_application(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
+    let lhs = parse_primary(parser)?;
+    let applied = parse_function_call(parser, lhs)?;
+    Ok(applied)
+}
+
 fn parse_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     // TODO : problem with precedence 
     // for example match e with | a -> 1 :: a ;; becomes (match ... 1) :: a and not match ... -> (1 :: a) 
@@ -924,8 +958,8 @@ fn parse_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         _ => parse_primary(parser)?,
     };*/
 
-    let lhs = parse_primary(parser)?;
-    let ret_expr = parse_binary(parser, lhs)?;
+    let applied = parse_application(parser)?;
+    let ret_expr = parse_binary(parser, applied)?;
     Ok(ret_expr)
 }
 
@@ -979,7 +1013,7 @@ pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext, filename
     };
 
     debug_println!(rustaml_context.is_debug_print, "root_node = {:#?}", DebugWrapContext::new(&root_node, rustaml_context));
-    debug_println!(rustaml_context.is_debug_print, "nodes ranges: {:?}", rustaml_context.ast_pool.ast_node_ranges);
+    //debug_println!(rustaml_context.is_debug_print, "nodes ranges: {:?}", rustaml_context.ast_pool.ast_node_ranges);
     //panic!("nodes ranges: {:?}", rustaml_context.ast_pool.ast_node_ranges);
     
     Ok(root_node)

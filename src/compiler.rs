@@ -752,7 +752,8 @@ pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
         ASTNode::String { str } => compile_str(compile_context, *str).into(),
         ASTNode::VarDecl { name, val, body, var_type: _ } => compile_var_decl(compile_context, ast_node, *name, *val, *body, false),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => compile_if(compile_context, *cond_expr, *then_body, *else_body),
-        ASTNode::FunctionCall { name, args } => compile_function_call(compile_context, *name, args, range),
+        //ASTNode::FunctionCall { name, args } => compile_function_call(compile_context, *name, args, range),
+        ASTNode::FunctionCall { callee, args } => todo!(),
         ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, *op, *lhs, *rhs),
         ASTNode::VarUse { name } => compile_var_use(compile_context, ast_node, *name),
         ASTNode::List { list } => { 
@@ -798,10 +799,12 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
     match ast_node.get(&compile_context.rustaml_context.ast_pool) {
         ASTNode::FunctionDefinition { name, args, body, return_type: _ } => {
             //println!("typeinfos function_env : {:?}", DebugWrapContext::new(&compile_context.typeinfos.functions_env, compile_context.rustaml_context));
-            let (return_type, arg_types) = match compile_context.typeinfos.functions_env.get(name).unwrap(){
+            
+            let (return_type, arg_types) : (Type, &[Type]) = (todo!(), todo!());
+            /*let (return_type, arg_types) = match compile_context.typeinfos.functions_env.get(name).unwrap(){
                 Type::Function(args, ret, _) => (ret.as_ref().clone(), args),
                 t => panic!("BUG : the function definition has not a function type, it is {:?} instead", t), // TODO : replace this with an unreachable
-            };
+            };*/
 
             let return_type_llvm = get_llvm_type(compile_context.context, &return_type);
             //let param_types = args.iter().map(|a| get_llvm_type(compile_context.context, &a.arg_type).try_into().unwrap()).collect::<Vec<_>>();
