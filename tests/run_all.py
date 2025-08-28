@@ -37,7 +37,7 @@ class COMMAND:
     CHECK = 4
 
 
-def get_error_message(commmand : COMMAND, return_code : int, filename : str, is_release_mode : bool) -> str:
+def get_error_message(command : COMMAND, return_code : int, filename : str, is_release_mode : bool) -> str:
     match command:
         case COMMAND.COMPILE:
             rustaml_name = "compiler"
@@ -45,6 +45,8 @@ def get_error_message(commmand : COMMAND, return_code : int, filename : str, is_
             rustaml_name = "interpreter"
         case COMMAND.CHECK:
             rustaml_name = "checker"
+        case _:
+            sys.exit(f"Unknown command {command}")
 
     match return_code:
         case -6:
@@ -59,7 +61,7 @@ def get_error_message(commmand : COMMAND, return_code : int, filename : str, is_
             if os.path.exists(error_filename):
                 return f"LLVM ERROR (check the {error_filename}) file for more details)"
             else:
-                return get_error_message(commmand, 1, filename, is_release_mode)
+                return get_error_message(command, 1, filename, is_release_mode)
         case _:
             sys.exit(f"Unknown error return code {return_code}")
 
@@ -89,7 +91,7 @@ def test_file(filename : str, command : COMMAND, is_release_mode : bool, is_debu
     is_err = is_error(return_code)
     should_print_error_message = is_err if command != COMMAND.INTERPRET else (not should_panic and is_err) or (should_panic and not is_err)
     if should_print_error_message:
-        error_message = get_error_message(command != COMMAND.INTERPRET, return_code, filename, is_release_mode)
+        error_message = get_error_message(command, return_code, filename, is_release_mode)
         return "❌", error_message, out
         
     return "✅", "", out

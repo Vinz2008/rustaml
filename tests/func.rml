@@ -1,7 +1,5 @@
 let f a = a + 1 ;;
 
-let a = (1 3) ;;
+let g fu = fu 1 ;;
 
-// let g fu = fu 1 ;;
-
-// let _ = g f ;;
+let _ = g f ;;

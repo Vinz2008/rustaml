@@ -534,6 +534,15 @@ fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
         (Type::List(e1), Type::List(e2)) => {
             let e = merge_types(e1.as_ref(), e2.as_ref())?;
             Some(Type::List(Box::new(e)))
+        },
+        (Type::Function(args1, ret1, variadic1), Type::Function(args2, ret2, variadic2)) => {
+            let variadic = *variadic1 || *variadic2;
+            let ret = merge_types(ret1.as_ref(), ret2.as_ref())?;
+            let mut args = Vec::new();
+            for (arg1, arg2) in args1.iter().zip(args2){
+                args.push(merge_types(arg1, arg2)?);
+            }
+            Some(Type::Function(args, Box::new(ret), variadic))
         }
         _ => None,
     };
