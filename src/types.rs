@@ -431,6 +431,46 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             }, range);
         }
 
+        ASTNode::AnonFunc { args: arg_names, body, type_annotation } => {
+
+
+            let mut arg_vars = Vec::new();
+
+            let (return_type, arg_type_annotations) = match type_annotation {
+                Some(Type::Function(args, ret, variadic)) => (Some(*ret), Some(args)),
+                Some(t) => return Err(TypesErr::new(TypesErrData::FunctionTypeExpected { wrong_type: t }, range)),
+                _ => (None, None),
+            };
+
+            for (arg_idx, arg_name) in arg_names.iter().enumerate() {
+                let arg_type_var = context.table.new_type_var();
+                arg_vars.push(arg_type_var);
+                if let Some(arg_type_annotations) = &arg_type_annotations {
+                    context.push_constraint(Constraint::IsType(arg_type_var, arg_type_annotations[arg_idx].clone()), range.clone());
+                }
+
+                if !is_underscore(context.rustaml_context, *arg_name) {
+                    create_var(context, *arg_name, arg_type_var);
+                }
+            }
+
+            let ret_type_var = context.table.new_type_var();
+            if let Some(return_type) = return_type {
+                context.push_constraint(Constraint::IsType(ret_type_var, return_type), range.clone());
+            }
+
+            let body_type_var = collect_constraints(context, body)?;
+            context.push_constraint(Constraint::SameType(body_type_var, ret_type_var), range.clone());
+
+            context.push_constraint(Constraint::FunctionType { 
+                fun_type_var: new_type_var, 
+                args_type_vars: arg_vars, 
+                ret_type_var, 
+                is_variadic: false, 
+                function_name: None,
+            }, range);
+        }
+
         ASTNode::FunctionCall { callee, args } => {
             let callee_type_var = collect_constraints(context, callee)?;
 

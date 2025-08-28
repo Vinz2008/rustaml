@@ -3,3 +3,5 @@ let f a = a + 1 ;;
 let g fu = fu 1 ;;
 
 let _ = g f ;;
+
+let z = (function a -> a + 1) 2 ;;

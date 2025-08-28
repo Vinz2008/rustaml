@@ -971,6 +971,15 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
             //context.functions.insert(name, func_def);
             Val::Unit
         },
+        ASTNode::AnonFunc { args, body, type_annotation: _ } => {
+            let func_def = FunctionDef {
+                name: context.rustaml_context.str_interner.intern_compiler("closure"), // add an index to not have the same name for all closures ?
+                args,
+                body,
+                return_type: Type::Any, // TODO : is it needed ?
+            };
+            Val::Function(func_def)
+        }
         ASTNode::Float { nb } => Val::Float(nb),
         ASTNode::Integer { nb } => Val::Integer(nb),
         ASTNode::Boolean { b } => Val::Bool(b),
