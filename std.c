@@ -97,7 +97,15 @@ static struct ListNode* list_node_init(uint8_t type_tag, Val val){
     return l;
 }
 
+// appends at the front
 struct ListNode* __list_node_append(struct ListNode* list, uint8_t type_tag, Val val){
+    struct ListNode* ret = list_node_init(type_tag, val);;
+    ret->next = list;
+    return ret;
+}
+
+// TODO : is this needed ?
+struct ListNode* __list_node_append_back(struct ListNode* list, uint8_t type_tag, Val val){
     if (list == NULL){
         return list_node_init(type_tag, val);
     }

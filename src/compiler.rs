@@ -1,8 +1,8 @@
 use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, ops::Range, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Type}, compiler_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debug_println, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos}, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
-use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
+use crate::{ast::{ASTNode, ASTRef, Type}, compiler_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos}, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
@@ -23,6 +23,8 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>, // TODO : replace this with a hashmap ?
     pub global_strs : FxHashMap<String, PointerValue<'llvm_ctx>>,
     pub is_optimized : bool,
+
+    monomorphized_map_fun : FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>, // (Type A, Type B) = A -> B
 }
 
 
@@ -63,6 +65,12 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
         },
         BuiltinFunction {
             name: "__list_node_append",
+            args: vec![ptr_type, llvm_context.i8_type().into(), llvm_context.i64_type().into()],
+            ret: Some(ptr_type_ret),
+            ..Default::default()
+        },
+        BuiltinFunction {
+            name: "__list_node_append_back",
             args: vec![ptr_type, llvm_context.i8_type().into(), llvm_context.i64_type().into()],
             ret: Some(ptr_type_ret),
             ..Default::default()
@@ -355,6 +363,148 @@ fn compile_panic<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 
 }
 
+
+// this is the code that is tried to be recreated with this function
+
+// struct ListNode {
+//     Val val;
+//     struct ListNode* next;
+// };
+
+// // l is of type T1
+// struct ListNode* map(struct ListNode* l, T2 (*f)(T1)){
+//     struct ListNode* ret = NULL;
+//     struct ListNode* current = l;
+//     while (current != NULL){
+//         __list_node_append(ret, T2_tag, f((int64_t)current->val));
+//         current = current->next;
+//     }
+
+//     return ret;
+// }
+
+
+// TODO : create others functions on list (will need to replace monomorphized_map_fun with a monomorphized_internal_fun as a hashmap in a hashmap for names)
+// TODO : use the principles used here to add monomorphization for any function
+fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, elem_type : &Type, ret_elem_type : &Type) -> FunctionValue<'llvm_ctx> {
+    if let Some(f) = compile_context.monomorphized_map_fun.get(&(elem_type.clone(), ret_elem_type.clone())){
+        return *f;
+    }
+
+    let current_bb = compile_context.builder.get_insert_block().unwrap();
+
+    let function_passed_type = Type::Function(vec![elem_type.clone()], Box::new(ret_elem_type.clone()), false);
+    let function_passed_type_llvm = get_llvm_type(compile_context.context, &function_passed_type).into_function_type();
+    
+    // TODO : if those clone are a perf problem, replace all these with Any if possible
+    let map_type = Type::Function(vec![Type::List(Box::new(elem_type.clone())), function_passed_type], Box::new(Type::List(Box::new(ret_elem_type.clone()))), false);
+    
+    let map_type_llvm = get_llvm_type(compile_context.context, &map_type).as_any_type_enum().into_function_type();
+    let map_func_name = &format!("map{}->{}", elem_type, ret_elem_type);
+    let function = compile_context.module.add_function(map_func_name, map_type_llvm, Some(inkwell::module::Linkage::Internal));
+    
+    let entry = compile_context.context.append_basic_block(function, "entry");
+    compile_context.builder.position_at_end(entry);
+
+    let list_arg = function.get_first_param().unwrap().into_pointer_value();
+    let fun_arg = function.get_last_param().unwrap().into_pointer_value(); 
+
+    let ptr_type = compile_context.context.ptr_type(AddressSpace::default());
+    let ret_alloca = create_entry_block_alloca(compile_context, "ret", ptr_type.into());
+    compile_context.builder.build_store(ret_alloca, ptr_type.const_null()).unwrap();
+
+
+    let current_alloca = create_entry_block_alloca(compile_context, "current", ptr_type.into()); 
+    compile_context.builder.build_store(current_alloca, list_arg).unwrap();
+
+    let cond_bb = compile_context.context.append_basic_block(function, "cond");
+
+    compile_context.builder.build_unconditional_branch(cond_bb).unwrap();
+
+
+    let body_bb = compile_context.context.append_basic_block(function, "body");
+    let after_bb = compile_context.context.append_basic_block(function, "after");
+
+    compile_context.builder.position_at_end(cond_bb);
+    // TODO
+
+    let load_current = compile_context.builder.build_load(ptr_type.as_basic_type_enum(), current_alloca, "load_current").unwrap().into_pointer_value();
+
+    let is_not_null =compile_context.builder.build_int_compare(IntPredicate::NE, load_current, ptr_type.const_null(), "cmp_null").unwrap();
+
+    compile_context.builder.build_conditional_branch(is_not_null, body_bb, after_bb).unwrap();
+
+    // while loop body starts (TODO)
+    compile_context.builder.position_at_end(body_bb);
+    
+    let list_node_append_fun = compile_context.get_internal_function("__list_node_append_back");
+
+    let load_current = compile_context.builder.build_load(ptr_type.as_basic_type_enum(), current_alloca, "load_current").unwrap().into_pointer_value();
+    let load_current_node_val = load_list_val(compile_context, elem_type, load_current).as_any_value_enum();
+
+    let fun_args = vec![any_val_to_metadata(load_current_node_val)];
+
+    let fun_arg_call = compile_context.builder.build_indirect_call(function_passed_type_llvm, fun_arg, &fun_args, "call_map_fun").unwrap().as_any_value_enum();
+
+    let load_ret = compile_context.builder.build_load(ptr_type.as_basic_type_enum(), ret_alloca, "load_ret").unwrap().as_any_value_enum();
+    let ret_type_tag = get_type_tag_val(compile_context.context, ret_elem_type).as_any_value_enum();
+
+    let list_append_args = vec![load_ret, ret_type_tag, fun_arg_call].into_iter().map(any_val_to_metadata).collect::<Vec<_>>();
+    let list_appended = compile_context.builder.build_call(list_node_append_fun, &list_append_args, "call_list_append").unwrap().as_any_value_enum();
+
+    compile_context.builder.build_store::<BasicValueEnum>(ret_alloca, list_appended.try_into().unwrap()).unwrap();
+
+    
+    let next_current= load_list_tail(compile_context, load_current);
+    compile_context.builder.build_store(current_alloca, next_current).unwrap();
+
+
+    compile_context.builder.build_unconditional_branch(cond_bb).unwrap(); // TODO : add !llvm.loop to br ? (like clang ?)
+
+    // while loop body ends
+
+    compile_context.builder.position_at_end(after_bb);
+
+
+    let load_ret = compile_context.builder.build_load(ptr_type.as_basic_type_enum(), ret_alloca, "load_ret").unwrap();
+
+    compile_context.builder.build_return(Some(&load_ret)).unwrap();
+
+    compile_context.builder.position_at_end(current_bb);
+
+    function
+}
+
+fn compile_map<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list_ast : ASTRef, fun_ast : ASTRef) -> AnyValueEnum<'llvm_ctx> {
+    let fun_type = fun_ast.get_type(&compile_context.rustaml_context.ast_pool);
+    let ret_elem_type = match fun_type {
+        Type::Function(_, ret, _) => ret.as_ref(),
+        _ => unreachable!(),
+    };
+    
+    let list_type = list_ast.get_type(&compile_context.rustaml_context.ast_pool);
+    let elem_type = match list_type {
+        Type::List(e) => e.as_ref(),
+        _ => unreachable!()
+    };
+
+    
+    let fun_val = compile_expr(compile_context, fun_ast).into_function_value();
+
+    let list_val = compile_expr(compile_context, list_ast);
+
+
+    let args= vec![any_val_to_metadata(list_val), any_val_to_metadata(fun_val.as_any_value_enum())];
+    
+    
+
+    // TODO :can't work, need monomorpization
+    //compile_context.builder.build_call(map_fun, &args, "map_internal_call").unwrap().as_any_value_enum()
+    let map_fun = compile_monomorphized_map(compile_context, elem_type, ret_elem_type);
+
+    compile_context.builder.build_call(map_fun, &args, "map_internal_call").unwrap().as_any_value_enum()
+}
+
 /*fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, args: &[ASTRef], range : Range<usize>) -> AnyValueEnum<'llvm_ctx>{
     match name.get_str(&compile_context.rustaml_context.str_interner) {
         "print" => {
@@ -429,6 +579,11 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
             "panic" => {
                 let message_val = compile_expr(compile_context, args[0]).into_pointer_value();
                 return compile_panic(compile_context, message_val);
+            }
+            "map" => {
+                let list = args[0].clone();
+                let func = args[1].clone();
+                return compile_map(compile_context, list, func);
             }
             n => Some(n.to_owned()),
         }
@@ -801,7 +956,7 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
     let type_tag_val = get_type_tag_val(compile_context.context, list_element_type);
 
 
-    for &e in list {
+    for &e in list.iter().rev() { // reverse because list append append at the front
         let val = compile_expr(compile_context, e);
         let val = to_std_c_val(compile_context, val, list_element_type);
         let node_val = create_list_append_call(compile_context, current_node, type_tag_val, val);
@@ -1181,6 +1336,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         internal_functions,
         external_symbols_declared: FxHashSet::default(),
         global_strs: FxHashMap::default(),
+        monomorphized_map_fun: FxHashMap::default(),
     };
 
     let top_level_nodes = match frontend_output.ast.get(&rustaml_context.ast_pool) {

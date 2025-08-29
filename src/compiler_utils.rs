@@ -39,7 +39,6 @@ pub fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type 
         Type::Float => llvm_context.f64_type().into(),
         Type::Function(args, ret, is_variadic) => {
             let ret_llvm = get_llvm_type(llvm_context, ret);
-            // TODO for expect : create a function that would be get_basic_metatadata_type which will transform the function pointers into pointers ?
             let param_types = args.iter().map(|t| any_type_to_metadata(llvm_context, get_llvm_type(llvm_context, t)) ).collect::<Vec<_>>();
             get_fn_type(llvm_context, ret_llvm, &param_types, *is_variadic).into()
         },
@@ -113,7 +112,7 @@ pub fn any_val_to_metadata<'llvm_ctx>(v : AnyValueEnum<'llvm_ctx>) -> BasicMetad
     }
 }
 
-fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : &str, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> 
+pub fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : &str, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> 
 {
     let builder = compile_context.context.create_builder();
     let entry = get_current_function(compile_context.builder).get_first_basic_block().unwrap();
