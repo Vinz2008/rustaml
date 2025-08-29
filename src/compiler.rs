@@ -456,12 +456,13 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
         compile_context.builder.set_current_debug_location(function_call_dbg);
     }
 
+    let name_anon_func_call = "anon_func_call";
+
     let ret = match callee_val {
-        AnyValueEnum::FunctionValue(fun) => compile_context.builder.build_call(fun, args_vals.as_slice(), name_str.as_ref().map(|s| s.as_str()).unwrap_or("closure_call")),
-        _ => compile_context.builder.build_indirect_call(callee_type_llvm, callee_val.into_pointer_value(), args_vals.as_slice(), "closure_call")
+        AnyValueEnum::FunctionValue(fun) => compile_context.builder.build_call(fun, args_vals.as_slice(), name_str.as_ref().map(|s| s.as_str()).unwrap_or(name_anon_func_call)),
+        _ => compile_context.builder.build_indirect_call(callee_type_llvm, callee_val.into_pointer_value(), args_vals.as_slice(), name_anon_func_call)
     }.unwrap().try_as_basic_value();
 
-    //let ret = compile_context.builder.build_call(fun, args_vals.as_slice(), &name_str.unwrap_or("closure_call".to_owned())).unwrap().try_as_basic_value();
     match ret {
         Either::Left(l) => l.into(),
         Either::Right(_) => get_void_val(compile_context.context), // void, dummy value
@@ -821,7 +822,7 @@ fn compile_anon_func<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     
     let current_bb = compile_context.builder.get_insert_block().unwrap();
 
-    let closure_name = "closure"; // TODO : add an index ? a hash ? (index : no linking two rustaml obj files, but is it a problem ?)
+    let anon_func_name = "anon_func"; // TODO : add an index ? a hash ? (index : no linking two rustaml obj files, but is it a problem ?)
 
     let (arg_types, ret_type, variadic)= match ast_node.get_type(&compile_context.rustaml_context.ast_pool) {
         Type::Function(args, ret, variadic) => (args.clone(), ret.as_ref().clone(), variadic),
@@ -840,7 +841,7 @@ fn compile_anon_func<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
 
     let function_type = get_fn_type(compile_context.context, ret_type_llvm, &arg_types_metadata, *variadic);
 
-    let function = compile_context.module.add_function(closure_name, function_type, Some(inkwell::module::Linkage::Internal));
+    let function = compile_context.module.add_function(anon_func_name, function_type, Some(inkwell::module::Linkage::Internal));
 
     // TODO : add debuginfos
 

@@ -698,6 +698,8 @@ fn set_type_with_changed(type_mut : &mut Option<Type>, t: Type, changed : &mut b
     
 }
 
+const ANON_FUNC_NAME : &'static str = "";
+
 // TODO : return result
 fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], constraints_ranges : &[Range<usize>]) -> Result<(), TypesErr> {
     //println!("constraints: {:?}", constraints);
@@ -792,8 +794,8 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                         let is_arg_nb_wrong = (function_name != &Some("print".to_owned()) && !variadic && passed_args_types.len() != actual_args.len()) || (function_name == &Some("print".to_owned()) && passed_args_types.len() != 1);
 
                         if is_arg_nb_wrong {
-                            // TODO : add better closure name (with a get_closure_name function ?)
-                            return Err(TypesErr::new(TypesErrData::WrongArgNb { function_name: function_name.clone().unwrap_or_else(|| "[closure]".to_owned()) , expected_nb: actual_args.len(), got_nb: passed_args_types.len() }, range));
+                            // TODO : add better anon func name (with a get_anon_func_name function ?)
+                            return Err(TypesErr::new(TypesErrData::WrongArgNb { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()) , expected_nb: actual_args.len(), got_nb: passed_args_types.len() }, range));
                         }
                         
                         let mut merged_arg_types = Vec::new();
@@ -805,7 +807,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                             } else {
                                 // for now use just this check, in the future add a better way to have generic args
                                 if function_name != &Some("print".to_owned()){
-                                    return Err(TypesErr::new(TypesErrData::WrongArgType { function_name: function_name.clone().unwrap_or_else(|| "[closure]".to_owned()), expected_type: actual_arg.clone(), got_type: passed_arg.clone() }, range));
+                                    return Err(TypesErr::new(TypesErrData::WrongArgType { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()), expected_type: actual_arg.clone(), got_type: passed_arg.clone() }, range));
                                 }
                             }
                         }
@@ -813,7 +815,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                         let merged_ret = if let Some(merged_ret) = merge_types(actual_ret.as_ref(), &ret_type) {
                             merged_ret
                         } else {
-                            return Err(TypesErr::new(TypesErrData::WrongRetType { function_name: function_name.clone().unwrap_or_else(|| "[closure]".to_owned()), expected_type: *actual_ret.clone(), got_type: ret_type }, range))
+                            return Err(TypesErr::new(TypesErrData::WrongRetType { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()), expected_type: *actual_ret.clone(), got_type: ret_type }, range))
                         };
 
                         for (arg_tv, arg_type) in args_type_vars.iter().zip(&merged_arg_types) {

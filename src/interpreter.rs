@@ -1022,7 +1022,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         },
         ASTNode::AnonFunc { args, body, type_annotation: _ } => {
             let func_def = FunctionDef {
-                name: context.rustaml_context.str_interner.intern_compiler("closure"), // add an index to not have the same name for all closures ?
+                name: context.rustaml_context.str_interner.intern_compiler("anon_func"), // add an index to not have the same name for all closures ?
                 args,
                 body,
                 return_type: Type::Any, // TODO : is it needed ?
