@@ -80,6 +80,19 @@ impl DebugWithContext<RustamlContext> for VarId {
     }
 }
 
+#[derive(Clone, PartialEq, DebugWithContext)]
+#[debug_context(RustamlContext)]
+struct Var {
+    var_id : VarId,
+    is_global_function : bool,
+}
+
+impl Var {
+    fn new(var_id: VarId, is_global_function : bool) -> Var {
+        Var { var_id, is_global_function }
+    }
+}
+
 pub struct TypeContext<'a> {
     pub rustaml_context : &'a mut RustamlContext,
     type_infos : TypeInfos,
@@ -90,7 +103,7 @@ pub struct TypeContext<'a> {
 
     node_type_vars : FxHashMap<ASTRef, TypeVarId>,
 
-    current_vars : FxHashMap<StringRef, Vec<VarId>>,
+    current_vars : FxHashMap<StringRef, Vec<Var>>,
     max_id : u32,
 
     vars_type_vars : FxHashMap<VarId, TypeVarId>,
@@ -102,15 +115,17 @@ pub struct TypeContext<'a> {
 
 impl<'a> TypeContext<'a> {
 
-    fn push_var(&mut self, name : StringRef) -> VarId {
+    fn push_var(&mut self, name : StringRef, is_global : bool) -> VarId {
         let new_id = self.max_id;
         self.max_id += 1;
         let ret = VarId(new_id);
 
+        let new_var = Var::new(ret, is_global);
+
         if self.current_vars.contains_key(&name) {
-            self.current_vars.get_mut(&name).unwrap().push(ret);
+            self.current_vars.get_mut(&name).unwrap().push(new_var);
         } else {
-            self.current_vars.insert(name, vec![ret]);
+            self.current_vars.insert(name, vec![new_var]);
         }
 
         ret
@@ -118,6 +133,70 @@ impl<'a> TypeContext<'a> {
 
     fn remove_var(&mut self, name : StringRef){
         self.current_vars.get_mut(&name).unwrap().pop().unwrap();
+    }
+
+    // when entering an anonymous function, that can't keep the local vars
+    fn remove_current_local_vars(&mut self) -> FxHashMap<StringRef, Vec<Var>> {
+        let ret = self.current_vars.clone();
+
+        let mut emptied_var_name = Vec::new();
+
+        for (name, vars) in self.current_vars.iter_mut() {
+            let mut elements_to_remove = Vec::new();
+
+            for var in vars.iter() {
+                // for now only not remove global functions, because globals in rustaml are just local variables of the main function, so it either need to either 1. become real globals 2. be automatically passed in a struct like in closure 
+                if !var.is_global_function {
+                    elements_to_remove.push(var.clone());
+                }
+            }
+
+            for element in elements_to_remove {
+                let idx = vars.iter().position(|e| e == &element).unwrap();
+                vars.remove(idx);
+            }
+
+            if vars.is_empty() {
+                emptied_var_name.push(*name);
+            }
+        }
+
+        for name in emptied_var_name {
+            self.current_vars.remove(&name);
+        }
+
+        ret
+
+        /*let mut ret = FxHashMap::default();
+        for (name, vars) in self.current_vars.iter_mut() {
+            let mut idx_after_to_remove = match vars.len().checked_sub(1) {
+                Some(r) => r,
+                None => 0,
+            };
+
+            for (idx, var) in vars.iter().enumerate().rev() {
+                if var.is_global {
+                    idx_after_to_remove = idx;
+                    break;
+                }
+                // TODO : will remove all vars, will not work if there are local function definition (for example let a = let f a b = ... in ...) but is it a problem ? (check this)
+            }
+
+            let removed = vars[0..idx_after_to_remove].to_vec();
+            vars.truncate(idx_after_to_remove+1);
+            ret.insert(*name, removed);
+        }        
+        ret*/
+    }
+
+    fn readd_local_vars(&mut self, vars_to_add : FxHashMap<StringRef, Vec<Var>> ) {
+        self.current_vars = vars_to_add;
+        /*for (name, vars) in vars_to_add.into_iter() {
+            match self.current_vars.get_mut(&name){
+                Some(v) => v.extend(vars),
+                None => { self.current_vars.insert(name, vars); },
+            }
+        }*/
     }
 
     fn push_constraint(&mut self, constraint : Constraint, range : Range<usize>){
@@ -178,7 +257,13 @@ impl TypeVarTable {
 fn get_var_id(context : &TypeContext, name : StringRef, range : Range<usize>) -> Result<VarId, TypesErr> {
     debug_println!(context.rustaml_context.is_debug_print, "{:?}", DebugWrapContext::new(&context.current_vars, context.rustaml_context));
     match context.current_vars.get(&name){
-        Some(vars) => Ok(*vars.last().unwrap_or_else(|| panic!("var id not found : {:?}", name.get_str(&context.rustaml_context.str_interner)))),
+        Some(vars) => {
+            Ok(vars
+                .last()
+                .unwrap_or_else(|| panic!("var id not found : {:?}", name.get_str(&context.rustaml_context.str_interner)))
+                .var_id
+            )
+        },
         None => {
             let nearest_var_name = get_nearest_var(context, name);
             Err(TypesErr::new(TypesErrData::VarNotFound { name: name.get_str(&context.rustaml_context.str_interner).to_owned(), nearest_var_name }, range))
@@ -209,8 +294,8 @@ fn get_function_type_var(context : &TypeContext, var_id: VarId) -> TypeVarId {
     get_var_type_var(context, var_id)
 }
 
-fn create_var(context : &mut TypeContext, name : StringRef, val_type_var : TypeVarId) -> VarId {
-    let var_id = context.push_var(name);
+fn create_var(context : &mut TypeContext, name : StringRef, is_global_function : bool, val_type_var : TypeVarId) -> VarId {
+    let var_id = context.push_var(name, is_global_function);
     context.vars_type_vars.insert(var_id, val_type_var);
     var_id
 }
@@ -222,7 +307,8 @@ fn remove_var(context : &mut TypeContext, name : StringRef){
 fn create_function(context : &mut TypeContext, name : StringRef, val_type_var : TypeVarId) -> VarId {
     /*context.functions_type_vars.insert(name, val_type_var);
     context.functions_type_vars_names.insert(val_type_var, name);*/
-    create_var(context, name, val_type_var)
+    let is_global_function = true; // TODO ?
+    create_var(context, name, is_global_function, val_type_var)
 }
 
 fn is_underscore(rustaml_context: &RustamlContext, name : StringRef) -> bool {
@@ -251,7 +337,7 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
             let element_type_var = context.table.new_type_var();
             let is_var_underscore= is_underscore(context.rustaml_context, e); 
             if !is_var_underscore {
-                create_var(context, e, element_type_var);
+                create_var(context, e, false, element_type_var);
             }
 
             context.push_constraint(Constraint::IsElementOf { element: element_type_var, list: matched_type_var }, range.clone());
@@ -261,7 +347,7 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
             let var_type_var = context.table.new_type_var();
             if !is_underscore(context.rustaml_context, n) {
                 debug_println!(context.rustaml_context.is_debug_print, "add pattern var {:?}", DebugWrapContext::new(&n, context.rustaml_context));
-                create_var(context, n, var_type_var);
+                create_var(context, n, false, var_type_var);
             }
             
             context.push_constraint(Constraint::SameType(var_type_var, matched_type_var), range);
@@ -401,7 +487,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 }
 
                 if !is_underscore(context.rustaml_context, arg.name) {
-                    create_var(context, arg.name, arg_type_var);
+                    create_var(context, arg.name, false, arg_type_var);
                 }
             }
 
@@ -433,11 +519,12 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
 
         ASTNode::AnonFunc { args: arg_names, body, type_annotation } => {
 
+            let old_vars = context.remove_current_local_vars();
 
             let mut arg_vars = Vec::new();
 
             let (return_type, arg_type_annotations) = match type_annotation {
-                Some(Type::Function(args, ret, variadic)) => (Some(*ret), Some(args)),
+                Some(Type::Function(args, ret, _)) => (Some(*ret), Some(args)),
                 Some(t) => return Err(TypesErr::new(TypesErrData::FunctionTypeExpected { wrong_type: t }, range)),
                 _ => (None, None),
             };
@@ -450,7 +537,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 }
 
                 if !is_underscore(context.rustaml_context, *arg_name) {
-                    create_var(context, *arg_name, arg_type_var);
+                    create_var(context, *arg_name, false, arg_type_var);
                 }
             }
 
@@ -461,6 +548,14 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
 
             let body_type_var = collect_constraints(context, body)?;
             context.push_constraint(Constraint::SameType(body_type_var, ret_type_var), range.clone());
+
+            for arg_name in arg_names {
+                if !is_underscore(context.rustaml_context, arg_name) {
+                    remove_var(context, arg_name);
+                }
+            }
+
+            context.readd_local_vars(old_vars);
 
             context.push_constraint(Constraint::FunctionType { 
                 fun_type_var: new_type_var, 
@@ -507,9 +602,10 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             if let Some(v_t) = var_type {
                 context.push_constraint(Constraint::IsType(val_type_var, v_t), range.clone());
             }
+
             
             if !is_underscore(context.rustaml_context, name){
-                let var_id = create_var(context, name, val_type_var);
+                let var_id = create_var(context, name, false, val_type_var);
                 context.type_infos.ast_var_ids.insert(ast, var_id);
             }
 
