@@ -457,7 +457,7 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
     }
 
     let ret = match callee_val {
-        AnyValueEnum::FunctionValue(fun) => compile_context.builder.build_call(fun, args_vals.as_slice(), &name_str.unwrap()),
+        AnyValueEnum::FunctionValue(fun) => compile_context.builder.build_call(fun, args_vals.as_slice(), name_str.as_ref().map(|s| s.as_str()).unwrap_or("closure_call")),
         _ => compile_context.builder.build_indirect_call(callee_type_llvm, callee_val.into_pointer_value(), args_vals.as_slice(), "closure_call")
     }.unwrap().try_as_basic_value();
 
@@ -473,9 +473,9 @@ fn compile_binop_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     match (lhs_val, rhs_val){
         (AnyValueEnum::IntValue(i),  AnyValueEnum::IntValue(i2)) => {
             match op {
+                // TODO : add check for overflow like in rust (with a flag to activate it)
                 Operator::Plus => compile_context.builder.build_int_add(i, i2, name).unwrap(),
                 Operator::Minus => compile_context.builder.build_int_sub(i, i2, name).unwrap(),
-                // TODO : add check for overflow like in rust
                 Operator::Mult => compile_context.builder.build_int_mul(i, i2, name).unwrap(),
                 Operator::Div => compile_context.builder.build_int_signed_div(i, i2, name).unwrap(),
                 _ => unreachable!(),
@@ -817,10 +817,55 @@ fn compile_str<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx
     create_string(compile_context, str.get_str(&compile_context.rustaml_context.str_interner))
 }
 
-fn compile_anon_func<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, args : &[StringRef], body : ASTRef) -> FunctionValue<'llvm_ctx> {
-    let body_ret = compile_expr(compile_context, body);
+fn compile_anon_func<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef, args : &[StringRef], body : ASTRef) -> FunctionValue<'llvm_ctx> {
+    
+    let current_bb = compile_context.builder.get_insert_block().unwrap();
 
-    todo!()
+    let closure_name = "closure"; // TODO : add an index ? a hash ? (index : no linking two rustaml obj files, but is it a problem ?)
+
+    let (arg_types, ret_type, variadic)= match ast_node.get_type(&compile_context.rustaml_context.ast_pool) {
+        Type::Function(args, ret, variadic) => (args.clone(), ret.as_ref().clone(), variadic),
+        _ => unreachable!(),
+    };
+
+    let ret_type_llvm = get_llvm_type(compile_context.context, &ret_type);
+
+    let arg_types_llvm = 
+        arg_types.iter()
+        .map(|e| get_llvm_type(compile_context.context, e))
+        .collect::<Vec<_>>();
+
+    
+    let arg_types_metadata = arg_types_llvm.iter().map(|a| any_type_to_metadata(compile_context.context, *a)).collect::<Vec<_>>();
+
+    let function_type = get_fn_type(compile_context.context, ret_type_llvm, &arg_types_metadata, *variadic);
+
+    let function = compile_context.module.add_function(closure_name, function_type, Some(inkwell::module::Linkage::Internal));
+
+    // TODO : add debuginfos
+
+    let entry = compile_context.context.append_basic_block(function, "entry");
+    compile_context.builder.position_at_end(entry);
+
+    let range = ast_node.get_range(&compile_context.rustaml_context.ast_pool); // TODO
+
+    // TODO : need a way to reset vars (for example swap the current vars with an empty one, then put it back)
+    for (((arg_name, arg_val), arg_type_llvm), arg_type) in args.iter().zip(function.get_param_iter()).zip(&arg_types_llvm).zip(arg_types) {
+        let var_ptr = create_var(compile_context, *arg_name, arg_val.as_any_value_enum(), *arg_type_llvm);
+        compile_context.debug_info.declare_var(arg_name.get_str(&compile_context.rustaml_context.str_interner), &arg_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), range.clone());
+    }
+    let ret = compile_expr(compile_context, body);
+
+    let return_val: Option<&dyn BasicValue<'_>> = match ret_type {
+        Type::Unit => None,
+        _ => Some(&TryInto::<BasicValueEnum>::try_into(ret).unwrap()),
+    };
+
+    compile_context.builder.build_return(return_val).unwrap(); 
+
+    compile_context.builder.position_at_end(current_bb);
+
+    function
 }
 
 // TODO : replace AnyValueEnum with BasicMetadataValueEnum in compile_expr and other functions ?
@@ -841,7 +886,7 @@ pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
             compile_static_list(compile_context, list, ast_node.get_type(&compile_context.rustaml_context.ast_pool))
         },
         ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, *matched_expr, patterns),
-        ASTNode::AnonFunc { args, body, type_annotation: _ } => compile_anon_func(compile_context, args, *body).as_any_value_enum(),
+        ASTNode::AnonFunc { args, body, type_annotation: _ } => compile_anon_func(compile_context, ast_node, args, *body).as_any_value_enum(),
         ASTNode::Unit => get_void_val(compile_context.context),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)), 
         //_ => todo!()
@@ -883,6 +928,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
         ASTNode::FunctionDefinition { name, args, body, return_type: _ } => {
             //println!("typeinfos function_env : {:?}", DebugWrapContext::new(&compile_context.typeinfos.functions_env, compile_context.rustaml_context));
             
+            // TODO : replace this with accessing the type of the ASTNode ?
             let function_id = get_var_id(compile_context, ast_node);
 
             let (return_type, arg_types) = match compile_context.typeinfos.vars_env.get(&function_id).unwrap() {
