@@ -66,8 +66,8 @@ pub enum TypesErrData {
 #[derive(Default)]
 pub struct TypeInfos {
     pub vars_env : FxHashMap<VarId, Type>,
-    pub functions_env : FxHashMap<StringRef, Type>,
-    pub ast_var_ids : FxHashMap<ASTRef, VarId>,
+    //pub functions_env : FxHashMap<StringRef, Type>,
+    pub ast_var_ids : FxHashMap<ASTRef, VarId>, // TODO need to also add there function calls 
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -77,6 +77,19 @@ impl DebugWithContext<RustamlContext> for VarId {
     // just print the var id
     fn fmt_with_context(&self, f: &mut std::fmt::Formatter, _context: &RustamlContext) -> std::fmt::Result {
         write!(f, "{:?}", self.0)
+    }
+}
+
+#[derive(Clone, PartialEq, DebugWithContext)]
+#[debug_context(RustamlContext)]
+struct Var {
+    var_id : VarId,
+    is_global_function : bool,
+}
+
+impl Var {
+    fn new(var_id: VarId, is_global_function : bool) -> Var {
+        Var { var_id, is_global_function }
     }
 }
 
@@ -90,27 +103,29 @@ pub struct TypeContext<'a> {
 
     node_type_vars : FxHashMap<ASTRef, TypeVarId>,
 
-    current_vars : FxHashMap<StringRef, Vec<VarId>>,
+    current_vars : FxHashMap<StringRef, Vec<Var>>,
     max_id : u32,
 
     vars_type_vars : FxHashMap<VarId, TypeVarId>,
 
     // they are the reverse of each other, (TODO : use this https://docs.rs/bidirectional-map/latest/bidirectional_map/struct.Bimap.html ?)
-    functions_type_vars : FxHashMap<StringRef, TypeVarId>,
-    functions_type_vars_names : FxHashMap<TypeVarId, StringRef>,
+    /*functions_type_vars : FxHashMap<StringRef, TypeVarId>,
+    functions_type_vars_names : FxHashMap<TypeVarId, StringRef>,*/
 }
 
 impl<'a> TypeContext<'a> {
 
-    fn push_var(&mut self, name : StringRef) -> VarId {
+    fn push_var(&mut self, name : StringRef, is_global : bool) -> VarId {
         let new_id = self.max_id;
         self.max_id += 1;
         let ret = VarId(new_id);
 
+        let new_var = Var::new(ret, is_global);
+
         if self.current_vars.contains_key(&name) {
-            self.current_vars.get_mut(&name).unwrap().push(ret);
+            self.current_vars.get_mut(&name).unwrap().push(new_var);
         } else {
-            self.current_vars.insert(name, vec![ret]);
+            self.current_vars.insert(name, vec![new_var]);
         }
 
         ret
@@ -118,6 +133,70 @@ impl<'a> TypeContext<'a> {
 
     fn remove_var(&mut self, name : StringRef){
         self.current_vars.get_mut(&name).unwrap().pop().unwrap();
+    }
+
+    // when entering an anonymous function, that can't keep the local vars
+    fn remove_current_local_vars(&mut self) -> FxHashMap<StringRef, Vec<Var>> {
+        let ret = self.current_vars.clone();
+
+        let mut emptied_var_name = Vec::new();
+
+        for (name, vars) in self.current_vars.iter_mut() {
+            let mut elements_to_remove = Vec::new();
+
+            for var in vars.iter() {
+                // for now only not remove global functions, because globals in rustaml are just local variables of the main function, so it either need to either 1. become real globals 2. be automatically passed in a struct like in closure 
+                if !var.is_global_function {
+                    elements_to_remove.push(var.clone());
+                }
+            }
+
+            for element in elements_to_remove {
+                let idx = vars.iter().position(|e| e == &element).unwrap();
+                vars.remove(idx);
+            }
+
+            if vars.is_empty() {
+                emptied_var_name.push(*name);
+            }
+        }
+
+        for name in emptied_var_name {
+            self.current_vars.remove(&name);
+        }
+
+        ret
+
+        /*let mut ret = FxHashMap::default();
+        for (name, vars) in self.current_vars.iter_mut() {
+            let mut idx_after_to_remove = match vars.len().checked_sub(1) {
+                Some(r) => r,
+                None => 0,
+            };
+
+            for (idx, var) in vars.iter().enumerate().rev() {
+                if var.is_global {
+                    idx_after_to_remove = idx;
+                    break;
+                }
+                // TODO : will remove all vars, will not work if there are local function definition (for example let a = let f a b = ... in ...) but is it a problem ? (check this)
+            }
+
+            let removed = vars[0..idx_after_to_remove].to_vec();
+            vars.truncate(idx_after_to_remove+1);
+            ret.insert(*name, removed);
+        }        
+        ret*/
+    }
+
+    fn readd_local_vars(&mut self, vars_to_add : FxHashMap<StringRef, Vec<Var>> ) {
+        self.current_vars = vars_to_add;
+        /*for (name, vars) in vars_to_add.into_iter() {
+            match self.current_vars.get_mut(&name){
+                Some(v) => v.extend(vars),
+                None => { self.current_vars.insert(name, vars); },
+            }
+        }*/
     }
 
     fn push_constraint(&mut self, constraint : Constraint, range : Range<usize>){
@@ -137,7 +216,7 @@ enum Constraint {
     SameType(TypeVarId, TypeVarId),   // var1 == var2
     IsType(TypeVarId, Type),   // var == Int, Float, Function, ...
     // TODO : replace function_name with a stringref ?
-    FunctionType { fun_type_var: TypeVarId, args_type_vars: Vec<TypeVarId>, ret_type_var: TypeVarId, is_variadic: bool, function_name : String }, // check if the function type is good (for calls)
+    FunctionType { fun_type_var: TypeVarId, args_type_vars: Vec<TypeVarId>, ret_type_var: TypeVarId, is_variadic: bool, function_name : Option<String> }, // check if the function type is good (for calls)
     // TODO : can I merge these list constraints ?
     ListType(TypeVarId), // var is list(Any)
     IsElementOf { element: TypeVarId, list : TypeVarId }
@@ -178,7 +257,13 @@ impl TypeVarTable {
 fn get_var_id(context : &TypeContext, name : StringRef, range : Range<usize>) -> Result<VarId, TypesErr> {
     debug_println!(context.rustaml_context.is_debug_print, "{:?}", DebugWrapContext::new(&context.current_vars, context.rustaml_context));
     match context.current_vars.get(&name){
-        Some(vars) => Ok(*vars.last().unwrap()),
+        Some(vars) => {
+            Ok(vars
+                .last()
+                .unwrap_or_else(|| panic!("var id not found : {:?}", name.get_str(&context.rustaml_context.str_interner)))
+                .var_id
+            )
+        },
         None => {
             let nearest_var_name = get_nearest_var(context, name);
             Err(TypesErr::new(TypesErrData::VarNotFound { name: name.get_str(&context.rustaml_context.str_interner).to_owned(), nearest_var_name }, range))
@@ -197,15 +282,20 @@ fn get_var_type_var(context : &TypeContext, var_id: VarId) -> TypeVarId {
     }
 }
 
-fn get_function_type_var(context : &TypeContext, name: StringRef, range : Range<usize>) -> Result<TypeVarId, TypesErr> {
+/*fn get_function_type_var(context : &TypeContext, name: StringRef, range : Range<usize>) -> Result<TypeVarId, TypesErr> {
     match context.functions_type_vars.get(&name) {
         Some(t) => Ok(*t),
         None => Err(TypesErr::new(TypesErrData::FunctionNotFound { name: name.get_str(&context.rustaml_context.str_interner).to_owned() }, range))
     }
+}*/
+
+// TODO : add inline on this
+fn get_function_type_var(context : &TypeContext, var_id: VarId) -> TypeVarId {
+    get_var_type_var(context, var_id)
 }
 
-fn create_var(context : &mut TypeContext, name : StringRef, val_type_var : TypeVarId) -> VarId {
-    let var_id = context.push_var(name);
+fn create_var(context : &mut TypeContext, name : StringRef, is_global_function : bool, val_type_var : TypeVarId) -> VarId {
+    let var_id = context.push_var(name, is_global_function);
     context.vars_type_vars.insert(var_id, val_type_var);
     var_id
 }
@@ -214,9 +304,11 @@ fn remove_var(context : &mut TypeContext, name : StringRef){
     context.remove_var(name);
 }
 
-fn create_function(context : &mut TypeContext, name : StringRef, val_type_var : TypeVarId){
-    context.functions_type_vars.insert(name, val_type_var);
-    context.functions_type_vars_names.insert(val_type_var, name);
+fn create_function(context : &mut TypeContext, name : StringRef, val_type_var : TypeVarId) -> VarId {
+    /*context.functions_type_vars.insert(name, val_type_var);
+    context.functions_type_vars_names.insert(val_type_var, name);*/
+    let is_global_function = true; // TODO ?
+    create_var(context, name, is_global_function, val_type_var)
 }
 
 fn is_underscore(rustaml_context: &RustamlContext, name : StringRef) -> bool {
@@ -245,7 +337,7 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
             let element_type_var = context.table.new_type_var();
             let is_var_underscore= is_underscore(context.rustaml_context, e); 
             if !is_var_underscore {
-                create_var(context, e, element_type_var);
+                create_var(context, e, false, element_type_var);
             }
 
             context.push_constraint(Constraint::IsElementOf { element: element_type_var, list: matched_type_var }, range.clone());
@@ -255,7 +347,7 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
             let var_type_var = context.table.new_type_var();
             if !is_underscore(context.rustaml_context, n) {
                 debug_println!(context.rustaml_context.is_debug_print, "add pattern var {:?}", DebugWrapContext::new(&n, context.rustaml_context));
-                create_var(context, n, var_type_var);
+                create_var(context, n, false, var_type_var);
             }
             
             context.push_constraint(Constraint::SameType(var_type_var, matched_type_var), range);
@@ -383,8 +475,9 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         }
 
         ASTNode::FunctionDefinition { name, args, body, return_type } => {
-            create_function(context, name, new_type_var);
-            
+            let function_id = create_function(context, name, new_type_var);
+            context.type_infos.ast_var_ids.insert(ast, function_id);
+
             let mut arg_vars = Vec::new();
             for arg in &args {
                 let arg_type_var = context.table.new_type_var();
@@ -394,7 +487,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 }
 
                 if !is_underscore(context.rustaml_context, arg.name) {
-                    create_var(context, arg.name, arg_type_var);
+                    create_var(context, arg.name, false, arg_type_var);
                 }
             }
 
@@ -413,16 +506,71 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 }
             }
 
+            let function_name = Some(name.get_str(&context.rustaml_context.str_interner).to_owned());
+
             context.push_constraint(Constraint::FunctionType { 
                 fun_type_var: new_type_var, 
                 args_type_vars: arg_vars, 
-                ret_type_var, is_variadic: false, 
-                function_name: name.get_str(&context.rustaml_context.str_interner).to_owned() 
+                ret_type_var, 
+                is_variadic: false, 
+                function_name,
             }, range);
         }
 
-        ASTNode::FunctionCall { name, args } => {
-            let fun_type_var = get_function_type_var(context, name, range.clone())?;
+        ASTNode::AnonFunc { args: arg_names, body, type_annotation } => {
+
+            let old_vars = context.remove_current_local_vars();
+
+            let mut arg_vars = Vec::new();
+
+            let (return_type, arg_type_annotations) = match type_annotation {
+                Some(Type::Function(args, ret, _)) => (Some(*ret), Some(args)),
+                Some(t) => return Err(TypesErr::new(TypesErrData::FunctionTypeExpected { wrong_type: t }, range)),
+                _ => (None, None),
+            };
+
+            for (arg_idx, arg_name) in arg_names.iter().enumerate() {
+                let arg_type_var = context.table.new_type_var();
+                arg_vars.push(arg_type_var);
+                if let Some(arg_type_annotations) = &arg_type_annotations {
+                    context.push_constraint(Constraint::IsType(arg_type_var, arg_type_annotations[arg_idx].clone()), range.clone());
+                }
+
+                if !is_underscore(context.rustaml_context, *arg_name) {
+                    create_var(context, *arg_name, false, arg_type_var);
+                }
+            }
+
+            let ret_type_var = context.table.new_type_var();
+            if let Some(return_type) = return_type {
+                context.push_constraint(Constraint::IsType(ret_type_var, return_type), range.clone());
+            }
+
+            let body_type_var = collect_constraints(context, body)?;
+            context.push_constraint(Constraint::SameType(body_type_var, ret_type_var), range.clone());
+
+            for arg_name in arg_names {
+                if !is_underscore(context.rustaml_context, arg_name) {
+                    remove_var(context, arg_name);
+                }
+            }
+
+            context.readd_local_vars(old_vars);
+
+            context.push_constraint(Constraint::FunctionType { 
+                fun_type_var: new_type_var, 
+                args_type_vars: arg_vars, 
+                ret_type_var, 
+                is_variadic: false, 
+                function_name: None,
+            }, range);
+        }
+
+        ASTNode::FunctionCall { callee, args } => {
+            let callee_type_var = collect_constraints(context, callee)?;
+
+            /*let function_id = get_var_id(context, name, range.clone())?;
+            let fun_type_var = get_function_type_var(context, function_id);*/
 
             // TODO : replace the unwrap_or ?
             /*if let Type::Function(arg_types, ret, _) = context.functions_type_annotations.get(&name).unwrap_or(&Type::Any) {
@@ -433,12 +581,18 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
 
             let args_type_vars = args.iter().map(|&e| collect_constraints(context, e)).collect::<Result<Vec<_>, TypesErr>>()?;
 
+            let function_name = if let ASTNode::VarUse { name } = callee.get(&context.rustaml_context.ast_pool) {
+                Some(name.get_str(&context.rustaml_context.str_interner).to_owned())
+            } else {
+                None
+            };
+
             context.push_constraint(Constraint::FunctionType { 
-                fun_type_var, 
+                fun_type_var: callee_type_var, 
                 args_type_vars, 
                 ret_type_var, 
-                is_variadic: false, 
-                function_name: name.get_str(&context.rustaml_context.str_interner).to_owned() 
+                is_variadic: false,
+                function_name, 
             }, range);
         }
 
@@ -448,9 +602,10 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             if let Some(v_t) = var_type {
                 context.push_constraint(Constraint::IsType(val_type_var, v_t), range.clone());
             }
+
             
             if !is_underscore(context.rustaml_context, name){
-                let var_id = create_var(context, name, val_type_var);
+                let var_id = create_var(context, name, false, val_type_var);
                 context.type_infos.ast_var_ids.insert(ast, var_id);
             }
 
@@ -515,6 +670,15 @@ fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
         (Type::List(e1), Type::List(e2)) => {
             let e = merge_types(e1.as_ref(), e2.as_ref())?;
             Some(Type::List(Box::new(e)))
+        },
+        (Type::Function(args1, ret1, variadic1), Type::Function(args2, ret2, variadic2)) => {
+            let variadic = *variadic1 || *variadic2;
+            let ret = merge_types(ret1.as_ref(), ret2.as_ref())?;
+            let mut args = Vec::new();
+            for (arg1, arg2) in args1.iter().zip(args2){
+                args.push(merge_types(arg1, arg2)?);
+            }
+            Some(Type::Function(args, Box::new(ret), variadic))
         }
         _ => None,
     };
@@ -533,6 +697,8 @@ fn set_type_with_changed(type_mut : &mut Option<Type>, t: Type, changed : &mut b
     *type_mut = new_type;
     
 }
+
+const ANON_FUNC_NAME : &'static str = "";
 
 // TODO : return result
 fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], constraints_ranges : &[Range<usize>]) -> Result<(), TypesErr> {
@@ -624,11 +790,12 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                     };
 
                     if let Some((actual_args, actual_ret, variadic)) = fun_type_tuple {
-                        // TODO: fix the print part
-                        let is_arg_nb_wrong = (function_name != "print" && !variadic && passed_args_types.len() != actual_args.len()) || (function_name == "print" && passed_args_types.len() != 1);
+                        // TODO: fix the print part (or at least make it more efficient, because with the to_owned, it is bad)
+                        let is_arg_nb_wrong = (function_name != &Some("print".to_owned()) && !variadic && passed_args_types.len() != actual_args.len()) || (function_name == &Some("print".to_owned()) && passed_args_types.len() != 1);
 
                         if is_arg_nb_wrong {
-                            return Err(TypesErr::new(TypesErrData::WrongArgNb { function_name: function_name.to_owned() , expected_nb: actual_args.len(), got_nb: passed_args_types.len() }, range))
+                            // TODO : add better anon func name (with a get_anon_func_name function ?)
+                            return Err(TypesErr::new(TypesErrData::WrongArgNb { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()) , expected_nb: actual_args.len(), got_nb: passed_args_types.len() }, range));
                         }
                         
                         let mut merged_arg_types = Vec::new();
@@ -639,8 +806,8 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                                 merged_arg_types.push(merged_art_type);
                             } else {
                                 // for now use just this check, in the future add a better way to have generic args
-                                if function_name != "print"{
-                                    return Err(TypesErr::new(TypesErrData::WrongArgType { function_name: function_name.to_owned(), expected_type: actual_arg.clone(), got_type: passed_arg.clone() }, range));
+                                if function_name != &Some("print".to_owned()){
+                                    return Err(TypesErr::new(TypesErrData::WrongArgType { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()), expected_type: actual_arg.clone(), got_type: passed_arg.clone() }, range));
                                 }
                             }
                         }
@@ -648,7 +815,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                         let merged_ret = if let Some(merged_ret) = merge_types(actual_ret.as_ref(), &ret_type) {
                             merged_ret
                         } else {
-                            return Err(TypesErr::new(TypesErrData::WrongRetType { function_name: function_name.to_owned(), expected_type: *actual_ret.clone(), got_type: ret_type }, range))
+                            return Err(TypesErr::new(TypesErrData::WrongRetType { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()), expected_type: *actual_ret.clone(), got_type: ret_type }, range))
                         };
 
                         for (arg_tv, arg_type) in args_type_vars.iter().zip(&merged_arg_types) {
@@ -742,9 +909,9 @@ fn apply_types_to_ast(context : &mut TypeContext){
     for (node, tv) in &context.node_type_vars {
         let t = context.table.resolve_type(*tv);
 
-        if let Some(name) = context.functions_type_vars_names.get(tv){
+        /*if let Some(name) = context.functions_type_vars_names.get(tv){
             context.type_infos.functions_env.insert(*name, t.clone());
-        }
+        }*/
 
         //debug_println!(context.rustaml_context.is_debug_print, "set type of node {:?} to {:?}", DebugWrapContext::new(node, context.rustaml_context), DebugWrapContext::new(&t, context.rustaml_context));
 
@@ -771,7 +938,7 @@ fn std_function_constraint(context : &mut TypeContext, name : &'static str, args
         args_type_vars, 
         ret_type_var, 
         is_variadic, 
-        function_name: name.to_owned() 
+        function_name: Some(name.to_owned()), 
     }, 0..0);
 }
 
@@ -781,6 +948,8 @@ fn std_functions_constraints_types(context : &mut TypeContext) {
     std_function_constraint(context, "rand", vec![Type::Unit], Type::Integer, false);
     std_function_constraint(context, "format", vec![Type::Str], Type::Str, true);
     std_function_constraint(context, "panic", vec![Type::Str], Type::Never, true);
+    // TODO : improve the type information of map with numbered generics
+    std_function_constraint(context, "map", vec![Type::List(Box::new(Type::Any)), Type::Function(vec![Type::Any], Box::new(Type::Any), false)], Type::List(Box::new(Type::Any)), false);
     // TODO : add a rand_f ? or make the rand function generic with its return ?
 }
 
@@ -795,8 +964,8 @@ pub fn resolve_and_typecheck(rustaml_context: &mut RustamlContext, ast : ASTRef)
         current_vars: FxHashMap::default(),
         max_id: 0,
         vars_type_vars: FxHashMap::default(),
-        functions_type_vars: FxHashMap::default(),
-        functions_type_vars_names: FxHashMap::default(),
+        /*functions_type_vars: FxHashMap::default(),
+        functions_type_vars_names: FxHashMap::default(),*/
     };
 
     std_functions_constraints_types(&mut context);

@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{fmt, ops::Range};
 
 use inkwell::{basic_block::BasicBlock, context::Context, debug_info::{AsDIScope, DICompileUnit, DILexicalBlock, DILocation, DISubprogram, DIType, DebugInfoBuilder, LLVMDWARFTypeEncoding}, llvm_sys::debuginfo::{LLVMDIFlagPrivate, LLVMDIFlagPublic}, values::{FunctionValue, PointerValue}, AddressSpace};
 use rustc_hash::FxHashMap;
@@ -182,6 +182,21 @@ fn get_list_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>) -> DIType<'
     inner.debug_builder.create_pointer_type("list_pointer", list_struct_ty.as_type(), inner.target_infos.get_ptr_size_in_bits() as u64, inner.target_infos.get_ptr_alignement_in_bits(), AddressSpace::default()).as_type()
 }
 
+
+struct DisplayVecArgs<'a, T>(&'a [T]);
+
+impl<'a, T: fmt::Display> fmt::Display for DisplayVecArgs<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (i, item) in self.0.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?; // separator
+            }
+            write!(f, "{}", item)?;
+        }
+        Ok(())
+    }
+}
+
 fn get_debug_info_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>, t : &Type) -> DIType<'llvm_ctx> {
     
     if inner.types.contains_key(t) {
@@ -195,9 +210,23 @@ fn get_debug_info_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>, t : &
             let scope = inner.debug_compile_unit.as_debug_info_scope();
             let align_in_bits = inner.target_infos.get_ptr_alignement_in_bits();
             inner.debug_builder.create_typedef(pointer_to_struct_ty, &format!("list[{}]", e.as_ref()), inner.debug_compile_unit.get_file(), line_nb, scope, align_in_bits).as_type()
+        },
+        Type::Function(args, ret, is_variadic) => {
+            /*let flags = 0;
+            let pointee = inner.debug_builder.create_subroutine_type(
+                inner.debug_compile_unit.get_file(), 
+                Some(get_debug_info_type(inner, ret.as_ref())), 
+                &args.iter().map(|e| get_debug_info_type(inner, e)).collect::<Vec<_>>(), 
+                flags);*/ // TODO
+            // TODO
+
+            let pointee = get_debug_info_type(inner, &Type::Unit);
+
+            let name = &format!("function({}{}) -> {}", DisplayVecArgs(&args), (if *is_variadic { ", ..." } else { "" }), ret.as_ref());
+            inner.debug_builder.create_pointer_type(name, pointee, inner.target_infos.get_ptr_size_in_bits() as u64, inner.target_infos.get_ptr_alignement_in_bits(), AddressSpace::default()).as_type()
         }
         _ => {
-            let type_data = inner.type_data.get(t).unwrap();
+            let type_data = inner.type_data.get(t).unwrap_or_else(|| panic!("type inner data not found : {:?}", t));
             let di_type = inner.debug_builder.create_basic_type(&type_data.name, type_data.size_in_bits, type_data.encoding, LLVMDIFlagPublic).unwrap().as_type();
         
             inner.types.insert(t.clone(), di_type);

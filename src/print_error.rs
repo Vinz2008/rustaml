@@ -267,6 +267,15 @@ fn print_function_not_found_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, n
     }
 }
 
+fn print_function_type_expected<'a>(error_basic_infos : ErrorBasicInfos<'a>, wrong_type : Type) -> ErrorPrint<'a> {
+    ErrorPrint { 
+        error_basic_infos, 
+        message: format!("Wrong type, expected a function type, but got {:?}", wrong_type),
+        label: Some("This is where a function should be"),
+        note: Some("You have probably tried to call something that is not a function".to_owned()),
+    }
+}
+
 fn print_incompatible_types_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, type1 : Type, type2 : Type) -> ErrorPrint<'a> {
     ErrorPrint {
         error_basic_infos,
@@ -340,8 +349,9 @@ pub fn print_type_error(type_error : TypesErr, filename : &Path, content : &str)
     };
 
     let error_print = match *type_error.err_data {
+        // TODO : remove this (FunctionNotFound) ?
         TypesErrData::FunctionNotFound { name } => print_function_not_found_error(error_basic_infos, &name),
-        TypesErrData::FunctionTypeExpected { wrong_type } => todo!(), // TODO (for now can't even be produced because you can only call on identifiers and there is an function not found in this case, need to remove it and replace it with this in the case that the var is not a function)
+        TypesErrData::FunctionTypeExpected { wrong_type } => print_function_type_expected(error_basic_infos, wrong_type),
         TypesErrData::IncompatibleTypes { type1, type2 } => print_incompatible_types_error(error_basic_infos, type1, type2),
         TypesErrData::ListTypeExpected { wrong_type } => print_list_type_expected_error(error_basic_infos, wrong_type),
         TypesErrData::VarNotFound { name, nearest_var_name } => print_var_not_found_error(error_basic_infos, &name, nearest_var_name),

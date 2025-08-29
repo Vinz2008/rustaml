@@ -30,8 +30,24 @@ should_panic_files = {
 def is_error(return_code : int) -> bool:
     return return_code != 0
 
-def get_error_message(is_compiling : bool, return_code : int, filename : str, is_release_mode : bool) -> str:
-    rustaml_name = "compiler" if is_compiling else "interpreter"
+class COMMAND:
+    ALL = 1
+    INTERPRET = 2
+    COMPILE = 3
+    CHECK = 4
+
+
+def get_error_message(command : COMMAND, return_code : int, filename : str, is_release_mode : bool) -> str:
+    match command:
+        case COMMAND.COMPILE:
+            rustaml_name = "compiler"
+        case COMMAND.INTERPRET:
+            rustaml_name = "interpreter"
+        case COMMAND.CHECK:
+            rustaml_name = "checker"
+        case _:
+            sys.exit(f"Unknown command {command}")
+
     match return_code:
         case -6:
             return (f" Stack overflow of the {rustaml_name}" if not is_release_mode else "Error or Stack overflow (try in debug mode to have more infos)")
@@ -45,19 +61,21 @@ def get_error_message(is_compiling : bool, return_code : int, filename : str, is
             if os.path.exists(error_filename):
                 return f"LLVM ERROR (check the {error_filename}) file for more details)"
             else:
-                return get_error_message(is_compiling, 1, filename, is_release_mode)
+                return get_error_message(command, 1, filename, is_release_mode)
         case _:
             sys.exit(f"Unknown error return code {return_code}")
 
-def test_file(filename : str, is_compiling: bool, is_release_mode : bool, is_debuginfo : bool):
+def test_file(filename : str, command : COMMAND, is_release_mode : bool, is_debuginfo : bool):
     cmd = f"{exe_path} "
-    if is_compiling:
-        cmd += "compile -o out "
-        if is_debuginfo:
-            cmd += "-g "
-    else:
-        cmd += "interpret "
-
+    match command:
+        case COMMAND.COMPILE:
+            cmd += "compile -o out "
+            if is_debuginfo:
+                cmd += "-g "
+        case COMMAND.INTERPRET:
+            cmd += "interpret "
+        case COMMAND.CHECK:
+            cmd += "check "
     
     cmd += os.path.join(scripts_dir, filename)
 
@@ -71,9 +89,9 @@ def test_file(filename : str, is_compiling: bool, is_release_mode : bool, is_deb
         should_panic = True
 
     is_err = is_error(return_code)
-    should_print_error_message = is_err if is_compiling else (not should_panic and is_err) or (should_panic and not is_err)
+    should_print_error_message = is_err if command != COMMAND.INTERPRET else (not should_panic and is_err) or (should_panic and not is_err)
     if should_print_error_message:
-        error_message = get_error_message(is_compiling, return_code, filename, is_release_mode)
+        error_message = get_error_message(command, return_code, filename, is_release_mode)
         return "❌", error_message, out
         
     return "✅", "", out
@@ -84,8 +102,21 @@ def print_error(filename: str, error_message : str, out : bytes):
     print(f"{out.decode("utf-8", errors="replace")}")
 
 
-def test_all_files(is_compiling : bool, is_release_mode: bool, is_debuginfo : bool):
-    print(f"--\n{Fore.BLUE}START TESTING {"COMPILED" if is_compiling else "INTERPRETED"}{Style.RESET_ALL}")
+
+def get_command_type_str(command : COMMAND) -> str:
+    # ALL will never be passed
+    match command:
+        case COMMAND.INTERPRET:
+            return "INTERPRETED"
+        case COMMAND.COMPILE:
+            return "COMPILED"
+        case COMMAND.CHECK:
+            return "CHECK"
+    
+
+def test_all_files(command : COMMAND, is_release_mode: bool, is_debuginfo : bool):
+    command_type_str = get_command_type_str(command)
+    print(f"--\n{Fore.BLUE}START TESTING {command_type_str}{Style.RESET_ALL}")
 
     summary_filenames.clear()
     for file in os.listdir(scripts_dir):
@@ -93,8 +124,8 @@ def test_all_files(is_compiling : bool, is_release_mode: bool, is_debuginfo : bo
         if extension == ".rml" and file not in excluded_files:
             print(f"{file} ", end='', flush=True)
             summary_filenames.append(file)
-            output_print, error_message, out = test_file(file, is_compiling, is_release_mode, is_debuginfo)
-            if is_compiling:
+            output_print, error_message, out = test_file(file, command, is_release_mode, is_debuginfo)
+            if command == COMMAND.COMPILE:
                 summary_compiler.append(output_print)
             else:
                 summary_interpreter.append(output_print)
@@ -103,7 +134,7 @@ def test_all_files(is_compiling : bool, is_release_mode: bool, is_debuginfo : bo
             if error_message != "":
                 print_error(file, error_message, out)
             
-    print(f"{Fore.BLUE}END TESTING {"COMPILED" if is_compiling else "INTERPRETED"}{Style.RESET_ALL}")
+    print(f"{Fore.BLUE}END TESTING {command_type_str}{Style.RESET_ALL}")
 
 def ensure_compiler_built(is_release_mode : bool):
     with yaspin(Spinners.dots, text="BUILDING RUSTAML...") as spinner:
@@ -117,10 +148,7 @@ def ensure_compiler_built(is_release_mode : bool):
             sys.exit(f"failed when building the compiler :\n {out.decode("utf-8", errors="replace")}")
         
 
-class COMMAND:
-    ALL = 1
-    INTERPRET = 2
-    COMPILE = 3
+
 
 summary_filenames = []
 summary_compiler = []
@@ -156,6 +184,8 @@ if __name__ == '__main__':
             command = COMMAND.COMPILE
         elif arg == "--all":
             command = COMMAND.ALL
+        elif arg == "--check":
+            command = COMMAND.CHECK
         elif arg == "--release":
             is_release_mode = True
         elif arg == "--debug":
@@ -170,12 +200,14 @@ if __name__ == '__main__':
     
     match command:
         case COMMAND.ALL:
-            test_all_files(False, is_release_mode, is_debuginfo)
-            test_all_files(True, is_release_mode, is_debuginfo)
+            test_all_files(COMMAND.INTERPRET, is_release_mode, is_debuginfo)
+            test_all_files(COMMAND.COMPILE, is_release_mode, is_debuginfo)
         case COMMAND.INTERPRET:
-            test_all_files(False, is_release_mode, is_debuginfo)
+            test_all_files(COMMAND.INTERPRET, is_release_mode, is_debuginfo)
         case COMMAND.COMPILE:
-            test_all_files(True, is_release_mode, is_debuginfo)
+            test_all_files(COMMAND.COMPILE, is_release_mode, is_debuginfo)
+        case COMMAND.CHECK:
+            test_all_files(COMMAND.CHECK, is_release_mode, is_debuginfo)
     print_summary()
 
             

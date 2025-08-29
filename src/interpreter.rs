@@ -276,6 +276,7 @@ pub enum Val {
     Bool(bool),
     String(StringRef),
     List(ListRef),
+    Function(FunctionDef),
     Unit,
 }
 
@@ -332,7 +333,8 @@ impl Display for ValWrapDisplay<'_> {
             Val::Float(fl) => write!(f, "{}", fl),
             Val::Bool(b) => write!(f, "{}", b),
             Val::String(s) => write!(f, "{}", s.get_str(&self.rustaml_context.str_interner)),
-            Val::List(l) => display_list(*l, self.rustaml_context, f), // TODO : pretty print lists
+            Val::List(l) => display_list(*l, self.rustaml_context, f),
+            Val::Function(_) => write!(f, "function"), // TODO ?
             Val::Unit => write!(f, "()"),
         }
     }
@@ -346,7 +348,7 @@ impl Val {
         }
     }
 
-    fn get_type(&self, list_pool: &ListPool) -> Type {
+    /*fn get_type(&self, list_pool: &ListPool) -> Type {
         match self {
             Val::Integer(_) => Type::Integer,
             Val::Float(_) => Type::Float,
@@ -359,22 +361,26 @@ impl Val {
                 };
                 Type::List(Box::new(elem_type))
             },
+            Val::Function(f) => {
+                // TODO : keep the ast def ASTRef to get the type of the function ?
+                todo!()
+            }
             Val::Unit => Type::Unit,
         }
-    }
+    }*/
 }
 
-#[derive(Clone, DebugWithContext)]
+#[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 struct FunctionDef {
     name : StringRef,
     args : Vec<StringRef>,
     body : ASTRef,
-    return_type : Type,
+    return_type : Type, // TODO : make this optional because it it the annotation
 }
 
 pub struct InterpretContext<'context> {
-    functions : FxHashMap<StringRef, FunctionDef>,
+    //functions : FxHashMap<StringRef, FunctionDef>,
     pub vars: FxHashMap<StringRef, Val>,
     pub rustaml_context : &'context mut RustamlContext,
     pub gc_context : GcContext,
@@ -387,7 +393,7 @@ impl<'context> Debug for InterpretContext<'context> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("InterpretContext")
-            .field_with("functions", |fmt| self.functions.fmt_with_context(fmt, self.rustaml_context))
+            //.field_with("functions", |fmt| self.functions.fmt_with_context(fmt, self.rustaml_context))
             .field_with("vars", |fmt | self.vars.fmt_with_context(fmt, self.rustaml_context))
             .finish()
     }
@@ -478,12 +484,12 @@ fn interpret_binop_bool_logical(op : Operator, lhs_val : Val, rhs_val : Val) -> 
     Val::Bool(ret_bool)
 }
 
-fn interpret_binop_bool(list_pool:  &ListPool, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
-    let lhs_val_type = lhs_val.get_type(list_pool);
+fn interpret_binop_bool(/*list_pool:  &ListPool,*/ op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+    /*let lhs_val_type = lhs_val.get_type(list_pool);
     let rhs_val_type = rhs_val.get_type(list_pool);
-    if rhs_val.get_type(list_pool) != lhs_val.get_type(list_pool) {
+    if rhs_val_type != lhs_val_type {
         panic!("Not the same types around operators (lhs : {:?}, rhs : {:?})", lhs_val_type, rhs_val_type)
-    }
+    }*/
     
     let b = match op {
         Operator::IsEqual => lhs_val == rhs_val,
@@ -522,26 +528,27 @@ fn interpret_binop_str(context: &mut InterpretContext, op : Operator, lhs_val : 
 
 fn interpret_binop_list(list_pool : &mut ListPool, is_debug : bool, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
 
-    let rhs_type = rhs_val.get_type(list_pool);
+    //let rhs_type = rhs_val.get_type(list_pool);
 
     let rhs_list = match rhs_val {
         Val::List(l) => l,
-        _ => panic!("Expected list in right-side of binary operation, got val of type {:?}", rhs_type),
+        _ => unreachable!(),
+        //_ => panic!("Expected list in right-side of binary operation, got val of type {:?}", rhs_type),
     };
 
-    let rhs_elem_type = match rhs_type {
+    /*let rhs_elem_type = match rhs_type {
         Type::List(e_t) => *e_t,  
         _ => unreachable!(),
-    };
+    };*/
 
-    debug_println!(is_debug, "lhs_val.get_type(list_pool) : {:#?}", lhs_val.get_type(list_pool));
+    //debug_println!(is_debug, "lhs_val.get_type(list_pool) : {:#?}", lhs_val.get_type(list_pool));
     //dbg!(lhs_val.get_type(list_pool))
-    debug_println!(is_debug, "rhs_elem_type : {:#?}", &rhs_elem_type);
+    //debug_println!(is_debug, "rhs_elem_type : {:#?}", &rhs_elem_type);
     //dbg!(&rhs_elem_type);
 
-    if !rhs_list.get(list_pool).empty() && lhs_val.get_type(list_pool) != rhs_elem_type {
+    /*if !rhs_list.get(list_pool).empty() && lhs_val.get_type(list_pool) != rhs_elem_type {
         panic!("Trying to add to an array of a type an element of another type");
-    }
+    }*/
 
     match op {
         // use the already existing subtree, should it be clone ?
@@ -557,7 +564,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
     match op.get_type() {
         Type::Integer => interpret_binop_int(op, lhs_val, rhs_val),
         Type::Float => interpret_binop_float(op, lhs_val, rhs_val),
-        Type::Bool => interpret_binop_bool(&context.rustaml_context.list_node_pool, op, lhs_val, rhs_val),
+        Type::Bool => interpret_binop_bool(op, lhs_val, rhs_val),
         Type::Str => interpret_binop_str(context, op, lhs_val, rhs_val),
         Type::List(_) => interpret_binop_list(&mut context.rustaml_context.list_node_pool, context.rustaml_context.is_debug_print, op, lhs_val, rhs_val),
         _ => unreachable!(),
@@ -646,11 +653,48 @@ fn interpret_format(context: &mut InterpretContext, arg_format_str: StringRef, a
     Val::String(context.rustaml_context.str_interner.intern_runtime(&formatted_str))
 }
 
+fn interpret_map(context: &mut InterpretContext, list_val : Val, fun_val : Val) -> Val {
+    let list = match list_val {
+        Val::List(l) => l,
+        _ => unreachable!(),
+    };
+
+    let fun_val = match fun_val {
+        Val::Function(f) => f,
+        _ => unreachable!(),
+    };
+
+    let mut new_list = List::None;
+
+    let mut vals= Vec::new();
+    
+    {
+        let mut current = list.get(&context.rustaml_context.list_node_pool);
+
+        while let List::Node(val, next ) = current { 
+            vals.push(val.clone());
+            current = next.get(&context.rustaml_context.list_node_pool);
+        }
+    }
+
+    
+    // TODO : create a function which will be another new_from to create from a val slice to not go throught the whole list at each append ?
+    for v in vals {
+        let new_val = call_function(context, &fun_val, vec![v]);
+        new_list.append(&mut context.rustaml_context.list_node_pool, new_val);
+    }
+
+    let new_list_ref = context.rustaml_context.list_node_pool.push(new_list);
+
+    Val::List(new_list_ref)
+}
+
 const STD_FUNCTIONS : &[&str] = &[
     "print",
     "rand",
     "format",
     "panic",
+    "map",
 ];
 
 fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args_val : Vec<Val>) -> Val {
@@ -677,14 +721,21 @@ fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args
             interpret_format(context, arg_format_str, args_format)
         }
         "panic" => {
+            assert_eq!(args_val.len(), 1);
             let message = format!("{}", args_val[0].display(context.rustaml_context)) ;
             rustaml_panic(&message)
+        }
+        "map" => {
+            assert_eq!(args_val.len(), 2);
+            let list = args_val[0].clone();
+            let fun = args_val[1].clone();
+            interpret_map(context, list, fun)
         }
         _ => unreachable!()
     }
 }
 
-fn interpret_function_call(context: &mut InterpretContext, name : StringRef, args : Vec<ASTRef>) -> Val {
+/*fn interpret_function_call(context: &mut InterpretContext, name : StringRef, args : Vec<ASTRef>) -> Val {
 
     let args_val = args.iter().map(|e| interpret_node(context, *e)).collect::<Vec<_>>();
 
@@ -719,7 +770,7 @@ fn interpret_function_call(context: &mut InterpretContext, name : StringRef, arg
         context.vars.insert(old_name, old_val);
     }
     res_val
-}
+}*/
 
 fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_body : ASTRef, else_body : ASTRef) -> Val {
     let cond_expr_val = match interpret_node(context, cond_expr) {
@@ -732,6 +783,56 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_bo
     } else {
         interpret_node(context, else_body)
     }
+}
+
+fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val> ) -> Val {
+    let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
+    for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
+        if let Some(old_val) = context.vars.get(arg_name) {
+            old_vals.push((*arg_name, old_val.clone()));
+        }
+        context.vars.insert(*arg_name, arg_val.clone());
+    }
+
+
+    let res_val = ensure_stack(|| interpret_node(context, func_def.body));
+
+    for arg_name in &func_def.args {
+        context.vars.remove(arg_name);
+    }
+    for (old_name, old_val) in old_vals {
+        context.vars.insert(old_name, old_val);
+    }
+    res_val
+}
+
+fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args : Vec<ASTRef>) -> Val {
+
+    let args_val = args.iter().map(|e| interpret_node(context, *e)).collect::<Vec<_>>();
+
+    if let ASTNode::VarUse { name } = callee.get(&context.rustaml_context.ast_pool) {
+        if STD_FUNCTIONS.contains(&name.get_str(&context.rustaml_context.str_interner)){
+            return interpret_std_function(context, *name, args_val);
+        }
+    }
+
+    let callee_val = interpret_node(context, callee);
+
+    let func_def = match callee_val {
+        Val::Function(f) => f,
+        _ => panic!("Trying to call a val that is not a function")
+    };
+
+    //let func_def = context.functions.get(&name).unwrap_or_else(|| panic!("Function {} not found", name.get_str(&context.rustaml_context.str_interner))).to_owned();
+
+    // TODO : remove this
+    if args.len() != func_def.args.len() {
+        panic!("Invalid args number in function call, expected {}, got {}", func_def.args.len(), args.len());
+    }
+
+    
+    
+    call_function(context, &func_def, args_val)
 }
 
 fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, pattern : PatternRef) -> bool {
@@ -915,9 +1016,19 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
                 body,
                 return_type,
             };
-            context.functions.insert(name, func_def);
+            context.vars.insert(name, Val::Function(func_def));
+            //context.functions.insert(name, func_def);
             Val::Unit
         },
+        ASTNode::AnonFunc { args, body, type_annotation: _ } => {
+            let func_def = FunctionDef {
+                name: context.rustaml_context.str_interner.intern_compiler("anon_func"), // add an index to not have the same name for all closures ?
+                args,
+                body,
+                return_type: Type::Any, // TODO : is it needed ?
+            };
+            Val::Function(func_def)
+        }
         ASTNode::Float { nb } => Val::Float(nb),
         ASTNode::Integer { nb } => Val::Integer(nb),
         ASTNode::Boolean { b } => Val::Bool(b),
@@ -944,7 +1055,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         },
         ASTNode::VarUse { name } => context.vars.get(&name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", name.get_str(&context.rustaml_context.str_interner))).clone(),
         ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, op, lhs, rhs),
-        ASTNode::FunctionCall { name, args } => interpret_function_call(context, name, args),
+        ASTNode::FunctionCall { callee, args } => interpret_function_call(context, callee, args),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, cond_expr, then_body, else_body),
         ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr, patterns.as_slice()),
         ASTNode::String { str } => Val::String(str),
@@ -957,7 +1068,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
 pub fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlContext) -> Val {
     let mut context = InterpretContext {
         vars: FxHashMap::default(),
-        functions: FxHashMap::default(),
+        // functions: FxHashMap::default(),
         rustaml_context,
         gc_context: GcContext::new(),
         rng: rand::rng(),
