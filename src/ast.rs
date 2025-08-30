@@ -450,7 +450,6 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<Type, ParserErr> {
 }
 
 fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
-    parser.eat_tok(Some(TokenDataTag::Colon))?;
     
     let simple_type = parse_annotation_simple(parser)?;
 
@@ -509,7 +508,10 @@ fn parse_let(parser: &mut Parser, let_range : Range<usize>) -> Result<ASTRef, Pa
         let function_type_range_start = arg_ranges.last().unwrap().end;
 
         let function_type = match parser.current_tok_data() {
-            Some(TokenData::Colon) => parse_type_annotation(parser)?,
+            Some(TokenData::Colon) => {
+                parser.eat_tok(Some(TokenDataTag::Colon))?;
+                parse_type_annotation(parser)?
+            },
             Some(_) | None => {
                 Type::Function(vec![Type::Any; arg_names.len()], Box::new(Type::Any), false)
             }
@@ -541,7 +543,10 @@ fn parse_let(parser: &mut Parser, let_range : Range<usize>) -> Result<ASTRef, Pa
         }
     } else {
         let var_type = match parser.current_tok_data() {
-            Some(TokenData::Colon) => Some(parse_type_annotation(parser)?),
+            Some(TokenData::Colon) => {
+                parser.eat_tok(Some(TokenDataTag::Colon))?;
+                Some(parse_type_annotation(parser)?)
+            },
             Some(_) | None => None,
         };
 
@@ -860,7 +865,13 @@ fn parse_anonymous_function(parser: &mut Parser, function_range : Range<usize>) 
     }
 
     let function_type = match parser.current_tok_data() {
-        Some(TokenData::Colon) => Some(parse_type_annotation(parser)?),
+        Some(TokenData::Colon) => {
+            parser.eat_tok(Some(TokenDataTag::Colon))?;
+            parser.eat_tok(Some(TokenDataTag::ParenOpen))?;
+            let fun_type = Some(parse_type_annotation(parser)?);
+            parser.eat_tok(Some(TokenDataTag::ParenClose))?;
+            fun_type
+        },
         Some(_) | None => {
             None
         }

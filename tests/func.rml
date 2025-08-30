@@ -21,3 +21,10 @@ let _ = print mapped ;;
 let _ = print [1.1, 2.2, 3.3, 4.4]  ;;
 let mapped_f: list[float] = map [1.1, 2.2, 3.3, 4.4]  (function a -> a *. 2.0)  ;;
 let _ = print mapped_f ;;
+
+let list_to_filter = [1, 2, 3, 4] ;;
+let _ = print list_to_filter ;;
+let filtered = filter list_to_filter (function a : (int -> bool) -> a < 3) ;;
+let _ = print filtered ;;
+let filtered = filter list_to_filter (function a : (int -> bool) -> a != 2) ;;
+let _ = print filtered ;;

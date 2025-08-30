@@ -962,6 +962,10 @@ fn std_functions_constraints_types(context : &mut TypeContext) {
     let generic_type_elem_map_input = Type::Generic(context.new_generic_type());
     let generic_type_elem_map_output = Type::Generic(context.new_generic_type());
     std_function_constraint(context, "map", vec![Type::List(Box::new(generic_type_elem_map_input.clone())), Type::Function(vec![generic_type_elem_map_input], Box::new(generic_type_elem_map_output.clone()), false)], Type::List(Box::new(generic_type_elem_map_output)), false);
+    
+    
+    let generic_type_elem_filter = Type::Generic(context.new_generic_type());
+    std_function_constraint(context, "filter", vec![Type::List(Box::new(generic_type_elem_filter.clone())), Type::Function(vec![generic_type_elem_filter.clone()], Box::new(Type::Bool), false)], Type::List(Box::new(generic_type_elem_filter)), false);
     // TODO : add a rand_f ? or make the rand function generic with its return ?
 }
 
