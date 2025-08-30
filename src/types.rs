@@ -862,7 +862,6 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                         }
                     } else {
                         set_type_with_changed(&mut table.real_types[tv_l_root.0 as usize], Type::List(Box::new(Type::Any)), &mut changed);
-                        //table.real_types[tv_l_root.0 as usize] = Some(Type::List(Box::new(Type::Any)));
                     }
                 },
                 Constraint::IsElementOf { element, list } => {
@@ -879,7 +878,6 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                                 if merged_element_type.is_none() {
                                     // TODO : replace this to make it more clear that is not list_element_type and element_type that are incompatible, but it is that appending a element_type to a list_type (which is List(list_element_type)) that is invalid
                                     return Err(TypesErr::new(TypesErrData::IncompatibleTypes { type1: *list_element_type.clone(), type2: element_type.clone() }, range))
-                                    //panic!("Incorrect types : the type {:?} should be the same as the elements of {:?}", element_type, list_type);
                                 }
                                 merged_element_type
                             } else {
@@ -898,19 +896,13 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
 
                         set_type_with_changed(&mut table.real_types[element_root.0 as usize], merged_element_type, &mut changed);
                         set_type_with_changed(&mut table.real_types[list_root.0 as usize], merged_list_type, &mut changed);
-                        //table.real_types[element_root.0 as usize] = Some(merged_element_type);
-                        //table.real_types[list_root.0 as usize] = Some(merged_list_type);
                     } else {
                         // the only info is that obviously the list is a list
                         // stolen from IsList to remove the need of IsList and IsElementOf because if there is elements, it is alist
-                        //table.real_types[list_root.0 as usize] = Some(Type::List(Box::new(Type::Any)));
                         set_type_with_changed(&mut table.real_types[list_root.0 as usize], Type::List(Box::new(Type::Any)), &mut changed);
                     }
                 },
             }
-
-            //println!("real types: {:?}", table.real_types);
-            //println!("real types len: {:?}", table.real_types.len());
         }
     }
     Ok(())
@@ -930,10 +922,6 @@ fn apply_types_to_ast(context : &mut TypeContext){
 
     for (node, tv) in &context.node_type_vars {
         let t = context.table.resolve_type(*tv);
-
-        /*if let Some(name) = context.functions_type_vars_names.get(tv){
-            context.type_infos.functions_env.insert(*name, t.clone());
-        }*/
 
         //debug_println!(context.rustaml_context.is_debug_print, "set type of node {:?} to {:?}", DebugWrapContext::new(node, context.rustaml_context), DebugWrapContext::new(&t, context.rustaml_context));
 
@@ -989,8 +977,6 @@ pub fn resolve_and_typecheck(rustaml_context: &mut RustamlContext, ast : ASTRef)
         max_var_id: 0,
         generic_type_idx: 0,
         vars_type_vars: FxHashMap::default(),
-        /*functions_type_vars: FxHashMap::default(),
-        functions_type_vars_names: FxHashMap::default(),*/
     };
 
     std_functions_constraints_types(&mut context);
