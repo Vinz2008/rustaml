@@ -678,7 +678,6 @@ fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
     let merged_type = match (t1, t2){
         (t, Type::Never) | (Type::Never, t) => Some(t.clone()),
         (t, Type::Any) | (Type::Any, t) => Some(t.clone()),
-        (t, Type::Generic(_)) | (Type::Generic(_), t) => todo!(), // TODO ?
         (t1, t2) if t1 == t2 => Some(t1.clone()),
         (Type::List(e1), Type::List(e2)) => {
             let e = merge_types(e1.as_ref(), e2.as_ref())?;
@@ -693,6 +692,7 @@ fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
             }
             Some(Type::Function(args, Box::new(ret), variadic))
         },
+        (_, t_g) | (t_g, _) if matches!(t_g, Type::Generic(_)) => Some(t_g.clone()), // TODO ?
         _ => None,
     };
 
@@ -721,6 +721,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
     while changed {
         changed = false;
         for (idx, c) in constraints.iter().enumerate() {
+            //println!("solving constraint : {:?}", c);
             let range = constraints_ranges[idx].clone();
             //dbg!(c);
             match c {
@@ -813,11 +814,11 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                             return Err(TypesErr::new(TypesErrData::WrongArgNb { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()) , expected_nb: actual_args.len(), got_nb: passed_args_types.len() }, range));
                         }
 
-                        dbg!((&actual_ret, &actual_args));
+                        //dbg!((&actual_ret, &actual_args));
 
-                        let func_def_contains_generics = actual_ret.contains_generic() || actual_args.iter().any(|e| e.contains_generic());
+                        //let func_def_contains_generics = actual_ret.contains_generic() || actual_args.iter().any(|e| e.contains_generic());
 
-                        if !func_def_contains_generics {
+                        //if /* !func_def_contains_generics*/ true {
                             let mut merged_arg_types = Vec::new();
                             //dbg!(&passed_args_types);
                             //dbg!(&actual_args);
@@ -826,9 +827,9 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                                     merged_arg_types.push(merged_art_type);
                                 } else {
                                     // for now use just this check, in the future add a better way to have generic args
-                                    if function_name != &Some("print".to_owned()){
+                                    //if /*function_name != &Some("print".to_owned())*/ true{
                                         return Err(TypesErr::new(TypesErrData::WrongArgType { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()), expected_type: actual_arg.clone(), got_type: passed_arg.clone() }, range));
-                                    }
+                                    //}
                                 }
                             }
 
@@ -839,13 +840,23 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                             };
 
                             for (arg_tv, arg_type) in args_type_vars.iter().zip(&merged_arg_types) {
-                                let arg_root = table.find_root(*arg_tv);
-                                set_type_with_changed(&mut table.real_types[arg_root.0 as usize], arg_type.clone(), &mut changed);
+                                if !arg_type.contains_generic() {
+                                    let arg_root = table.find_root(*arg_tv);
+                                    set_type_with_changed(&mut table.real_types[arg_root.0 as usize], arg_type.clone(), &mut changed);
+                                }
                             }
 
-                            set_type_with_changed(&mut table.real_types[fun_root.0 as usize], Type::Function(merged_arg_types, Box::new(merged_ret.clone()), variadic), &mut changed);
-                            set_type_with_changed(&mut table.real_types[ret_var_root.0 as usize], merged_ret, &mut changed);
-                        }
+                            let func_merged_contains_generics = merged_ret.contains_generic() || merged_arg_types.iter().any(|e| e.contains_generic());
+
+                            if !func_merged_contains_generics {
+                                set_type_with_changed(&mut table.real_types[fun_root.0 as usize], Type::Function(merged_arg_types, Box::new(merged_ret.clone()), variadic), &mut changed);
+                            }
+                            
+                            if !ret_type.contains_generic() {
+                                set_type_with_changed(&mut table.real_types[ret_var_root.0 as usize], merged_ret, &mut changed);
+                            }
+                            
+                        //}
                         
                         
                     }
@@ -857,7 +868,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                 Constraint::ListType(tv_l) => {
                     let tv_l_root = table.find_root(*tv_l);
                     if let Some(tv_type) = &table.real_types[tv_l_root.0 as usize] {
-                        if !matches!(tv_type, Type::List(_)){
+                        if !matches!(tv_type, Type::List(_)) && !matches!(tv_type, Type::Generic(_)){
                             return Err(TypesErr::new(TypesErrData::ListTypeExpected { wrong_type: tv_type.clone() }, range))
                         }
                     } else {
@@ -886,6 +897,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                                 Some(list_element_type.as_ref().clone())
                             }
                         },
+                        (Some(Type::Generic(_)), element_type) => element_type.clone(),
                         (Some(t), _) => return Err(TypesErr::new(TypesErrData::ListTypeExpected { wrong_type: t.clone() }, range)),
                         (None, Some(t)) => Some(t.clone()),
                         (None, None) => None,
@@ -964,8 +976,8 @@ fn std_function_constraint(context : &mut TypeContext, name : &'static str, args
 }
 
 fn std_functions_constraints_types(context : &mut TypeContext) {
-    
-    std_function_constraint(context, "print", vec![Type::Any], Type::Unit, false);
+    let print_type = Type::Generic(context.new_generic_type());
+    std_function_constraint(context, "print", vec![print_type], Type::Unit, false);
     std_function_constraint(context, "rand", vec![Type::Unit], Type::Integer, false);
     std_function_constraint(context, "format", vec![Type::Str], Type::Str, true);
     std_function_constraint(context, "panic", vec![Type::Str], Type::Never, true);
