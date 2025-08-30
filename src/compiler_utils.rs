@@ -15,7 +15,7 @@ pub fn get_type_tag(t : &Type) -> u8 {
         Type::Str => 4,
         Type::List(_) => 5,
         // TODO : add a type tag for Unit ?
-        Type::Any | Type::Unit | Type::Never => panic!("no type tag for this type {:?} !!", t),
+        Type::Any | Type::Unit | Type::Never | Type::Generic(_) => panic!("no type tag for this type {:?} !!", t),
     }
 }
 
@@ -53,7 +53,7 @@ pub fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type 
         Type::Str => llvm_context.ptr_type(AddressSpace::default()).into(),
         Type::Unit | Type::Never => llvm_context.void_type().into(),
         Type::Any => encountered_any_type(),
-
+        Type::Generic(_) => unreachable!(),
     }
 }
 
@@ -110,6 +110,10 @@ pub fn any_val_to_metadata<'llvm_ctx>(v : AnyValueEnum<'llvm_ctx>) -> BasicMetad
         AnyValueEnum::FunctionValue(f) => BasicMetadataValueEnum::PointerValue(f.as_global_value().as_pointer_value()),
         v => v.try_into().unwrap(),
     }
+}
+
+pub fn any_val_to_basic<'llvm_ctx>(v : AnyValueEnum<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
+    v.try_into().unwrap()
 }
 
 pub fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : &str, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> 
@@ -214,6 +218,19 @@ pub fn load_list_tail<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
     let list_type = get_list_type(compile_context.context);
     let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 2, "load_list_tail_gep").unwrap();
     compile_context.builder.build_load(compile_context.context.ptr_type(AddressSpace::default()), gep_ptr, "load_tail_gep").unwrap().into_pointer_value()
+}
+
+pub fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, val : AnyValueEnum<'llvm_ctx>, val_type : &Type) -> IntValue<'llvm_ctx> {
+    let i64_type = compile_context.context.i64_type();
+    match val_type {
+        Type::Integer => val.into_int_value(),
+        Type::Float => compile_context.builder.build_bit_cast(any_val_to_basic(val), i64_type, "bitcast_float_to_val").unwrap().into_int_value(),
+        Type::Bool => compile_context.builder.build_int_z_extend(val.into_int_value(), i64_type, "zextend_bool_to_val").unwrap(),
+        Type::Str | Type::List(_) | Type::Function(_, _, _) => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_to_val").unwrap(),
+        Type::Never | Type::Unit => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_nothing_to_val").unwrap(),
+        Type::Any => encountered_any_type(),
+        Type::Generic(_) => unreachable!(),
+    }
 }
 
 pub fn promote_val_var_arg<'llvm_ctx>(compile_context: &CompileContext<'_, '_, 'llvm_ctx>, val_type : Type, val : AnyValueEnum<'llvm_ctx>) -> AnyValueEnum<'llvm_ctx>{

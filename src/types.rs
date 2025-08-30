@@ -104,7 +104,9 @@ pub struct TypeContext<'a> {
     node_type_vars : FxHashMap<ASTRef, TypeVarId>,
 
     current_vars : FxHashMap<StringRef, Vec<Var>>,
-    max_id : u32,
+    max_var_id : u32,
+
+    generic_type_idx: u32,
 
     vars_type_vars : FxHashMap<VarId, TypeVarId>,
 
@@ -113,11 +115,21 @@ pub struct TypeContext<'a> {
     functions_type_vars_names : FxHashMap<TypeVarId, StringRef>,*/
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GenericIdx(u32);
+
 impl<'a> TypeContext<'a> {
 
+
+    fn new_generic_type(&mut self) -> GenericIdx {
+        let id = self.generic_type_idx;
+        self.generic_type_idx += 1;
+        GenericIdx(id)
+    }
+
     fn push_var(&mut self, name : StringRef, is_global : bool) -> VarId {
-        let new_id = self.max_id;
-        self.max_id += 1;
+        let new_id = self.max_var_id;
+        self.max_var_id += 1;
         let ret = VarId(new_id);
 
         let new_var = Var::new(ret, is_global);
@@ -666,6 +678,7 @@ fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
     let merged_type = match (t1, t2){
         (t, Type::Never) | (Type::Never, t) => Some(t.clone()),
         (t, Type::Any) | (Type::Any, t) => Some(t.clone()),
+        (t, Type::Generic(_)) | (Type::Generic(_), t) => todo!(), // TODO ?
         (t1, t2) if t1 == t2 => Some(t1.clone()),
         (Type::List(e1), Type::List(e2)) => {
             let e = merge_types(e1.as_ref(), e2.as_ref())?;
@@ -679,7 +692,7 @@ fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
                 args.push(merge_types(arg1, arg2)?);
             }
             Some(Type::Function(args, Box::new(ret), variadic))
-        }
+        },
         _ => None,
     };
 
@@ -772,6 +785,8 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                     let fun_root = table.find_root(*fun_type_var);
                     let fun_type = table.real_types[fun_root.0 as usize].clone();
 
+                    
+
                     // TODO : remove these resolve_type ?
 
                     let passed_args_types = args_type_vars.iter().map(|&e| table.resolve_type(e)).collect::<Vec<_>>();
@@ -797,36 +812,42 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                             // TODO : add better anon func name (with a get_anon_func_name function ?)
                             return Err(TypesErr::new(TypesErrData::WrongArgNb { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()) , expected_nb: actual_args.len(), got_nb: passed_args_types.len() }, range));
                         }
-                        
-                        let mut merged_arg_types = Vec::new();
-                        //dbg!(&passed_args_types);
-                        //dbg!(&actual_args);
-                        for (passed_arg, actual_arg) in passed_args_types.iter().zip(&actual_args) {
-                            if let Some(merged_art_type) = merge_types(passed_arg, actual_arg){
-                                merged_arg_types.push(merged_art_type);
-                            } else {
-                                // for now use just this check, in the future add a better way to have generic args
-                                if function_name != &Some("print".to_owned()){
-                                    return Err(TypesErr::new(TypesErrData::WrongArgType { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()), expected_type: actual_arg.clone(), got_type: passed_arg.clone() }, range));
+
+                        dbg!((&actual_ret, &actual_args));
+
+                        let func_def_contains_generics = actual_ret.contains_generic() || actual_args.iter().any(|e| e.contains_generic());
+
+                        if !func_def_contains_generics {
+                            let mut merged_arg_types = Vec::new();
+                            //dbg!(&passed_args_types);
+                            //dbg!(&actual_args);
+                            for (passed_arg, actual_arg) in passed_args_types.iter().zip(&actual_args) {
+                                if let Some(merged_art_type) = merge_types(passed_arg, actual_arg){
+                                    merged_arg_types.push(merged_art_type);
+                                } else {
+                                    // for now use just this check, in the future add a better way to have generic args
+                                    if function_name != &Some("print".to_owned()){
+                                        return Err(TypesErr::new(TypesErrData::WrongArgType { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()), expected_type: actual_arg.clone(), got_type: passed_arg.clone() }, range));
+                                    }
                                 }
                             }
+
+                            let merged_ret = if let Some(merged_ret) = merge_types(actual_ret.as_ref(), &ret_type) {
+                                merged_ret
+                            } else {
+                                return Err(TypesErr::new(TypesErrData::WrongRetType { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()), expected_type: *actual_ret.clone(), got_type: ret_type }, range))
+                            };
+
+                            for (arg_tv, arg_type) in args_type_vars.iter().zip(&merged_arg_types) {
+                                let arg_root = table.find_root(*arg_tv);
+                                set_type_with_changed(&mut table.real_types[arg_root.0 as usize], arg_type.clone(), &mut changed);
+                            }
+
+                            set_type_with_changed(&mut table.real_types[fun_root.0 as usize], Type::Function(merged_arg_types, Box::new(merged_ret.clone()), variadic), &mut changed);
+                            set_type_with_changed(&mut table.real_types[ret_var_root.0 as usize], merged_ret, &mut changed);
                         }
-
-                        let merged_ret = if let Some(merged_ret) = merge_types(actual_ret.as_ref(), &ret_type) {
-                            merged_ret
-                        } else {
-                            return Err(TypesErr::new(TypesErrData::WrongRetType { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()), expected_type: *actual_ret.clone(), got_type: ret_type }, range))
-                        };
-
-                        for (arg_tv, arg_type) in args_type_vars.iter().zip(&merged_arg_types) {
-                            let arg_root = table.find_root(*arg_tv);
-                            set_type_with_changed(&mut table.real_types[arg_root.0 as usize], arg_type.clone(), &mut changed);
-                        }
-
-                        set_type_with_changed(&mut table.real_types[fun_root.0 as usize], Type::Function(merged_arg_types, Box::new(merged_ret.clone()), variadic), &mut changed);
-                        set_type_with_changed(&mut table.real_types[ret_var_root.0 as usize], merged_ret, &mut changed);
-                        //table.real_types[fun_root.0 as usize] = Some();;
-                        //table.real_types[ret_var_root.0 as usize] = Some(merged_ret);
+                        
+                        
                     }
 
 
@@ -949,7 +970,9 @@ fn std_functions_constraints_types(context : &mut TypeContext) {
     std_function_constraint(context, "format", vec![Type::Str], Type::Str, true);
     std_function_constraint(context, "panic", vec![Type::Str], Type::Never, true);
     // TODO : improve the type information of map with numbered generics
-    std_function_constraint(context, "map", vec![Type::List(Box::new(Type::Any)), Type::Function(vec![Type::Any], Box::new(Type::Any), false)], Type::List(Box::new(Type::Any)), false);
+    let generic_type_elem_map_input = Type::Generic(context.new_generic_type());
+    let generic_type_elem_map_output = Type::Generic(context.new_generic_type());
+    std_function_constraint(context, "map", vec![Type::List(Box::new(generic_type_elem_map_input.clone())), Type::Function(vec![generic_type_elem_map_input], Box::new(generic_type_elem_map_output.clone()), false)], Type::List(Box::new(generic_type_elem_map_output)), false);
     // TODO : add a rand_f ? or make the rand function generic with its return ?
 }
 
@@ -962,7 +985,8 @@ pub fn resolve_and_typecheck(rustaml_context: &mut RustamlContext, ast : ASTRef)
         constraints_ranges: Vec::new(),
         node_type_vars: FxHashMap::default(),
         current_vars: FxHashMap::default(),
-        max_id: 0,
+        max_var_id: 0,
+        generic_type_idx: 0,
         vars_type_vars: FxHashMap::default(),
         /*functions_type_vars: FxHashMap::default(),
         functions_type_vars_names: FxHashMap::default(),*/

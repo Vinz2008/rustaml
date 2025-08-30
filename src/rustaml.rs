@@ -36,7 +36,7 @@ impl RustamlContext {
             str_interner: StrInterner::new(), 
             ast_pool: ASTPool::new(),
             pattern_pool: PatternPool::new(),
-            list_node_pool: ListPool::new(), 
+            list_node_pool: ListPool::new(),
             is_debug_print,
             content: None,
         }

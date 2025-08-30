@@ -1,7 +1,7 @@
 use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, ops::Range, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Type}, compiler_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos}, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, Type}, compiler_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, as_val_in_list, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos}, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -259,6 +259,7 @@ fn get_format_string(print_type : &Type) -> &'static str {
         Type::Unit => "%s\n",
         Type::Never => "", // can't print it, normally if the function is really a never type, it should be never return, so the print should never be called 
         Type::Any => encountered_any_type(),
+        Type::Generic(_) => unreachable!(),
     }
 }
 
@@ -400,7 +401,7 @@ fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut CompileContext<'_,
     let map_type = Type::Function(vec![Type::List(Box::new(elem_type.clone())), function_passed_type], Box::new(Type::List(Box::new(ret_elem_type.clone()))), false);
     
     let map_type_llvm = get_llvm_type(compile_context.context, &map_type).as_any_type_enum().into_function_type();
-    let map_func_name = &format!("map{}->{}", elem_type, ret_elem_type);
+    let map_func_name = &format!("map {}->{}", elem_type, ret_elem_type);
     let function = compile_context.module.add_function(map_func_name, map_type_llvm, Some(inkwell::module::Linkage::Internal));
     
     let entry = compile_context.context.append_basic_block(function, "entry");
@@ -445,6 +446,8 @@ fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut CompileContext<'_,
     let fun_args = vec![any_val_to_metadata(load_current_node_val)];
 
     let fun_arg_call = compile_context.builder.build_indirect_call(function_passed_type_llvm, fun_arg, &fun_args, "call_map_fun").unwrap().as_any_value_enum();
+    let fun_arg_call = as_val_in_list(compile_context, fun_arg_call, ret_elem_type).as_any_value_enum();
+
 
     let load_ret = compile_context.builder.build_load(ptr_type.as_basic_type_enum(), ret_alloca, "load_ret").unwrap().as_any_value_enum();
     let ret_type_tag = get_type_tag_val(compile_context.context, ret_elem_type).as_any_value_enum();

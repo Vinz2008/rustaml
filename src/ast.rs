@@ -8,6 +8,7 @@ use enum_tags::{Tag, TaggedEnum};
 use pathbuf::pathbuf;
 
 use crate::rustaml::read_file;
+use crate::types::GenericIdx;
 use crate::{debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::{get_ast_from_string, RustamlContext}, string_intern::StringRef, types_debug::PrintTypedContext};
 use debug_with_context::{DebugWithContext, DebugWrapContext};
 
@@ -245,7 +246,8 @@ pub enum Type {
     List(Box<Type>),
     // TODO : add a number to any (to have 'a, 'b, etc)
     // TODO: or remove Any ?
-    Any, // equivalent to 'a
+    Any, // not already resolved type during type checking
+    Generic(GenericIdx),
     Unit,
     Never,
 }
@@ -270,9 +272,21 @@ impl Display for Type {
             Type::Unit => f.write_str("()"),
             Type::Never => f.write_char('!'),
             Type::Any => f.write_str("Any"), // TODO
+            Type::Generic(_g_idx) => panic!("Can't print generic type"), // TODO ?
             Type::Function(_, _, _) => unreachable!(),
         }
         
+    }
+}
+
+impl Type {
+    pub fn contains_generic(&self) -> bool {
+        match self {
+            Type::Generic(_) => true,
+            Type::List(l) => l.contains_generic(),
+            Type::Function(args, ret, _) => ret.contains_generic() || args.iter().any(|e| e.contains_generic()),
+            _ => false,
+        }
     }
 }
 
