@@ -206,7 +206,6 @@ impl List {
         ListIter { current: self, list_pool }
     }
 
-    // TH
     fn len(&self, list_pool : &ListPool) -> usize {
         let mut count = 0;
 
@@ -347,32 +346,11 @@ impl Val {
             rustaml_context  
         }
     }
-
-    /*fn get_type(&self, list_pool: &ListPool) -> Type {
-        match self {
-            Val::Integer(_) => Type::Integer,
-            Val::Float(_) => Type::Float,
-            Val::Bool(_) => Type::Bool,
-            Val::String(_) => Type::Str,
-            Val::List(l) => {
-                let elem_type = match l.get(list_pool) {
-                    List::Node(v, _ ) => v.get_type(list_pool),
-                    List::None => Type::Any,
-                };
-                Type::List(Box::new(elem_type))
-            },
-            Val::Function(f) => {
-                // TODO : keep the ast def ASTRef to get the type of the function ?
-                todo!()
-            }
-            Val::Unit => Type::Unit,
-        }
-    }*/
 }
 
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
-struct FunctionDef {
+pub struct FunctionDef {
     name : StringRef,
     args : Vec<StringRef>,
     body : ASTRef,
@@ -404,12 +382,12 @@ impl<'context> Debug for InterpretContext<'context> {
 fn interpret_binop_int(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let lhs_nb = match lhs_val {
         Val::Integer(nb) => nb,
-        _ => panic!("Expected integer in left-side of binary operation"),
+        _ => unreachable!(),
     };
 
     let rhs_nb = match rhs_val {
         Val::Integer(nb) => nb,
-        _ => panic!("Expected integer in right-side of binary operation"),
+        _ => unreachable!(),
     };
     let res_nb = match op {
         Operator::Plus => {
@@ -435,12 +413,12 @@ fn interpret_binop_float(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     //println!("got {:?} for lhs", DebugWrapContext::new(&lhs_val, rustaml_context));
     let lhs_nb = match lhs_val {
         Val::Float(nb) => nb,
-        _ => panic!("Expected float in left-side of binary operation"),
+        _ => unreachable!(),
     };
 
     let rhs_nb = match rhs_val {
         Val::Float(nb) => nb,
-        _ => panic!("Expected float in right-side of binary operation"),
+        _ => unreachable!(),
     };
 
     let res_nb = match op {
@@ -467,12 +445,12 @@ fn interpret_binop_bool_logical(op : Operator, lhs_val : Val, rhs_val : Val) -> 
     
     let lhs_bool = match lhs_val {
         Val::Bool(b) => b,
-        _ => panic!("Expected bool in left-side of binary operation"),
+        _ => unreachable!(),
     };
 
     let rhs_bool = match rhs_val {
         Val::Bool(b) => b,
-        _ => panic!("Expected bool in right-side of binary operation"),
+        _ => unreachable!(),
     };
 
     let ret_bool = match op {
@@ -484,13 +462,7 @@ fn interpret_binop_bool_logical(op : Operator, lhs_val : Val, rhs_val : Val) -> 
     Val::Bool(ret_bool)
 }
 
-fn interpret_binop_bool(/*list_pool:  &ListPool,*/ op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
-    /*let lhs_val_type = lhs_val.get_type(list_pool);
-    let rhs_val_type = rhs_val.get_type(list_pool);
-    if rhs_val_type != lhs_val_type {
-        panic!("Not the same types around operators (lhs : {:?}, rhs : {:?})", lhs_val_type, rhs_val_type)
-    }*/
-    
+fn interpret_binop_bool(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let b = match op {
         Operator::IsEqual => lhs_val == rhs_val,
         Operator::IsNotEqual => lhs_val != rhs_val,
@@ -508,12 +480,12 @@ fn interpret_binop_bool(/*list_pool:  &ListPool,*/ op : Operator, lhs_val : Val,
 fn interpret_binop_str(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     let lhs_str = match lhs_val {
         Val::String(s) => s,
-        _ => panic!("Expected string in left-side of binary operation"),
+        _ => unreachable!(),
     };
 
     let rhs_str = match rhs_val {
         Val::String(s) => s,
-        _ => panic!("Expected string in right-side of binary operation"),
+        _ => unreachable!(),
     };
     
     match op {
@@ -526,32 +498,15 @@ fn interpret_binop_str(context: &mut InterpretContext, op : Operator, lhs_val : 
     }
 }
 
-fn interpret_binop_list(list_pool : &mut ListPool, is_debug : bool, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
-
-    //let rhs_type = rhs_val.get_type(list_pool);
+fn interpret_binop_list(list_pool : &mut ListPool, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
 
     let rhs_list = match rhs_val {
         Val::List(l) => l,
         _ => unreachable!(),
-        //_ => panic!("Expected list in right-side of binary operation, got val of type {:?}", rhs_type),
     };
 
-    /*let rhs_elem_type = match rhs_type {
-        Type::List(e_t) => *e_t,  
-        _ => unreachable!(),
-    };*/
-
-    //debug_println!(is_debug, "lhs_val.get_type(list_pool) : {:#?}", lhs_val.get_type(list_pool));
-    //dbg!(lhs_val.get_type(list_pool))
-    //debug_println!(is_debug, "rhs_elem_type : {:#?}", &rhs_elem_type);
-    //dbg!(&rhs_elem_type);
-
-    /*if !rhs_list.get(list_pool).empty() && lhs_val.get_type(list_pool) != rhs_elem_type {
-        panic!("Trying to add to an array of a type an element of another type");
-    }*/
-
     match op {
-        // use the already existing subtree, should it be clone ?
+        // TODO : use the already existing subtree, should it be clone ?
         Operator::ListAppend => Val::List(list_pool.push(List::new(lhs_val, rhs_list))),
         _ => unreachable!(),
     }
@@ -566,7 +521,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
         Type::Float => interpret_binop_float(op, lhs_val, rhs_val),
         Type::Bool => interpret_binop_bool(op, lhs_val, rhs_val),
         Type::Str => interpret_binop_str(context, op, lhs_val, rhs_val),
-        Type::List(_) => interpret_binop_list(&mut context.rustaml_context.list_node_pool, context.rustaml_context.is_debug_print, op, lhs_val, rhs_val),
+        Type::List(_) => interpret_binop_list(&mut context.rustaml_context.list_node_pool, op, lhs_val, rhs_val),
         _ => unreachable!(),
     }
 
@@ -628,7 +583,7 @@ fn interpret_format(context: &mut InterpretContext, arg_format_str: StringRef, a
                 if let Some('}') = arg_format_chars.get(pos+1){
                     format_chunks.format.push(FormatChunk::Arg(args_format[arg_pos].clone()));
                     arg_pos += 1;
-                    pos += 1; // pas '}'
+                    pos += 1; // pass '}'
                 } else {
                     format_chunks.append('{');
                 }
@@ -735,43 +690,6 @@ fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args
     }
 }
 
-/*fn interpret_function_call(context: &mut InterpretContext, name : StringRef, args : Vec<ASTRef>) -> Val {
-
-    let args_val = args.iter().map(|e| interpret_node(context, *e)).collect::<Vec<_>>();
-
-
-    if STD_FUNCTIONS.contains(&name.get_str(&context.rustaml_context.str_interner)){
-        return interpret_std_function(context, name, args_val);
-    }
-
-    let func_def = context.functions.get(&name).unwrap_or_else(|| panic!("Function {} not found", name.get_str(&context.rustaml_context.str_interner))).to_owned();
-
-    if args.len() != func_def.args.len() {
-        panic!("Invalid args number in function call, expected {}, got {}", func_def.args.len(), args.len());
-    }
-
-    
-    
-    let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
-    for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
-        if let Some(old_val) = context.vars.get(arg_name) {
-            old_vals.push((*arg_name, old_val.clone()));
-        }
-        context.vars.insert(*arg_name, arg_val.clone());
-    }
-
-
-    let res_val = ensure_stack(|| interpret_node(context, func_def.body));
-
-    for arg_name in &func_def.args {
-        context.vars.remove(arg_name);
-    }
-    for (old_name, old_val) in old_vals {
-        context.vars.insert(old_name, old_val);
-    }
-    res_val
-}*/
-
 fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_body : ASTRef, else_body : ASTRef) -> Val {
     let cond_expr_val = match interpret_node(context, cond_expr) {
         Val::Bool(b) => b,
@@ -820,7 +738,7 @@ fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args
 
     let func_def = match callee_val {
         Val::Function(f) => f,
-        _ => panic!("Trying to call a val that is not a function")
+        _ => unreachable!(),
     };
 
     //let func_def = context.functions.get(&name).unwrap_or_else(|| panic!("Function {} not found", name.get_str(&context.rustaml_context.str_interner))).to_owned();
@@ -845,7 +763,7 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
                     //dbg!((*nb, matched_nb));
                     nb == *matched_nb
                 },
-                _ => panic!("matching an expression that is not an integer with an integer pattern"),
+                _ => unreachable!(),
             }
         },
         Pattern::Float(nb) => {
@@ -853,7 +771,7 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
                 Val::Float(matched_nb) => {
                     nb == *matched_nb
                 },
-                _ => panic!("matching an expression that is not a float with a float pattern"),
+                _ => unreachable!(),
             }
         },
         Pattern::Bool(b) => {
@@ -861,7 +779,7 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
                 Val::Bool(matched_b) => {
                     b == *matched_b
                 }
-                _ => panic!("matching an expression that is not a bool with a bool pattern"),
+                _ => unreachable!(),
             }
         }
         Pattern::Range(start, end, inclusivity) => {
@@ -873,7 +791,7 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
                         start < *matched_nb && *matched_nb < end
                     }
                 },
-                _ => panic!("matching an expression that is not an integer with an range integer pattern"),
+                _ => unreachable!(),
             }
         },
         Pattern::String(s) => {
@@ -881,13 +799,13 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
                 Val::String(matched_str) => {
                     s == *matched_str
                 },
-                _ => panic!("matching an expression that is not an integer with an integer pattern"),
+                _ => unreachable!(),
             }
         },
         Pattern::List(l) => {
             let matched_expr_list = match matched_val {
                 Val::List(l) => l,
-                _ => panic!("matching an expression that is not a list with a list pattern"),
+                _ => unreachable!(),
             };
 
             let matched_expr_list_node = matched_expr_list.get(&context.rustaml_context.list_node_pool);
@@ -922,7 +840,7 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
         Pattern::ListDestructure(_, tail_pattern) => {
             let matched_expr_list = match matched_val {
                 Val::List(l) => l,
-                _ => panic!("matching an expression that is not a list with a list destructure pattern"),
+                _ => unreachable!(),
             };
 
             if matched_expr_list.get(&context.rustaml_context.list_node_pool).empty(){
@@ -952,7 +870,7 @@ fn handle_match_pattern_start(context: &mut InterpretContext, pattern : PatternR
         Pattern::ListDestructure(head_name, tail_pattern) => {
             let matched_expr_list = match matched_expr_val {
                 Val::List(l) => l,
-                _ => panic!("matching an expression that is not a list with a list destructure pattern"),
+                _ => unreachable!(),
             };
             let (head_val, tail) = match matched_expr_list.get(&context.rustaml_context.list_node_pool) {
                 List::Node(val, next ) => (val, next),
