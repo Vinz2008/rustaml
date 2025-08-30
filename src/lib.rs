@@ -19,16 +19,12 @@ pub mod lexer;
 pub mod string_intern;
 pub mod print_error;
 pub mod debug;
-pub mod gc;
 pub mod types;
 pub mod types_debug;
 
 cfg_if! {
     if #[cfg(feature = "native")] {
         pub mod compiler;
-        pub mod compiler_utils;
-        pub mod compiler_match;
-        pub mod debuginfo;
     }
 }
 

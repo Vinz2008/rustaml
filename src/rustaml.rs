@@ -7,7 +7,7 @@ use std::{fs, path::{Path, PathBuf}};
 
 cfg_if! {
     if #[cfg(feature = "native")] {
-        use crate::debuginfo::ContentLoc;
+        use crate::compiler::debuginfo::ContentLoc;
     } else {
         #[derive(Clone)]
         pub struct ContentLoc;

@@ -1,7 +1,7 @@
 use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, ops::Range, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Type}, compiler_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, as_val_in_list, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos}, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, Type}, compiler::compile_match::compile_match, compiler::compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, as_val_in_list, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, load_list_tail, load_list_val, move_bb_after_current, promote_val_var_arg}, debug_println, compiler::debuginfo::{DebugInfo, DebugInfosInner, TargetInfos}, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -1205,7 +1205,7 @@ fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : O
 }
 
 // TODO : instead install file in filesystem ?
-const STD_C_CONTENT: &str = include_str!("../std.c");
+const STD_C_CONTENT: &str = include_str!("../../std.c");
 
 fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : OptimizationLevel, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool){
     // use cc ?

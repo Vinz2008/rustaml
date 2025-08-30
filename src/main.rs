@@ -28,7 +28,6 @@ mod string_intern;
 mod print_error;
 mod rustaml;
 mod debug;
-mod gc;
 mod types;
 mod types_debug;
 
@@ -37,10 +36,6 @@ use cfg_if::cfg_if;
 cfg_if! {
     if #[cfg(feature = "native")] {
         mod compiler;
-        mod compiler_utils;
-        mod compiler_match;
-        mod debuginfo;
-
         use crate::compiler::compile;
     }
 }

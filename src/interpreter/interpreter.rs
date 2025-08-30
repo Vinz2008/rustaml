@@ -9,14 +9,14 @@ use rand::prelude::*;
 use crate::ast::ASTRef;
 use crate::ast::PatternRef;
 use crate::debug_println;
-use crate::gc::{try_gc_collect, Gc, GcContext};
+use crate::interpreter::gc::{try_gc_collect, Gc, GcContext};
 use crate::rustaml::ensure_stack;
 use crate::rustaml::RustamlContext;
 use crate::string_intern::StringRef;
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
 #[cfg(feature = "gc-test-collect")] 
-use crate::gc::collect_gc;
+use crate::interpreter::gc::collect_gc;
 
 // None values are freed lists that can be reused
 #[derive(Clone)]

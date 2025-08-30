@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 
 use debug_with_context::DebugWithContext;
 
-use crate::{gc::Gc, rustaml::RustamlContext};
+use crate::{interpreter::gc::Gc, rustaml::RustamlContext};
 
 // TODO : optimize this (https://matklad.github.io/2020/03/22/fast-simple-rust-interner.html)
 
