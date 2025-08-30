@@ -800,7 +800,6 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                         Some(t) => return Err(TypesErr::new(TypesErrData::FunctionTypeExpected { wrong_type: t }, range)),
                         None => {
                             set_type_with_changed(&mut table.real_types[fun_root.0 as usize], Type::Function(passed_args_types.clone(), Box::new(ret_type.clone()), *is_variadic), &mut changed);
-                            //table.real_types[fun_root.0 as usize] = Some(Type::Function(passed_args_types.clone(), Box::new(ret_type.clone()), *is_variadic));
                             None
                         },
                     };
@@ -816,49 +815,39 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
 
                         //dbg!((&actual_ret, &actual_args));
 
-                        //let func_def_contains_generics = actual_ret.contains_generic() || actual_args.iter().any(|e| e.contains_generic());
-
-                        //if /* !func_def_contains_generics*/ true {
-                            let mut merged_arg_types = Vec::new();
-                            //dbg!(&passed_args_types);
-                            //dbg!(&actual_args);
-                            for (passed_arg, actual_arg) in passed_args_types.iter().zip(&actual_args) {
-                                if let Some(merged_art_type) = merge_types(passed_arg, actual_arg){
-                                    merged_arg_types.push(merged_art_type);
-                                } else {
-                                    // for now use just this check, in the future add a better way to have generic args
-                                    //if /*function_name != &Some("print".to_owned())*/ true{
-                                        return Err(TypesErr::new(TypesErrData::WrongArgType { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()), expected_type: actual_arg.clone(), got_type: passed_arg.clone() }, range));
-                                    //}
-                                }
-                            }
-
-                            let merged_ret = if let Some(merged_ret) = merge_types(actual_ret.as_ref(), &ret_type) {
-                                merged_ret
+                        let mut merged_arg_types = Vec::new();
+                        //dbg!(&passed_args_types);
+                        //dbg!(&actual_args);
+                        for (passed_arg, actual_arg) in passed_args_types.iter().zip(&actual_args) {
+                            if let Some(merged_art_type) = merge_types(passed_arg, actual_arg){
+                                merged_arg_types.push(merged_art_type);
                             } else {
-                                return Err(TypesErr::new(TypesErrData::WrongRetType { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()), expected_type: *actual_ret.clone(), got_type: ret_type }, range))
-                            };
-
-                            for (arg_tv, arg_type) in args_type_vars.iter().zip(&merged_arg_types) {
-                                if !arg_type.contains_generic() {
-                                    let arg_root = table.find_root(*arg_tv);
-                                    set_type_with_changed(&mut table.real_types[arg_root.0 as usize], arg_type.clone(), &mut changed);
-                                }
+                                return Err(TypesErr::new(TypesErrData::WrongArgType { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()), expected_type: actual_arg.clone(), got_type: passed_arg.clone() }, range));
                             }
+                        }
 
-                            let func_merged_contains_generics = merged_ret.contains_generic() || merged_arg_types.iter().any(|e| e.contains_generic());
+                        let merged_ret = if let Some(merged_ret) = merge_types(actual_ret.as_ref(), &ret_type) {
+                            merged_ret
+                        } else {
+                            return Err(TypesErr::new(TypesErrData::WrongRetType { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()), expected_type: *actual_ret.clone(), got_type: ret_type }, range))
+                        };
 
-                            if !func_merged_contains_generics {
-                                set_type_with_changed(&mut table.real_types[fun_root.0 as usize], Type::Function(merged_arg_types, Box::new(merged_ret.clone()), variadic), &mut changed);
+                        for (arg_tv, arg_type) in args_type_vars.iter().zip(&merged_arg_types) {
+                            if !arg_type.contains_generic() {
+                                let arg_root = table.find_root(*arg_tv);
+                                set_type_with_changed(&mut table.real_types[arg_root.0 as usize], arg_type.clone(), &mut changed);
                             }
+                        }
+
+                        let func_merged_contains_generics = merged_ret.contains_generic() || merged_arg_types.iter().any(|e| e.contains_generic());
+
+                        if !func_merged_contains_generics {
+                            set_type_with_changed(&mut table.real_types[fun_root.0 as usize], Type::Function(merged_arg_types, Box::new(merged_ret.clone()), variadic), &mut changed);
+                        }
                             
-                            if !ret_type.contains_generic() {
-                                set_type_with_changed(&mut table.real_types[ret_var_root.0 as usize], merged_ret, &mut changed);
-                            }
-                            
-                        //}
-                        
-                        
+                        if !ret_type.contains_generic() {
+                            set_type_with_changed(&mut table.real_types[ret_var_root.0 as usize], merged_ret, &mut changed);
+                        }    
                     }
 
 
