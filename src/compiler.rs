@@ -24,7 +24,7 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     pub global_strs : FxHashMap<String, PointerValue<'llvm_ctx>>,
     pub is_optimized : bool,
 
-    monomorphized_map_fun : FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>, // (Type A, Type B) = A -> B
+    monomorphized_internal_fun : FxHashMap<&'static str, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>>, // (Type A, Type B) = function List A -> List B
 }
 
 
@@ -388,7 +388,7 @@ fn compile_panic<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 // TODO : create others functions on list (will need to replace monomorphized_map_fun with a monomorphized_internal_fun as a hashmap in a hashmap for names)
 // TODO : use the principles used here to add monomorphization for any function
 fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, elem_type : &Type, ret_elem_type : &Type) -> FunctionValue<'llvm_ctx> {
-    if let Some(f) = compile_context.monomorphized_map_fun.get(&(elem_type.clone(), ret_elem_type.clone())){
+    if let Some(f) = compile_context.monomorphized_internal_fun.get("map").unwrap().get(&(elem_type.clone(), ret_elem_type.clone())){
         return *f;
     }
 
@@ -1256,6 +1256,13 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
 
 const DEBUGINFO_VERSION: u64 = 3;
 
+fn init_monomorphized_internal_fun<'llvm_ctx>() -> FxHashMap<&'static str, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>> {
+    let mut ret = FxHashMap::default();
+    ret.insert("map", FxHashMap::default());
+    ret.insert("filter", FxHashMap::default());
+    ret
+}
+
 // TODO : pass all the args after optimization level as a struct named OptionalArgs
 pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level_nb : u8, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool) {
     let context = Context::create();
@@ -1339,7 +1346,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         internal_functions,
         external_symbols_declared: FxHashSet::default(),
         global_strs: FxHashMap::default(),
-        monomorphized_map_fun: FxHashMap::default(),
+        monomorphized_internal_fun: init_monomorphized_internal_fun(),
     };
 
     let top_level_nodes = match frontend_output.ast.get(&rustaml_context.ast_pool) {
