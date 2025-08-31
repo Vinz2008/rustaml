@@ -619,10 +619,8 @@ fn interpret_map(context: &mut InterpretContext, list_val : Val, fun_val : Val) 
         _ => unreachable!(),
     };
 
-    let mut new_list = List::None;
-
     let mut vals= Vec::new();
-    
+
     {
         let mut current = list.get(&context.rustaml_context.list_node_pool);
 
@@ -631,6 +629,8 @@ fn interpret_map(context: &mut InterpretContext, list_val : Val, fun_val : Val) 
             current = next.get(&context.rustaml_context.list_node_pool);
         }
     }
+    
+    let mut new_list = List::None;
 
     
     // TODO : create a function which will be another new_from to create from a val slice to not go throught the whole list at each append ?
@@ -644,12 +644,56 @@ fn interpret_map(context: &mut InterpretContext, list_val : Val, fun_val : Val) 
     Val::List(new_list_ref)
 }
 
+
+fn interpret_filter(context: &mut InterpretContext, list_val : Val, fun_val : Val) -> Val {
+    let list = match list_val {
+        Val::List(l) => l,
+        _ => unreachable!(),
+    };
+
+    let fun_val = match fun_val {
+        Val::Function(f) => f,
+        _ => unreachable!(),
+    };
+
+    let mut new_list = List::None;
+
+    let mut vals= Vec::new();
+    {
+        let mut current = list.get(&context.rustaml_context.list_node_pool);
+
+        while let List::Node(val, next ) = current { 
+            vals.push(val.clone());
+            current = next.get(&context.rustaml_context.list_node_pool);
+        }
+    }
+
+    
+    // TODO : create a function which will be another new_from to create from a val slice to not go throught the whole list at each append ?
+    for v in vals {
+        let should_append = call_function(context, &fun_val, vec![v.clone()]);
+        let should_append_bool = match should_append {
+            Val::Bool(b) => b,
+            _ => unreachable!(),
+        };
+
+        if should_append_bool {
+            new_list.append(&mut context.rustaml_context.list_node_pool, v);
+        }
+    }
+
+    let new_list_ref = context.rustaml_context.list_node_pool.push(new_list);
+
+    Val::List(new_list_ref)
+}
+
 const STD_FUNCTIONS : &[&str] = &[
     "print",
     "rand",
     "format",
     "panic",
     "map",
+    "filter",
 ];
 
 fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args_val : Vec<Val>) -> Val {
@@ -685,6 +729,12 @@ fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args
             let list = args_val[0].clone();
             let fun = args_val[1].clone();
             interpret_map(context, list, fun)
+        }
+        "filter" => {
+            assert_eq!(args_val.len(), 2);
+            let list = args_val[0].clone();
+            let fun = args_val[1].clone();
+            interpret_filter(context, list, fun)
         }
         _ => unreachable!()
     }
