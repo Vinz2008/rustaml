@@ -766,6 +766,32 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     }
 }
 
+fn compile_unop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, expr : ASTRef) -> AnyValueEnum<'llvm_ctx>{
+    let expr_val = compile_expr(compile_context, expr);
+    
+    match op {
+        Operator::Minus => {
+            match expr_val {
+                AnyValueEnum::IntValue(i) => {
+                    let const_zero = compile_context.context.i64_type().const_zero();
+                    compile_context.builder.build_int_sub(const_zero, i, "unary_minus").unwrap().as_any_value_enum()
+                },
+                _ => unreachable!(),
+            }
+        },
+        Operator::Not => {
+            match expr_val {
+                AnyValueEnum::IntValue(i) => {
+                    let const_true = compile_context.context.bool_type().const_int(true as u64, false);
+                    compile_context.builder.build_xor(i, const_true, "unary_not").unwrap().as_any_value_enum()
+                }
+                _ => unreachable!(),
+            }
+        },
+        _ => unreachable!()
+    }
+}
+
 fn compile_var_use<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef, name : StringRef) -> AnyValueEnum<'llvm_ctx> {
     
     /*for (v, v_t) in &compile_context.var_types {
@@ -906,9 +932,9 @@ pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
         ASTNode::String { str } => compile_str(compile_context, *str).into(),
         ASTNode::VarDecl { name, val, body, var_type: _ } => compile_var_decl(compile_context, ast_node, *name, *val, *body, false),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => compile_if(compile_context, *cond_expr, *then_body, *else_body),
-        //ASTNode::FunctionCall { name, args } => compile_function_call(compile_context, *name, args, range),
         ASTNode::FunctionCall { callee, args } => compile_function_call(compile_context, *callee, args, range),
         ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, *op, *lhs, *rhs),
+        ASTNode::UnaryOp { op, expr } => compile_unop(compile_context, *op, *expr),
         ASTNode::VarUse { name } => compile_var_use(compile_context, ast_node, *name),
         ASTNode::List { list } => { 
             compile_static_list(compile_context, list, ast_node.get_type(&compile_context.rustaml_context.ast_pool))

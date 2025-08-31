@@ -1,0 +1,5 @@
+let f_minus a = -a ;;
+let _ = print (f_minus 2) ;;
+
+let f_not a = !a ;;
+let _ = print (f_not true) ;;

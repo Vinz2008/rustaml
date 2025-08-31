@@ -26,9 +26,6 @@ pub enum TypesErrData {
         name : String,
         nearest_var_name : Option<String>,
     },
-    FunctionNotFound {
-        name : String,
-    },
     WrongType {
         expected_type : Type,
         got_type : Type
@@ -461,6 +458,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 Operator::ListAppend => {
                     context.push_constraint(Constraint::IsElementOf { element: lhs_type_var, list: rhs_type_var }, range.clone());
                 },
+                Operator::Not => unreachable!(),
             }
 
             match op {
@@ -482,8 +480,26 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 Operator::ListAppend => {
                     context.push_constraint(Constraint::SameType(new_type_var, rhs_type_var), range);
                 },
+                Operator::Not => unreachable!(),
             }
             
+        }
+
+        ASTNode::UnaryOp { op, expr } => {
+            let expr_type_var = collect_constraints(context, expr)?;
+
+            match op {
+                Operator::Minus => {
+                    // TODO : change this if floats become supported with minus unary
+                    context.push_constraint(Constraint::IsType(new_type_var, Type::Integer), range.clone());
+                    context.push_constraint(Constraint::IsType(expr_type_var, Type::Integer), range);
+                },
+                Operator::Not => {
+                    context.push_constraint(Constraint::IsType(new_type_var, Type::Bool), range.clone());
+                    context.push_constraint(Constraint::IsType(expr_type_var, Type::Bool), range);
+                }
+                _ => unreachable!(),
+            }
         }
 
         ASTNode::FunctionDefinition { name, args, body, type_annotation } => {

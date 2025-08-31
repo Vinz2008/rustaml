@@ -27,12 +27,13 @@ pub enum Operator {
     Inferior,
     And, // &&
     Or, // ||
+    Not, // !
     StrAppend, // ^
     ListAppend, // ::
 }
 
 impl Operator {
-    pub const OPERATORS: [&'static str; 18] = ["+", "-", "*", "/", "+.", "-.", "*.", "/.", "==", "!=", ">=", "<=", ">", "<", "&&", "||", "^", "::"];
+    pub const OPERATORS: [&'static str; 19] = ["+", "-", "*", "/", "+.", "-.", "*.", "/.", "==", "!=", ">=", "<=", ">", "<", "&&", "||", "^", "::", "!"];
     pub fn get_type(&self) -> Type {
         match self {
             Self::Plus | Self::Minus | Self::Mult | Self::Div => Type::Integer,
@@ -40,6 +41,7 @@ impl Operator {
             Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior | Self::Or | Self::And => Type::Bool,
             Self::StrAppend => Type::Str,
             Self::ListAppend => Type::List(Box::new(Type::Any)),
+            Self::Not => unreachable!(),
         }
     }
 
@@ -82,6 +84,7 @@ impl Operator {
             "/." => Operator::DivFloat,
             "&&" => Operator::And,
             "||" => Operator::Or,
+            "!" => Operator::Not,
             _ => return Err(LexerErr::new(LexerErrData::InvalidOp(s.to_owned()), range.clone())),
         };
         Ok(op)

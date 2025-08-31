@@ -257,16 +257,6 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
     print_error(error_print);
 }
 
-
-fn print_function_not_found_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, name: &str) -> ErrorPrint<'a> {
-    ErrorPrint { 
-        error_basic_infos, 
-        message: format!("Function \"{}\" not found", name),
-        label: Some("This is the function not found"),
-        ..Default::default()
-    }
-}
-
 fn print_function_type_expected<'a>(error_basic_infos : ErrorBasicInfos<'a>, wrong_type : Type) -> ErrorPrint<'a> {
     ErrorPrint { 
         error_basic_infos, 
@@ -349,8 +339,6 @@ pub fn print_type_error(type_error : TypesErr, filename : &Path, content : &str)
     };
 
     let error_print = match *type_error.err_data {
-        // TODO : remove this (FunctionNotFound) ?
-        TypesErrData::FunctionNotFound { name } => print_function_not_found_error(error_basic_infos, &name),
         TypesErrData::FunctionTypeExpected { wrong_type } => print_function_type_expected(error_basic_infos, wrong_type),
         TypesErrData::IncompatibleTypes { type1, type2 } => print_incompatible_types_error(error_basic_infos, type1, type2),
         TypesErrData::ListTypeExpected { wrong_type } => print_list_type_expected_error(error_basic_infos, wrong_type),

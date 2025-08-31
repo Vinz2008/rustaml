@@ -512,6 +512,7 @@ fn interpret_binop_list(list_pool : &mut ListPool, op : Operator, lhs_val : Val,
 }
 
 fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, rhs : ASTRef) -> Val {
+    // TODO : add a short circuiting for bool ops
     let lhs_val = interpret_node(context, lhs);
     let rhs_val = interpret_node(context, rhs);
 
@@ -524,6 +525,30 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
         _ => unreachable!(),
     }
 
+}
+
+fn interpret_unop(context : &mut InterpretContext, op : Operator, expr : ASTRef) -> Val {
+    let expr_val = interpret_node(context, expr);
+
+    match op {
+        Operator::Minus => {
+            // TODO : make it work with float ?
+            let expr_nb = match expr_val {
+                Val::Integer(nb) => nb,
+                _ => unreachable!(),
+            };
+            Val::Integer(-expr_nb)
+        },
+        Operator::Not => {
+            let expr_bool = match expr_val {
+                Val::Bool(b) => b,
+                _ => unreachable!(),
+            };
+
+            Val::Bool(!expr_bool)
+        }
+        _ => unreachable!(),
+    }
 }
 
 // TODO : add line number and file ?
@@ -976,7 +1001,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
             }
             last_node
         }
-        ASTNode::FunctionDefinition { name, args, body, type_annotation } => {
+        ASTNode::FunctionDefinition { name, args, body, type_annotation: _ } => {
             let func_def = FunctionDef { 
                 name, 
                 args,
@@ -1020,6 +1045,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         },
         ASTNode::VarUse { name } => context.vars.get(&name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", name.get_str(&context.rustaml_context.str_interner))).clone(),
         ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, op, lhs, rhs),
+        ASTNode::UnaryOp { op, expr } => interpret_unop(context, op, expr),
         ASTNode::FunctionCall { callee, args } => interpret_function_call(context, callee, args),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, cond_expr, then_body, else_body),
         ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr, patterns.as_slice()),

@@ -217,7 +217,10 @@ pub enum ASTNode {
         lhs: ASTRef,
         rhs: ASTRef,
     },
-    // TODO : UnaryOp
+    UnaryOp {
+        op: Operator,
+        expr: ASTRef,
+    },
     FunctionCall {
         callee : ASTRef,
         args : Vec<ASTRef>,
@@ -877,6 +880,21 @@ fn parse_anonymous_function(parser: &mut Parser, function_range_start : usize) -
     }, function_range_start..end_range))
 }
 
+const UNARY_OPS : [Operator; 2] = [Operator::Minus, Operator::Not];
+
+fn parse_unary_op(parser: &mut Parser, op : Operator, unary_range_start : usize) -> Result<ASTRef, ParserErr> {
+    if !UNARY_OPS.contains(&op){
+        panic!("Unknown unary op : {:?}", op); // TODO : better error handling
+    }
+
+    let expr = parse_primary(parser)?;
+
+    let range_end = expr.get_range(&parser.rustaml_context.ast_pool).end;
+
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::UnaryOp { op, expr }, unary_range_start..range_end))
+
+}
+
 fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let tok = parser.eat_tok(None).unwrap();
     let tok_range = tok.range.clone();
@@ -893,6 +911,8 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         TokenData::False => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: false }, tok_range)),
         TokenData::ParenOpen => parse_parenthesis(parser, tok_range.start), // TODO : move this to the start of parse_node and make it unreachable! ? (because each time there are parenthesis, parse_node -> parse_primary -> parse_node is added to the call stack) 
         TokenData::ArrayOpen => parse_static_list(parser, tok_range.start),
+        TokenData::Op(op) => parse_unary_op(parser, op, tok_range.start),
+        //t => panic!("t: {:?}", t),
         t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))
     };
 
