@@ -32,7 +32,7 @@ pub enum Pattern {
     Bool(bool), // | true
     Range(i64, i64, bool), // bool is for the inclusivity | 0..1
     String(StringRef), // | "test"
-    List(Vec<PatternRef>), // | [1, 2, 3] // TODO : replace vec with Box<[Pattern]>
+    List(Box<[PatternRef]>), // | [1, 2, 3] // TODO : replace vec with Box<[Pattern]>
     ListDestructure(StringRef, PatternRef), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
     Underscore,
 }
@@ -779,7 +779,7 @@ fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
         TokenData::ArrayOpen => {
             let (elems, range_end) = parse_list_form(parser, parse_pattern)?;
 
-            (Pattern::List(elems), pattern_first_tok_range.start..range_end)
+            (Pattern::List(elems.into_boxed_slice()), pattern_first_tok_range.start..range_end)
         },
         t => return Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, pattern_first_tok_range)),
     };
