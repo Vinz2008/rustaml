@@ -122,6 +122,86 @@ struct ListNode* __list_node_append_back(struct ListNode* list, uint8_t type_tag
 }
 
 
+static Val deep_clone_val(uint8_t tag, Val val);
+
+static struct ListNode* deep_clone_list(struct ListNode* list){
+    struct ListNode* new_list = NULL;
+    
+    struct ListNode* current = list;
+
+    while (current != NULL){
+        new_list = __list_node_append_back(new_list, current->type_tag, deep_clone_val(current->type_tag, current->val));
+        current = current->next;
+    }
+
+    return new_list;
+}
+
+static char* clone_str(const char* s){
+    size_t s_len = strlen(s);
+    char* new_s = MALLOC((s_len + 1) * sizeof(char));
+    memcpy(new_s, s, s_len);
+    new_s[s_len] = '\0';
+    return new_s;
+}
+
+static Val deep_clone_val(uint8_t tag, Val val){
+    Val ret;
+
+    char* val_str;
+    struct ListNode* list;
+
+    switch (tag)
+    {
+    case INT_TYPE:
+    case FLOAT_TYPE:
+    case BOOL_TYPE:
+        ret = val;
+        break;
+    case STR_TYPE:
+        val_str = INTO_TYPE(char*, val);
+        const char* copied_str = clone_str(val_str);
+        ret = INTO_TYPE(Val, copied_str);
+        break;
+    case LIST_TYPE:
+        list = INTO_TYPE(struct ListNode*, val);
+        struct ListNode* cloned_list = deep_clone_list(list);
+        ret = INTO_TYPE(Val, cloned_list);
+        break;
+    case FUNCTION_TYPE:
+    default:
+        fprintf(stderr, "Unknwown tag when deep cloning list");
+        exit(1);
+    }
+
+    return ret;
+
+}
+
+struct ListNode* __list_node_merge(struct ListNode* list1, struct ListNode* list2){
+    struct ListNode* list1_cloned = deep_clone_list(list1);
+    struct ListNode* list2_cloned = deep_clone_list(list2);
+
+    struct ListNode* list1_last = list1_cloned;
+
+    while (list1_last != NULL){
+        list1_last = list1_last->next;
+        if (list1_last != NULL && list1_last->next == NULL){
+            break;
+        }
+    }
+
+
+    if (list1_last == NULL) {
+        list1_cloned = list2_cloned;
+    } else {
+        list1_last->next = list2_cloned;
+    }
+
+    return list1_cloned;
+}
+
+
 static Val list_node_val(struct ListNode* list){
     return list->val;
 }

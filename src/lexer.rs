@@ -30,38 +30,24 @@ pub enum Operator {
     Not, // !
     StrAppend, // ^
     ListAppend, // ::
+    ListMerge, // @
 }
 
 impl Operator {
-    pub const OPERATORS: [&'static str; 19] = ["+", "-", "*", "/", "+.", "-.", "*.", "/.", "==", "!=", ">=", "<=", ">", "<", "&&", "||", "^", "::", "!"];
+    pub const OPERATORS: [&'static str; 20] = ["+", "-", "*", "/", "+.", "-.", "*.", "/.", "==", "!=", ">=", "<=", ">", "<", "&&", "||", "^", "::", "!", "@"];
     pub fn get_type(&self) -> Type {
         match self {
             Self::Plus | Self::Minus | Self::Mult | Self::Div => Type::Integer,
             Self::PlusFloat | Self::MinusFloat | Self::MultFloat | Self::DivFloat => Type::Float,
             Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior | Self::Or | Self::And => Type::Bool,
             Self::StrAppend => Type::Str,
-            Self::ListAppend => Type::List(Box::new(Type::Any)),
+            Self::ListAppend | Self::ListMerge => Type::List(Box::new(Type::Any)),
             Self::Not => unreachable!(),
         }
     }
 
-    /*pub fn get_operand_type(&self, is_left : bool, other_operand_type : &Type) -> Type {
-        match self {
-            Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior => other_operand_type.clone(),
-            Self::StrAppend => Type::Str,
-            Self::ListAppend => if is_left { 
-                Type::Any // TODO : replace this with better type inference ?
-            } else {
-                Type::List(Box::new(other_operand_type.clone()))
-            },
-            Self::PlusFloat | Self::MinusFloat | Self::MultFloat | Self::DivFloat => Type::Float,
-            Self::Plus | Self::Minus | Self::Mult | Self::Div => Type::Integer,
-            Self::Equal => unreachable!(),
-        }
-    }*/
-
     fn is_char_op(c : char) -> bool {
-        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^' | ':' | '!' | '.' | '&' | '|')
+        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^' | ':' | '!' | '.' | '&' | '|' | '@')
     }
 
     pub fn str_to_op(s: &str, range : &Range<usize>) -> Result<Operator, LexerErr> {
@@ -85,6 +71,7 @@ impl Operator {
             "&&" => Operator::And,
             "||" => Operator::Or,
             "!" => Operator::Not,
+            "@" => Operator::ListMerge,
             _ => return Err(LexerErr::new(LexerErrData::InvalidOp(s.to_owned()), range.clone())),
         };
         Ok(op)

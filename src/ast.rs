@@ -238,8 +238,6 @@ pub enum Type {
     Function(Vec<Type>, Box<Type>, bool), // the bool is if the function is variadic
     Str,
     List(Box<Type>),
-    // TODO : add a number to any (to have 'a, 'b, etc)
-    // TODO: or remove Any ?
     Any, // not already resolved type during type checking
     Generic(GenericIdx),
     Unit,
@@ -284,8 +282,6 @@ impl Type {
     }
 }
 
-// TODO : add @ operator to append lists
-
 
 fn init_precedences() -> FxHashMap<Operator, (i32, Associativity)> {
 
@@ -293,8 +289,11 @@ fn init_precedences() -> FxHashMap<Operator, (i32, Associativity)> {
 
     FxHashMap::from_iter([
         // TODO : should the and and or be Right or Left Associativity ?
+        (Operator::StrAppend, (5, Associativity::Right)),
         (Operator::And, (5, Associativity::Right)),
         (Operator::Or, (5, Associativity::Right)),
+        (Operator::ListAppend, (6, Associativity::Right)),
+        (Operator::ListMerge, (6, Associativity::Left)),
         (Operator::IsEqual, (10, Associativity::Left)),
         (Operator::IsNotEqual, (10, Associativity::Left)),
         (Operator::Superior, (10, Associativity::Left)),
@@ -309,8 +308,6 @@ fn init_precedences() -> FxHashMap<Operator, (i32, Associativity)> {
         (Operator::Div, (30, Associativity::Left)),
         (Operator::MultFloat, (30, Associativity::Left)),
         (Operator::DivFloat, (30, Associativity::Left)),
-        (Operator::StrAppend, (5, Associativity::Right)),
-        (Operator::ListAppend, (6, Associativity::Right)),
     ])
 }
 
@@ -324,8 +321,6 @@ pub enum Associativity {
 pub struct Parser<'context> {
     tokens: Vec<Token>,
     pos: usize,
-    // TODO : replace vars with global vars, and add in each function, a local var table
-    // pub vars : FxHashMap<StringRef, Type>, // include functions (which are just vars with function types)
     precedences : FxHashMap<Operator, (i32, Associativity)>,
     filename : PathBuf,
     pub rustaml_context : &'context mut RustamlContext,

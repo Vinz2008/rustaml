@@ -223,6 +223,16 @@ impl List {
             List::Node(_, _) => false
         }
     }
+
+    pub fn deep_clone(&self, list_pool : &mut ListPool) -> List {
+        match self {
+            List::Node(val, l) => {
+                let cloned_tail = l.get(list_pool).clone().deep_clone(list_pool);
+                List::Node(val.clone(), list_pool.push(cloned_tail))
+            }
+            List::None => List::None,
+        }
+    }
 }
 
 
@@ -507,6 +517,28 @@ fn interpret_binop_list(list_pool : &mut ListPool, op : Operator, lhs_val : Val,
     match op {
         // TODO : use the already existing subtree, should it be clone ?
         Operator::ListAppend => Val::List(list_pool.push(List::new(lhs_val, rhs_list))),
+        Operator::ListMerge => {
+            // TODO : optimize this ?
+            let lhs_list = match lhs_val {
+                Val::List(l) => l,
+                _ => unreachable!(),
+            };
+
+            let mut cloned_lhs = lhs_list.get(list_pool).clone().deep_clone(list_pool);
+
+            let mut rhs_vals = Vec::new();
+            for v in rhs_list.get(list_pool).iter(list_pool) {
+                rhs_vals.push(v.clone()); // TODO : add a deep clone for vals for situations like this (where val is cloned, but need to deep clone for immutability)
+            }
+
+            for v in rhs_vals {
+                cloned_lhs.append(list_pool, v);
+            }
+
+            let cloned_lhs_ref = list_pool.push(cloned_lhs);
+
+            Val::List(cloned_lhs_ref)
+        }
         _ => unreachable!(),
     }
 }

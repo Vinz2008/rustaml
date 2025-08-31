@@ -76,6 +76,12 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             ..Default::default()
         },
         BuiltinFunction {
+            name: "__list_node_merge",
+            args: vec![ptr_type, ptr_type],
+            ret: Some(ptr_type_ret),
+            ..Default::default()
+        },
+        BuiltinFunction {
             name: "__list_len",
             args: vec![ptr_type],
             ret: Some(llvm_context.i64_type().into()),
@@ -608,6 +614,9 @@ fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
             let type_tag_val = get_type_tag_val(compile_context.context, elem_type);
             create_list_append_call(compile_context, rhs_val.into_pointer_value(), type_tag_val, lhs_val).into()
         },
+        Operator::ListMerge => {
+            create_list_merge(compile_context, lhs_val.into_pointer_value(), rhs_val.into_pointer_value()).into()
+        }
         _ => unreachable!(),
     }
 }
@@ -823,6 +832,13 @@ fn create_list_append_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '
     let function = compile_context.get_internal_function("__list_node_append");
     //dbg!(function);
     let args = &[list.into(), type_tag_val.into(), val.try_into().unwrap()];
+    compile_context.builder.build_call(function, args, "list_append").unwrap().as_any_value_enum().into_pointer_value()
+}
+
+fn create_list_merge<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list1 : PointerValue<'llvm_ctx>, list2 : PointerValue<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
+    let function = compile_context.get_internal_function("__list_node_merge");
+    //dbg!(function);
+    let args = &[list1.into(), list2.into()];
     compile_context.builder.build_call(function, args, "list_append").unwrap().as_any_value_enum().into_pointer_value()
 }
 

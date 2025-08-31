@@ -458,6 +458,11 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 Operator::ListAppend => {
                     context.push_constraint(Constraint::IsElementOf { element: lhs_type_var, list: rhs_type_var }, range.clone());
                 },
+                Operator::ListMerge => {
+                    context.push_constraint(Constraint::SameType(lhs_type_var, rhs_type_var), range.clone());
+                    context.push_constraint(Constraint::ListType(lhs_type_var), range.clone());
+                    context.push_constraint(Constraint::ListType(rhs_type_var), range.clone());
+                },
                 Operator::Not => unreachable!(),
             }
 
@@ -478,6 +483,10 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                     context.push_constraint(Constraint::IsType(new_type_var, Type::Str), range);
                 },
                 Operator::ListAppend => {
+                    context.push_constraint(Constraint::SameType(new_type_var, rhs_type_var), range);
+                },
+                Operator::ListMerge => {
+                    context.push_constraint(Constraint::SameType(new_type_var, lhs_type_var), range.clone());
                     context.push_constraint(Constraint::SameType(new_type_var, rhs_type_var), range);
                 },
                 Operator::Not => unreachable!(),
