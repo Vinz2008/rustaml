@@ -63,8 +63,7 @@ pub enum TypesErrData {
 #[derive(Default)]
 pub struct TypeInfos {
     pub vars_env : FxHashMap<VarId, Type>,
-    //pub functions_env : FxHashMap<StringRef, Type>,
-    pub ast_var_ids : FxHashMap<ASTRef, VarId>, // TODO need to also add there function calls 
+    pub ast_var_ids : FxHashMap<ASTRef, VarId>
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -106,10 +105,6 @@ pub struct TypeContext<'a> {
     generic_type_idx: u32,
 
     vars_type_vars : FxHashMap<VarId, TypeVarId>,
-
-    // they are the reverse of each other, (TODO : use this https://docs.rs/bidirectional-map/latest/bidirectional_map/struct.Bimap.html ?)
-    /*functions_type_vars : FxHashMap<StringRef, TypeVarId>,
-    functions_type_vars_names : FxHashMap<TypeVarId, StringRef>,*/
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -175,37 +170,10 @@ impl<'a> TypeContext<'a> {
         }
 
         ret
-
-        /*let mut ret = FxHashMap::default();
-        for (name, vars) in self.current_vars.iter_mut() {
-            let mut idx_after_to_remove = match vars.len().checked_sub(1) {
-                Some(r) => r,
-                None => 0,
-            };
-
-            for (idx, var) in vars.iter().enumerate().rev() {
-                if var.is_global {
-                    idx_after_to_remove = idx;
-                    break;
-                }
-                // TODO : will remove all vars, will not work if there are local function definition (for example let a = let f a b = ... in ...) but is it a problem ? (check this)
-            }
-
-            let removed = vars[0..idx_after_to_remove].to_vec();
-            vars.truncate(idx_after_to_remove+1);
-            ret.insert(*name, removed);
-        }        
-        ret*/
     }
 
     fn readd_local_vars(&mut self, vars_to_add : FxHashMap<StringRef, Vec<Var>> ) {
         self.current_vars = vars_to_add;
-        /*for (name, vars) in vars_to_add.into_iter() {
-            match self.current_vars.get_mut(&name){
-                Some(v) => v.extend(vars),
-                None => { self.current_vars.insert(name, vars); },
-            }
-        }*/
     }
 
     fn push_constraint(&mut self, constraint : Constraint, range : Range<usize>){
@@ -291,18 +259,6 @@ fn get_var_type_var(context : &TypeContext, var_id: VarId) -> TypeVarId {
     }
 }
 
-/*fn get_function_type_var(context : &TypeContext, name: StringRef, range : Range<usize>) -> Result<TypeVarId, TypesErr> {
-    match context.functions_type_vars.get(&name) {
-        Some(t) => Ok(*t),
-        None => Err(TypesErr::new(TypesErrData::FunctionNotFound { name: name.get_str(&context.rustaml_context.str_interner).to_owned() }, range))
-    }
-}*/
-
-// TODO : add inline on this
-fn get_function_type_var(context : &TypeContext, var_id: VarId) -> TypeVarId {
-    get_var_type_var(context, var_id)
-}
-
 fn create_var(context : &mut TypeContext, name : StringRef, is_global_function : bool, val_type_var : TypeVarId) -> VarId {
     let var_id = context.push_var(name, is_global_function);
     context.vars_type_vars.insert(var_id, val_type_var);
@@ -314,8 +270,6 @@ fn remove_var(context : &mut TypeContext, name : StringRef){
 }
 
 fn create_function(context : &mut TypeContext, name : StringRef, val_type_var : TypeVarId) -> VarId {
-    /*context.functions_type_vars.insert(name, val_type_var);
-    context.functions_type_vars_names.insert(val_type_var, name);*/
     let is_global_function = true; // TODO ?
     create_var(context, name, is_global_function, val_type_var)
 }
@@ -755,11 +709,9 @@ fn set_type_with_changed(type_mut : &mut Option<Type>, t: Type, changed : &mut b
 
 const ANON_FUNC_NAME : &'static str = "";
 
-// TODO : return result
 fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], constraints_ranges : &[Range<usize>]) -> Result<(), TypesErr> {
     //println!("constraints: {:?}", constraints);
     let mut changed = true;
-    // TODO : find if the loop is really needed ?
     while changed {
         changed = false;
         for (idx, c) in constraints.iter().enumerate() {
@@ -847,8 +799,8 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                     };
 
                     if let Some((actual_args, actual_ret, variadic)) = fun_type_tuple {
-                        // TODO: fix the print part (or at least make it more efficient, because with the to_owned, it is bad)
-                        let is_arg_nb_wrong = (function_name != &Some("print".to_owned()) && !variadic && passed_args_types.len() != actual_args.len()) || (function_name == &Some("print".to_owned()) && passed_args_types.len() != 1);
+                        //let is_arg_nb_wrong = (function_name != &Some("print".to_owned()) && !variadic && passed_args_types.len() != actual_args.len()) || (function_name == &Some("print".to_owned()) && passed_args_types.len() != 1);
+                        let is_arg_nb_wrong = !variadic && passed_args_types.len() != actual_args.len();
 
                         if is_arg_nb_wrong {
                             // TODO : add better anon func name (with a get_anon_func_name function ?)

@@ -129,8 +129,6 @@ pub fn print_lexer_error(lexer_error : LexerErr, filename : &Path, content : &st
     print_error(error_print);
 }
 
-// TODO : refactor this code ? (make only one function ?)
-
 fn print_unexpected_eof_error(error_basic_infos : ErrorBasicInfos) -> ErrorPrint {
     ErrorPrint {
         error_basic_infos,
@@ -182,42 +180,6 @@ fn print_not_function_type_in_let<'a>(error_basic_infos : ErrorBasicInfos<'a>, n
         ..Default::default()
     }
 }
-
-// TODO : add most near var (need to add another string in the err enum and find it when constructing the error)
-/*fn print_unknown_var<'a>(error_basic_infos : ErrorBasicInfos<'a>, name: &str) -> ErrorPrint<'a> {
-    ErrorPrint { 
-        error_basic_infos,
-        message: format!("Unknown var {}", name),
-        ..Default::default()  
-    }
-}*/
-
-/*fn print_wrong_number_of_args<'a>(error_basic_infos : ErrorBasicInfos<'a>, function_name : &str, expected_nb : usize, got_nb : usize) -> ErrorPrint<'a>{
-    ErrorPrint { 
-        error_basic_infos, 
-        message:  format!("Wrong number of args in call to {}, expected {} but got {}", function_name, expected_nb, got_nb),
-        label: Some("Fix the number of args here"),
-        ..Default::default()
-    }
-}
-
-fn print_wrong_arg_type<'a>(error_basic_infos : ErrorBasicInfos<'a>, function_name : &str, expected_type : Type, got_type : Type) -> ErrorPrint<'a> {
-    ErrorPrint { 
-        error_basic_infos,
-        message: format!("Wrong type of arg in call to {}, expected {:?} but got {:?}", function_name, expected_type, got_type),
-        label: Some("Fix the type of this arg"),
-        ..Default::default()
-    }
-}*/
-
-/*fn print_mismatched_binop_type<'a>(error_basic_infos : ErrorBasicInfos<'a>, op : &str, expected_type : Type, got_type : Type) -> ErrorPrint<'a> {
-    ErrorPrint { 
-        error_basic_infos,
-        message: format!("Wrong type of binop arg in op {}, expected {:?} but got {:?}", op, expected_type, got_type),
-        label: Some("Fix the type of this"),
-        ..Default::default()
-    }
-}*/
 
 pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : &str) {
     

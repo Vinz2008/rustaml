@@ -104,7 +104,6 @@ struct ListNode* __list_node_append(struct ListNode* list, uint8_t type_tag, Val
     return ret;
 }
 
-// TODO : is this needed ?
 struct ListNode* __list_node_append_back(struct ListNode* list, uint8_t type_tag, Val val){
     if (list == NULL){
         return list_node_init(type_tag, val);
@@ -240,7 +239,6 @@ static bool list_node_cmp(uint8_t tag1, Val val1, uint8_t tag2, Val val2){
 }
 
 
-// TODO ? generate this with LLVM ?
 uint8_t __list_cmp(struct ListNode* list1, struct ListNode* list2){
     while (list1 != NULL && list2 != NULL){
         if (!list_node_cmp(list1->type_tag, list1->val, list2->type_tag, list2->val)){
@@ -495,7 +493,6 @@ static int digit_nb(int64_t i){
     return digit_nb_unsigned(u);
 }
 
-// TODO : optimize this
 static void int_to_string_impl(char* buf, int64_t integer, int digit_number){
     int start = 0;
     if (integer < 0){

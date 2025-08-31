@@ -13,7 +13,7 @@ cfg_if! {
         pub struct ContentLoc;
 
         impl ContentLoc {
-            fn new(_v : Vec<char>) -> ContentLoc { ContentLoc }
+            fn new(_v : &[char]) -> ContentLoc { ContentLoc }
         }
     }
 }
