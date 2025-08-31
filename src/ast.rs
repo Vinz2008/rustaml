@@ -32,7 +32,7 @@ pub enum Pattern {
     Bool(bool), // | true
     Range(i64, i64, bool), // bool is for the inclusivity | 0..1
     String(StringRef), // | "test"
-    List(Box<[PatternRef]>), // | [1, 2, 3] // TODO : replace vec with Box<[Pattern]>
+    List(Box<[PatternRef]>), // | [1, 2, 3]
     ListDestructure(StringRef, PatternRef), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
     Underscore,
 }
