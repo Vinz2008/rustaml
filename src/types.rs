@@ -225,7 +225,7 @@ enum Constraint {
     SameType(TypeVarId, TypeVarId),   // var1 == var2
     IsType(TypeVarId, Type),   // var == Int, Float, Function, ...
     // TODO : replace function_name with a stringref ?
-    FunctionType { fun_type_var: TypeVarId, args_type_vars: Vec<TypeVarId>, ret_type_var: TypeVarId, is_variadic: bool, function_name : Option<String> }, // check if the function type is good (for calls)
+    FunctionType { fun_type_var: TypeVarId, args_type_vars: Box<[TypeVarId]>, ret_type_var: TypeVarId, is_variadic: bool, function_name : Option<String> }, // check if the function type is good (for calls)
     // TODO : can I merge these list constraints ?
     ListType(TypeVarId), // var is list(Any)
     IsElementOf { element: TypeVarId, list : TypeVarId }
@@ -561,7 +561,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
 
             context.push_constraint(Constraint::FunctionType { 
                 fun_type_var: new_type_var, 
-                args_type_vars: arg_vars, 
+                args_type_vars: arg_vars.into_boxed_slice(), 
                 ret_type_var, 
                 is_variadic: false, 
                 function_name,
@@ -613,7 +613,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
 
             context.push_constraint(Constraint::FunctionType { 
                 fun_type_var: new_type_var, 
-                args_type_vars: arg_vars, 
+                args_type_vars: arg_vars.into_boxed_slice(), 
                 ret_type_var, 
                 is_variadic: false, 
                 function_name: None,
@@ -643,7 +643,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
 
             context.push_constraint(Constraint::FunctionType { 
                 fun_type_var: callee_type_var, 
-                args_type_vars, 
+                args_type_vars: args_type_vars.into_boxed_slice(), 
                 ret_type_var, 
                 is_variadic: false,
                 function_name, 
@@ -732,7 +732,7 @@ fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
             for (arg1, arg2) in args1.iter().zip(args2){
                 args.push(merge_types(arg1, arg2)?);
             }
-            Some(Type::Function(args, Box::new(ret), variadic))
+            Some(Type::Function(args.into_boxed_slice(), Box::new(ret), variadic))
         },
         (_, t_g) | (t_g, _) if matches!(t_g, Type::Generic(_)) => Some(t_g.clone()), // TODO ?
         _ => None,
@@ -841,7 +841,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                         Some(Type::Function(args, ret, v)) => Some((args, ret, v)),
                         Some(t) => return Err(TypesErr::new(TypesErrData::FunctionTypeExpected { wrong_type: t }, range)),
                         None => {
-                            set_type_with_changed(&mut table.real_types[fun_root.0 as usize], Type::Function(passed_args_types.clone(), Box::new(ret_type.clone()), *is_variadic), &mut changed);
+                            set_type_with_changed(&mut table.real_types[fun_root.0 as usize], Type::Function(passed_args_types.clone().into_boxed_slice(), Box::new(ret_type.clone()), *is_variadic), &mut changed);
                             None
                         },
                     };
@@ -884,7 +884,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                         let func_merged_contains_generics = merged_ret.contains_generic() || merged_arg_types.iter().any(|e| e.contains_generic());
 
                         if !func_merged_contains_generics {
-                            set_type_with_changed(&mut table.real_types[fun_root.0 as usize], Type::Function(merged_arg_types, Box::new(merged_ret.clone()), variadic), &mut changed);
+                            set_type_with_changed(&mut table.real_types[fun_root.0 as usize], Type::Function(merged_arg_types.into_boxed_slice(), Box::new(merged_ret.clone()), variadic), &mut changed);
                         }
                             
                         if !ret_type.contains_generic() {
@@ -987,7 +987,7 @@ fn std_function_constraint(context : &mut TypeContext, name : &'static str, args
 
     context.push_constraint(Constraint::FunctionType { 
         fun_type_var, 
-        args_type_vars, 
+        args_type_vars: args_type_vars.into_boxed_slice(), 
         ret_type_var, 
         is_variadic, 
         function_name: Some(name.to_owned()), 
@@ -1003,11 +1003,11 @@ fn std_functions_constraints_types(context : &mut TypeContext) {
     // TODO : improve the type information of map with numbered generics
     let generic_type_elem_map_input = Type::Generic(context.new_generic_type());
     let generic_type_elem_map_output = Type::Generic(context.new_generic_type());
-    std_function_constraint(context, "map", vec![Type::List(Box::new(generic_type_elem_map_input.clone())), Type::Function(vec![generic_type_elem_map_input], Box::new(generic_type_elem_map_output.clone()), false)], Type::List(Box::new(generic_type_elem_map_output)), false);
+    std_function_constraint(context, "map", vec![Type::List(Box::new(generic_type_elem_map_input.clone())), Type::Function(Box::new([generic_type_elem_map_input]), Box::new(generic_type_elem_map_output.clone()), false)], Type::List(Box::new(generic_type_elem_map_output)), false);
     
     
     let generic_type_elem_filter = Type::Generic(context.new_generic_type());
-    std_function_constraint(context, "filter", vec![Type::List(Box::new(generic_type_elem_filter.clone())), Type::Function(vec![generic_type_elem_filter.clone()], Box::new(Type::Bool), false)], Type::List(Box::new(generic_type_elem_filter)), false);
+    std_function_constraint(context, "filter", vec![Type::List(Box::new(generic_type_elem_filter.clone())), Type::Function(Box::new([generic_type_elem_filter.clone()]), Box::new(Type::Bool), false)], Type::List(Box::new(generic_type_elem_filter)), false);
     // TODO : add a rand_f ? or make the rand function generic with its return ?
 }
 

@@ -39,11 +39,11 @@ pub fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut CompileContext
 
     let current_bb = compile_context.builder.get_insert_block().unwrap();
 
-    let function_passed_type = Type::Function(vec![elem_type.clone()], Box::new(ret_elem_type.clone()), false);
+    let function_passed_type = Type::Function(Box::new([elem_type.clone()]), Box::new(ret_elem_type.clone()), false);
     let function_passed_type_llvm = get_llvm_type(compile_context.context, &function_passed_type).into_function_type();
     
     // TODO : if those clone are a perf problem, replace all these with Any if possible
-    let map_type = Type::Function(vec![Type::List(Box::new(elem_type.clone())), function_passed_type], Box::new(Type::List(Box::new(ret_elem_type.clone()))), false);
+    let map_type = Type::Function(Box::new([Type::List(Box::new(elem_type.clone())), function_passed_type]), Box::new(Type::List(Box::new(ret_elem_type.clone()))), false);
     
     let map_type_llvm = get_llvm_type(compile_context.context, &map_type).as_any_type_enum().into_function_type();
     let map_func_name = &format!("map {}->{}", elem_type, ret_elem_type);
@@ -152,11 +152,11 @@ pub fn compile_monomorphized_filter<'llvm_ctx>(compile_context: &mut CompileCont
 
     let current_bb = compile_context.builder.get_insert_block().unwrap();
 
-    let function_passed_type = Type::Function(vec![elem_type.clone()], Box::new(Type::Bool), false);
+    let function_passed_type = Type::Function(Box::new([elem_type.clone()]), Box::new(Type::Bool), false);
     let function_passed_type_llvm = get_llvm_type(compile_context.context, &function_passed_type).into_function_type();
     
-    // TODO : if those clone are a perf problem, replace all these with Any if possible
-    let map_type = Type::Function(vec![Type::List(Box::new(elem_type.clone())), function_passed_type], Box::new(Type::List(Box::new(Type::Bool))), false);
+    // TODO : if those clone are a perf problem, replace all these box with Any if possible
+    let map_type = Type::Function(Box::new([Type::List(Box::new(elem_type.clone())), function_passed_type]), Box::new(Type::List(Box::new(Type::Bool))), false);
     
     let map_type_llvm = get_llvm_type(compile_context.context, &map_type).as_any_type_enum().into_function_type();
     let map_func_name = &format!("filter {}", elem_type);

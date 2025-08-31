@@ -5,8 +5,6 @@ use crate::{ast::Type, debug_println, rustaml::RustamlContext, types_debug::Prin
 use debug_with_context::DebugWithContext;
 use enum_tags::Tag;
 
-// TODO : add operator for floats (+., *., etc) for type inference
-
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 #[debug_context(PrintTypedContext)]
@@ -81,8 +79,8 @@ impl Operator {
 // TODO : replace all the Vec<char> with slices
 #[derive(Debug, Clone, Tag, PartialEq)]
 pub enum TokenData {
-    Identifier(Vec<char>),
-    String(Vec<char>),
+    Identifier(Box<[char]>),
+    String(Box<[char]>),
     Op(Operator),
     Integer(i64),
     Float(f64),
@@ -130,7 +128,7 @@ struct Lexer {
 
 #[derive(Debug, Tag)]
 pub enum LexerErrData {
-    NumberParsingFailure(Vec<char>),
+    NumberParsingFailure(Box<[char]>),
     InvalidOp(String),
     UnexpectedChar(char),
     UnexpectedEOF,
@@ -231,7 +229,7 @@ fn lex_nb(lexer: &mut Lexer) -> Result<Token, LexerErr> {
         let nb = str::parse::<f64>(str.as_str());
         let nb = match nb {
             Ok(n) => n,
-            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(buf), range)),
+            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(buf.into_boxed_slice()), range)),
         };
 
         //dbg!(nb);
@@ -243,7 +241,7 @@ fn lex_nb(lexer: &mut Lexer) -> Result<Token, LexerErr> {
 
         let nb = match nb {
             Ok(n) => n,
-            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(buf), range)),
+            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(buf.into_boxed_slice()), range)),
         };
 
         //dbg!(nb);
@@ -281,7 +279,7 @@ fn lex_alphabetic(lexer: &mut Lexer) -> Token {
         "function" => TokenData::Function,
         "true" => TokenData::True,
         "false" => TokenData::False,
-        _ => TokenData::Identifier(buf),
+        _ => TokenData::Identifier(buf.into_boxed_slice()),
     };
 
     Token::new(tok_data, range)
@@ -342,7 +340,7 @@ fn lex_string(lexer: &mut Lexer) -> Result<Token, LexerErr> {
         Some(_) => unreachable!(),
         None => return Err(LexerErr::new(LexerErrData::UnexpectedEOF, lexer.pos..lexer.pos))
     }
-    Ok(Token::new(TokenData::String(buf), range))
+    Ok(Token::new(TokenData::String(buf.into_boxed_slice()), range))
 }
 
 pub fn lex(content: Vec<char>, is_debug_print : bool) -> Result<Vec<Token>, LexerErr> {
@@ -393,7 +391,7 @@ mod tests {
     fn lexer_simple() {
         let input = "let a = 2 ;;".to_string().chars().collect();
         let result = lex(input, false).unwrap().into_iter().map(|t| t.tok_data).collect::<Vec<_>>();
-        let expected = vec![TokenData::Let, TokenData::Identifier(vec!['a']), TokenData::Equal, TokenData::Integer(2), TokenData::EndOfExpr];
+        let expected = vec![TokenData::Let, TokenData::Identifier(vec!['a'].into()), TokenData::Equal, TokenData::Integer(2), TokenData::EndOfExpr];
         assert_eq!(result, expected);
     }
 }

@@ -362,7 +362,7 @@ impl Val {
 #[debug_context(RustamlContext)]
 pub struct FunctionDef {
     name : StringRef,
-    args : Vec<StringRef>,
+    args : Box<[StringRef]>,
     body : ASTRef,
 }
 
@@ -830,7 +830,7 @@ fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_v
     res_val
 }
 
-fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args : Vec<ASTRef>) -> Val {
+fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args : Box<[ASTRef]>) -> Val {
 
     let args_val = args.iter().map(|e| interpret_node(context, *e)).collect::<Vec<_>>();
 
@@ -1080,7 +1080,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::UnaryOp { op, expr } => interpret_unop(context, op, expr),
         ASTNode::FunctionCall { callee, args } => interpret_function_call(context, callee, args),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, cond_expr, then_body, else_body),
-        ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr, patterns.as_slice()),
+        ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr, patterns.as_ref()),
         ASTNode::String { str } => Val::String(str),
         ASTNode::List { list } => Val::List(List::new_from(context, &list)),
         ASTNode::Unit => Val::Unit,

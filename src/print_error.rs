@@ -49,7 +49,7 @@ fn print_error(err : ErrorPrint){
 
 
 
-fn print_number_parsing_failure(error_basic_infos : ErrorBasicInfos, buf  : Vec<char>) -> ErrorPrint{
+fn print_number_parsing_failure(error_basic_infos : ErrorBasicInfos, buf  : Box<[char]>) -> ErrorPrint{
     ErrorPrint {
         error_basic_infos,
         message: format!("Failure when parsing number \"{:?}\"", buf),

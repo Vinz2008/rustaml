@@ -126,16 +126,15 @@ struct DebugLoc {
 
 #[derive(Clone)]
 pub struct ContentLoc {
-    content_chars : Vec<char>, // TODO : remove this and only pass to the new function as ref the Vec<char>
     newlines_idx : Vec<usize>,
 }
 
 impl ContentLoc {
-    pub fn new(content_chars : Vec<char>) -> ContentLoc {
+    pub fn new(content_chars : &[char]) -> ContentLoc {
         let newlines_idx = content_chars.iter().enumerate().filter(|(_, e)| **e == '\n').map(|(idx, _)| idx).collect();
 
         ContentLoc { 
-            content_chars, 
+            //content_chars, 
             newlines_idx 
         }
     }

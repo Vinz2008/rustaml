@@ -31,7 +31,7 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
 #[derive(Clone, Default)]
 struct BuiltinFunction<'llvm_ctx> {
     name : &'static str,
-    args : Vec<BasicMetadataTypeEnum<'llvm_ctx>>,
+    args : Box<[BasicMetadataTypeEnum<'llvm_ctx>]>,
     ret : Option<AnyTypeEnum<'llvm_ctx>>, // will always be Some, just for the default implementation
     attributes : Vec<(AttributeLoc, Attribute)>,
     is_variadic: bool,
@@ -53,82 +53,82 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
     vec![
         BuiltinFunction {
             name: "__str_cmp",
-            args: vec![ptr_type, ptr_type],
+            args: Box::new([ptr_type, ptr_type]),
             ret: Some(llvm_context.bool_type().into()),
             ..Default::default()
         },
         BuiltinFunction {
             name: "__str_append",
-            args: vec![ptr_type, ptr_type],
+            args: Box::new([ptr_type, ptr_type]),
             ret: Some(ptr_type_ret),
             ..Default::default()
         },
         BuiltinFunction {
             name: "__list_node_append",
-            args: vec![ptr_type, llvm_context.i8_type().into(), llvm_context.i64_type().into()],
+            args: Box::new([ptr_type, llvm_context.i8_type().into(), llvm_context.i64_type().into()]),
             ret: Some(ptr_type_ret),
             ..Default::default()
         },
         BuiltinFunction {
             name: "__list_node_append_back",
-            args: vec![ptr_type, llvm_context.i8_type().into(), llvm_context.i64_type().into()],
+            args: Box::new([ptr_type, llvm_context.i8_type().into(), llvm_context.i64_type().into()]),
             ret: Some(ptr_type_ret),
             ..Default::default()
         },
         BuiltinFunction {
             name: "__list_node_merge",
-            args: vec![ptr_type, ptr_type],
+            args: Box::new([ptr_type, ptr_type]),
             ret: Some(ptr_type_ret),
             ..Default::default()
         },
         BuiltinFunction {
             name: "__list_len",
-            args: vec![ptr_type],
+            args: Box::new([ptr_type]),
             ret: Some(llvm_context.i64_type().into()),
             ..Default::default()
         },
         BuiltinFunction {
             name: "__list_print",
-            args: vec![ptr_type],
+            args: Box::new([ptr_type]),
             ret: Some(llvm_context.void_type().into()),
             ..Default::default()
         },
         BuiltinFunction {
             name: "__bool_to_str",
-            args: vec![llvm_context.bool_type().into()],
+            args: Box::new([llvm_context.bool_type().into()]),
             ret: Some(ptr_type_ret),
             ..Default::default()
         },
         BuiltinFunction {
             name: "__rand",
-            args: vec![],
+            args: Box::new([]),
             ret: Some(llvm_context.i64_type().into()),
             ..Default::default()
         },
         BuiltinFunction {
             name: "__format_string",
             is_variadic: true,
-            args: vec![ptr_type],
+            args: Box::new([ptr_type]),
             ret: Some(ptr_type_ret),
             ..Default::default()
         },
         BuiltinFunction {
             name: "fprintf",
             is_variadic: true,
-            args: vec![ptr_type, ptr_type],
+            args: Box::new([ptr_type, ptr_type]),
             ret: Some(llvm_context.i32_type().into()),
             ..Default::default()
         },
         BuiltinFunction {
             name: "printf",
             is_variadic: true,
-            args: vec![ptr_type],
+            args: Box::new([ptr_type]),
             ret: Some(llvm_context.i32_type().into()),
             ..Default::default()
         },
         BuiltinFunction {
             name: "exit",
-            args: vec![llvm_context.i32_type().into()],
+            args: Box::new([llvm_context.i32_type().into()]),
             ret: Some(llvm_context.void_type().into()),
             attributes: vec![attr("noreturn")],
             ..Default::default()

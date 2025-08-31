@@ -42,7 +42,7 @@ impl RustamlContext {
         }
     }
 
-    pub fn set_content_chars(&mut self, content_chars : Vec<char>){
+    pub fn set_content_chars(&mut self, content_chars : &[char]){
         self.content = Some(ContentLoc::new(content_chars));
     }
 }
@@ -114,7 +114,7 @@ pub fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Resu
 
     let content_chars = content.chars().collect::<Vec<_>>();
 
-    rustaml_context.set_content_chars(content_chars.clone()); // do only do this when compiling (it is only needed for debuginfos so only do when it is activated ?)
+    rustaml_context.set_content_chars(&content_chars); // do only do this when compiling (it is only needed for debuginfos so only do when it is activated ?)
     
     let ast = get_ast_from_string(rustaml_context, content_chars, Some(&content), filename, None)?;
 
