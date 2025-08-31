@@ -354,7 +354,6 @@ pub struct FunctionDef {
     name : StringRef,
     args : Vec<StringRef>,
     body : ASTRef,
-    return_type : Type, // TODO : make this optional because it it the annotation
 }
 
 pub struct InterpretContext<'context> {
@@ -977,12 +976,11 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
             }
             last_node
         }
-        ASTNode::FunctionDefinition { name, args, body, return_type } => {
+        ASTNode::FunctionDefinition { name, args, body, type_annotation } => {
             let func_def = FunctionDef { 
                 name, 
-                args: args.iter().map(|arg| arg.name).collect(),
+                args,
                 body,
-                return_type,
             };
             context.vars.insert(name, Val::Function(func_def));
             //context.functions.insert(name, func_def);
@@ -993,7 +991,6 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
                 name: context.rustaml_context.str_interner.intern_compiler("anon_func"), // add an index to not have the same name for all closures ?
                 args,
                 body,
-                return_type: Type::Any, // TODO : is it needed ?
             };
             Val::Function(func_def)
         }

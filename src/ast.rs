@@ -176,12 +176,11 @@ pub enum ASTNode {
     TopLevel {
         nodes: Vec<ASTRef>,
     },
-    // TODO : replace with just a type with the function type in an optional and only StringRefs in args ?
     FunctionDefinition {
         name : StringRef,
-        args : Vec<Arg>,
+        args : Vec<StringRef>,
         body : ASTRef,
-        return_type : Type,
+        type_annotation : Option<Type>,
     },
     AnonFunc {
         args : Vec<StringRef>,
@@ -510,10 +509,11 @@ fn parse_let(parser: &mut Parser, let_range : Range<usize>) -> Result<ASTRef, Pa
         let function_type = match parser.current_tok_data() {
             Some(TokenData::Colon) => {
                 parser.eat_tok(Some(TokenDataTag::Colon))?;
-                parse_type_annotation(parser)?
+                Some(parse_type_annotation(parser)?)
             },
             Some(_) | None => {
-                Type::Function(vec![Type::Any; arg_names.len()], Box::new(Type::Any), false)
+                //Type::Function(vec![Type::Any; arg_names.len()], Box::new(Type::Any), false)
+                None
             }
         };
 
@@ -521,13 +521,19 @@ fn parse_let(parser: &mut Parser, let_range : Range<usize>) -> Result<ASTRef, Pa
 
         let function_type_range = function_type_range_start..function_type_range_end;
         
-        let (arg_types, return_type, _) = match function_type {
+        /*let (arg_types, return_type, _) = match function_type {
             Type::Function(a, r, v) => (a, r, v),
             _ => return Err(ParserErr::new(ParserErrData::NotFunctionTypeInAnnotationLet { function_name: name.get_str(&parser.rustaml_context.str_interner).to_owned() }, function_type_range)), 
-        };
+        };*/
 
-        let args = arg_names.into_iter().zip(arg_types.clone()).map(|x| Arg { name: parser.rustaml_context.str_interner.intern_compiler(&x.0), arg_type: x.1 }).collect::<Vec<Arg>>();
+        match function_type {
+            Some(t) if !matches!(t, Type::Function(_, _, _)) => return Err(ParserErr::new(ParserErrData::NotFunctionTypeInAnnotationLet { function_name: name.get_str(&parser.rustaml_context.str_interner).to_owned() }, function_type_range)), 
+            _ => {}
+        }
 
+        //let args = arg_names.into_iter().zip(arg_types.clone()).map(|x| Arg { name: parser.rustaml_context.str_interner.intern_compiler(&x.0), arg_type: x.1 }).collect::<Vec<Arg>>();
+
+        let arg_names = arg_names.iter().map(|e| parser.rustaml_context.str_interner.intern_compiler(e)).collect();
 
         parser.eat_tok(Some(TokenDataTag::Equal))?;
 
@@ -537,9 +543,9 @@ fn parse_let(parser: &mut Parser, let_range : Range<usize>) -> Result<ASTRef, Pa
         
         ASTNode::FunctionDefinition { 
             name, 
-            args, 
+            args: arg_names, 
             body,
-            return_type: *return_type,
+            type_annotation: function_type,
         }
     } else {
         let var_type = match parser.current_tok_data() {

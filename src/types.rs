@@ -486,35 +486,49 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             
         }
 
-        ASTNode::FunctionDefinition { name, args, body, return_type } => {
+        ASTNode::FunctionDefinition { name, args, body, type_annotation } => {
             let function_id = create_function(context, name, new_type_var);
             context.type_infos.ast_var_ids.insert(ast, function_id);
 
+            let (return_type, arg_type_annotations) = match type_annotation {
+                Some(Type::Function(args, ret, _)) => (Some(*ret), Some(args)),
+                Some(t) => return Err(TypesErr::new(TypesErrData::FunctionTypeExpected { wrong_type: t }, range)),
+                _ => (None, None),
+            };
+
             let mut arg_vars = Vec::new();
-            for arg in &args {
+            for (arg_idx, arg_name) in args.iter().enumerate() {
                 let arg_type_var = context.table.new_type_var();
                 arg_vars.push(arg_type_var);
-                if !matches!(arg.arg_type, Type::Any){
-                    context.push_constraint(Constraint::IsType(arg_type_var, arg.arg_type.clone()), range.clone());
-                }
 
-                if !is_underscore(context.rustaml_context, arg.name) {
-                    create_var(context, arg.name, false, arg_type_var);
+                if let Some(arg_type_annotations) = &arg_type_annotations {
+                    let arg_type = arg_type_annotations[arg_idx].clone();
+                    if !matches!(arg_type, Type::Any){
+                        context.push_constraint(Constraint::IsType(arg_type_var, arg_type), range.clone());
+                    }
+                }
+                
+
+                if !is_underscore(context.rustaml_context, *arg_name) {
+                    create_var(context, *arg_name, false, arg_type_var);
                 }
             }
 
             let ret_type_var = context.table.new_type_var();
-            if !matches!(return_type, Type::Any){
-                context.push_constraint(Constraint::IsType(ret_type_var, return_type), range.clone());
+            if let Some(return_type) = &return_type {
+                if !matches!(return_type, Type::Any){
+                    context.push_constraint(Constraint::IsType(ret_type_var, return_type.clone()), range.clone());
+                }
             }
+
+            
 
             let body_type_var = collect_constraints(context, body)?;
             context.push_constraint(Constraint::SameType(body_type_var, ret_type_var), range.clone());
-            //context.push_constraint(TypeConstraint::IsType(new_type_var, Type::Function(arg_vars.iter().map(|_| Type::Any).collect(), Box::new(Type::Any), false))); // The Any are replaced later
         
             for arg in args {
-                if !is_underscore(context.rustaml_context, arg.name) {
-                    remove_var(context, arg.name);
+                if !is_underscore(context.rustaml_context, arg) {
+                    remove_var(context, arg);
                 }
             }
 
@@ -545,7 +559,10 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 let arg_type_var = context.table.new_type_var();
                 arg_vars.push(arg_type_var);
                 if let Some(arg_type_annotations) = &arg_type_annotations {
-                    context.push_constraint(Constraint::IsType(arg_type_var, arg_type_annotations[arg_idx].clone()), range.clone());
+                    let arg_type = arg_type_annotations[arg_idx].clone();
+                    if !matches!(arg_type, Type::Any){
+                        context.push_constraint(Constraint::IsType(arg_type_var, arg_type), range.clone());
+                    }
                 }
 
                 if !is_underscore(context.rustaml_context, *arg_name) {

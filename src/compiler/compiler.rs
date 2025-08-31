@@ -953,7 +953,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
     }
 
     match ast_node.get(&compile_context.rustaml_context.ast_pool) {
-        ASTNode::FunctionDefinition { name, args, body, return_type: _ } => {
+        ASTNode::FunctionDefinition { name, args, body, type_annotation: _ } => {
             //println!("typeinfos function_env : {:?}", DebugWrapContext::new(&compile_context.typeinfos.functions_env, compile_context.rustaml_context));
             
             // TODO : replace this with accessing the type of the ASTNode ?
@@ -1001,13 +1001,13 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
 
             //let mut old_arg_name_type = Vec::new(); // to save the types that have the same of the args in the global vars 
 
-            for (((arg, arg_val), arg_type_llvm), arg_type) in args.iter().zip(function.get_param_iter()).zip(param_types_llvm).zip(param_types) {
+            for (((arg_name, arg_val), arg_type_llvm), arg_type) in args.iter().zip(function.get_param_iter()).zip(param_types_llvm).zip(param_types) {
                 /*match compile_context.var_types.insert(arg.name, arg.arg_type.clone()) {
                     Some(old_type) => old_arg_name_type.push((arg.name, old_type)),
                     None => {}
                 }*/
-                let var_ptr = create_var(compile_context, arg.name, arg_val.as_any_value_enum(), arg_type_llvm);
-                compile_context.debug_info.declare_var(arg.name.get_str(&compile_context.rustaml_context.str_interner), &arg_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), range.clone());
+                let var_ptr = create_var(compile_context, *arg_name, arg_val.as_any_value_enum(), arg_type_llvm);
+                compile_context.debug_info.declare_var(arg_name.get_str(&compile_context.rustaml_context.str_interner), &arg_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), range.clone());
             }
 
             let ret = compile_expr(compile_context, *body);
@@ -1022,7 +1022,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             compile_context.builder.build_return(return_val).unwrap();
 
             for arg in args {
-                compile_context.var_vals.remove(&arg.name);
+                compile_context.var_vals.remove(&arg);
                 //compile_context.var_types.remove(&arg.name);
             }
 
