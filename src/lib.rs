@@ -21,6 +21,7 @@ pub mod print_error;
 pub mod debug;
 pub mod types;
 pub mod types_debug;
+pub mod mangle;
 
 cfg_if! {
     if #[cfg(feature = "native")] {

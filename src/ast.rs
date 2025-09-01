@@ -161,6 +161,11 @@ impl DebugWithContext<RustamlContext> for ASTRef {
 }
 
 
+#[derive(Clone, Copy, PartialEq, DebugWithContext)]
+pub enum ExternLang {
+    C
+}
+
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 #[debug_context(PrintTypedContext)]
@@ -178,6 +183,11 @@ pub enum ASTNode {
         args : Box<[StringRef]>,
         body : ASTRef,
         type_annotation : Option<Type>,
+    },
+    ExternFunc {
+        name : StringRef,
+        type_annotation : Type,
+        lang : ExternLang,
     },
     VarDecl {
         name: StringRef,
@@ -410,7 +420,8 @@ fn parse_string(parser: &mut Parser, buf : Box<[char]>, range : Range<usize>) ->
 
 
 
-fn parse_annotation_simple(parser: &mut Parser) -> Result<Type, ParserErr> {
+// the usize is the range end
+fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserErr> {
     let tok = parser.eat_tok(None)?;
     //dbg!(&tok);
     match &tok.tok_data {
@@ -422,35 +433,38 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<Type, ParserErr> {
                 "str" => Type::Str,
                 "list" => {
                     parser.eat_tok(Some(TokenDataTag::ArrayOpen))?;
-                    let elem_type = parse_annotation_simple(parser)?; // TODO : replace with parse_annotation to have access to more complicated types ?
-                    parser.eat_tok(Some(TokenDataTag::ArrayClose))?;
-                    Type::List(Box::new(elem_type))
+                    let (elem_type, _) = parse_annotation_simple(parser)?; // TODO : replace with parse_annotation to have access to more complicated types ?
+                    let array_close_tok = parser.eat_tok(Some(TokenDataTag::ArrayClose))?;
+                    let type_annot = Type::List(Box::new(elem_type));
+                    return Ok((type_annot, array_close_tok.range.end));
                 },
                 s => return Err(ParserErr::new(ParserErrData::UnknownTypeAnnotation { type_str: s.to_owned() }, tok.range.clone())),
             };
-            Ok(type_annot)
+            Ok((type_annot, tok.range.end))
         },
         TokenData::ParenOpen => {
-            parser.eat_tok(Some(TokenDataTag::ParenClose))?;
-            Ok(Type::Unit)
+            let paren_close_tok = parser.eat_tok(Some(TokenDataTag::ParenClose))?;
+            Ok((Type::Unit, paren_close_tok.range.end))
         },
         _ => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: tok.tok_data }, tok.range.clone())),
     }
 }
 
-fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
+fn parse_type_annotation(parser: &mut Parser) -> Result<(Type, usize), ParserErr> {
     
-    let simple_type = parse_annotation_simple(parser)?;
+    let (simple_type, simple_end_range) = parse_annotation_simple(parser)?;
 
-    let type_parsed = match parser.current_tok_data() {
+    let (type_parsed, type_end_range) = match parser.current_tok_data() {
         Some(TokenData::Arrow) => {
             // only simple types can be returned or passed to functions, need to refactor this code to support cases like (int -> int) -> (int -> int)
             let mut function_type_parts = vec![simple_type];
             debug_println!(parser.rustaml_context.is_debug_print, "parser.current_tok_data() = {:#?}", parser.current_tok_data());
             //dbg!(parser.current_tok_data());
+            let mut end_range = simple_end_range;
             while let Some(t) = parser.current_tok_data() && matches!(t, TokenData::Arrow) {
                 parser.eat_tok(Some(TokenDataTag::Arrow))?;
-                let function_type_part = parse_annotation_simple(parser)?;
+                let (function_type_part, function_range_end) = parse_annotation_simple(parser)?;
+                end_range = function_range_end;
                 function_type_parts.push(function_type_part);
                 //dbg!((parser.current_tok_data(), matches!(parser.current_tok_data(), Some(TokenData::Arrow))));
             }
@@ -460,12 +474,14 @@ fn parse_type_annotation(parser: &mut Parser) -> Result<Type, ParserErr> {
                 _ => panic!("ERROR : missing type in function type annotation, found return type of {:?} and args of {:?}", return_type, function_type_parts), // TODO : better error handling
             };
 
-            Type::Function(function_type_parts.into_boxed_slice(), Box::new(return_type), false)
+            let type_annot = Type::Function(function_type_parts.into_boxed_slice(), Box::new(return_type), false);
+
+            (type_annot, end_range)
         },
-        _ => simple_type,
+        _ => (simple_type, simple_end_range),
     };
     
-    Ok(type_parsed)
+    Ok((type_parsed, type_end_range))
 }
 
 fn parse_let(parser: &mut Parser, let_range_start : usize) -> Result<ASTRef, ParserErr> {
@@ -496,7 +512,7 @@ fn parse_let(parser: &mut Parser, let_range_start : usize) -> Result<ASTRef, Par
         let function_type = match parser.current_tok_data() {
             Some(TokenData::Colon) => {
                 parser.eat_tok(Some(TokenDataTag::Colon))?;
-                Some(parse_type_annotation(parser)?)
+                Some(parse_type_annotation(parser)?.0)
             },
             Some(_) | None => {
                 None
@@ -530,7 +546,7 @@ fn parse_let(parser: &mut Parser, let_range_start : usize) -> Result<ASTRef, Par
         let var_type = match parser.current_tok_data() {
             Some(TokenData::Colon) => {
                 parser.eat_tok(Some(TokenDataTag::Colon))?;
-                Some(parse_type_annotation(parser)?)
+                Some(parse_type_annotation(parser)?.0)
             },
             Some(_) | None => None,
         };
@@ -813,7 +829,7 @@ fn parse_anonymous_function(parser: &mut Parser, function_range_start : usize) -
         Some(TokenData::Colon) => {
             parser.eat_tok(Some(TokenDataTag::Colon))?;
             parser.eat_tok(Some(TokenDataTag::ParenOpen))?;
-            let fun_type = Some(parse_type_annotation(parser)?);
+            let fun_type = Some(parse_type_annotation(parser)?.0);
             parser.eat_tok(Some(TokenDataTag::ParenClose))?;
             fun_type
         },
@@ -852,6 +868,42 @@ fn parse_unary_op(parser: &mut Parser, op : Operator, unary_range_start : usize)
 
 }
 
+fn parse_extern_func(parser: &mut Parser, extern_range_start : usize) -> Result<ASTRef, ParserErr> {
+    let str_lang_tok = parser.eat_tok(Some(TokenDataTag::String))?;
+    let s = match str_lang_tok.tok_data {
+        TokenData::String(s) => s.into_iter().collect::<String>(),
+        _ => unreachable!(),
+    };
+
+    let extern_lang = match s.as_str() {
+        "C" => ExternLang::C,
+        _ => panic!("Unknown lang in extern function {}", s), // TODO : better error handling
+    };
+
+    parser.eat_tok(Some(TokenDataTag::Function))?;
+
+    let func_name_ident_tok = parser.eat_tok(Some(TokenDataTag::Identifier))?;
+
+    let func_name = match func_name_ident_tok.tok_data {
+        TokenData::Identifier(i) => i.into_iter().collect::<String>(),
+        _ => unreachable!(),
+    };
+
+    parser.eat_tok(Some(TokenDataTag::Colon))?;
+    let (type_annotation, mut end_range) = parse_type_annotation(parser)?;
+
+    if let Some(TokenData::EndOfExpr) = parser.current_tok_data() {
+        let eof_tok = parser.eat_tok(Some(TokenDataTag::EndOfExpr)).unwrap();
+        end_range = eof_tok.range.end;
+    }
+
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::ExternFunc { 
+        name: parser.rustaml_context.str_interner.intern_compiler(&func_name), 
+        type_annotation, 
+        lang: extern_lang, 
+    }, extern_range_start..end_range))
+}
+
 fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let tok = parser.eat_tok(None).unwrap();
     let tok_range = tok.range.clone();
@@ -869,6 +921,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         TokenData::ParenOpen => parse_parenthesis(parser, tok_range.start), // TODO : move this to the start of parse_node and make it unreachable! ? (because each time there are parenthesis, parse_node -> parse_primary -> parse_node is added to the call stack) 
         TokenData::ArrayOpen => parse_static_list(parser, tok_range.start),
         TokenData::Op(op) => parse_unary_op(parser, op, tok_range.start),
+        TokenData::Extern => parse_extern_func(parser, tok_range.start),
         //t => panic!("t: {:?}", t),
         t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))
     };

@@ -574,6 +574,33 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             }, range);
         }
 
+        ASTNode::ExternFunc { name, type_annotation, lang } => {
+            let function_id = create_function(context, name, new_type_var);
+            context.type_infos.ast_var_ids.insert(ast, function_id);
+
+            let (function_args_types, ret, is_variadic) = match type_annotation {
+                Type::Function(args, ret, is_variadic) => (args, ret, is_variadic),
+                _ => return Err(TypesErr::new(TypesErrData::FunctionTypeExpected { wrong_type: type_annotation }, range)),
+            };
+
+            let ret_type_var = context.table.new_type_var();
+            context.push_constraint(Constraint::IsType(ret_type_var, *ret), range.clone());
+
+            let arg_vars = function_args_types.into_iter().map(|e| {
+                let arg_tv = context.table.new_type_var();
+                context.push_constraint(Constraint::IsType(arg_tv, e), range.clone());
+                arg_tv
+            }).collect::<Vec<_>>();
+
+            context.push_constraint(Constraint::FunctionType { 
+                fun_type_var: new_type_var, 
+                args_type_vars: arg_vars.into_boxed_slice(), 
+                ret_type_var, 
+                is_variadic, 
+                function_name: None,
+            }, range);
+        }
+
         ASTNode::FunctionCall { callee, args } => {
             let callee_type_var = collect_constraints(context, callee)?;
 

@@ -1,7 +1,7 @@
 use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, ops::Range, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -1005,14 +1005,8 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
                 Type::Function(args, ret, _) => (ret.as_ref().clone(), args.clone()),
                 t => panic!("BUG : the function definition has not a function type, it is {:?} instead", t), // TODO : replace this with an unreachable
             };
-            /*let (return_type, arg_types) = match compile_context.typeinfos.functions_env.get(name).unwrap(){
-                Type::Function(args, ret, _) => (ret.as_ref().clone(), args),
-                t => panic!("BUG : the function definition has not a function type, it is {:?} instead", t), // TODO : replace this with an unreachable
-            };*/
 
             let return_type_llvm = get_llvm_type(compile_context.context, &return_type);
-            //let param_types = args.iter().map(|a| get_llvm_type(compile_context.context, &a.arg_type).try_into().unwrap()).collect::<Vec<_>>();
-            //let param_types = args.iter().map(|a| get_var_type(compile_context, a.name)).collect::<Vec<_>>();
             let param_types = arg_types;
             debug_println!(compile_context.rustaml_context.is_debug_print, "function {:?} param types : {:?}", DebugWrapContext::new(name, compile_context.rustaml_context), param_types);
             let param_types_llvm = param_types.iter().map(|t| get_llvm_type(compile_context.context, t)).collect::<Vec<_>>();
@@ -1044,10 +1038,6 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             //let mut old_arg_name_type = Vec::new(); // to save the types that have the same of the args in the global vars 
 
             for (((arg_name, arg_val), arg_type_llvm), arg_type) in args.iter().zip(function.get_param_iter()).zip(param_types_llvm).zip(param_types) {
-                /*match compile_context.var_types.insert(arg.name, arg.arg_type.clone()) {
-                    Some(old_type) => old_arg_name_type.push((arg.name, old_type)),
-                    None => {}
-                }*/
                 let var_ptr = create_var(compile_context, *arg_name, arg_val.as_any_value_enum(), arg_type_llvm);
                 compile_context.debug_info.declare_var(arg_name.get_str(&compile_context.rustaml_context.str_interner), &arg_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), range.clone());
             }
@@ -1065,7 +1055,6 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
 
             for arg in args {
                 compile_context.var_vals.remove(&arg);
-                //compile_context.var_types.remove(&arg.name);
             }
 
             compile_context.debug_info.end_lexical_block();
@@ -1076,10 +1065,6 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             if let Some(loc) = compile_context.debug_info.create_debug_location(compile_context.context, compile_context.rustaml_context.content.as_ref().unwrap(), 0..0) {
                 compile_context.builder.set_current_debug_location(loc);
             }
-
-            /*for (n, t) in old_arg_name_type {
-                compile_context.var_types.insert(n, t);
-            }*/
         },
 
         ASTNode::VarDecl { name, val, body, var_type: _ } => {
@@ -1089,6 +1074,13 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
 
             compile_var_decl(compile_context, ast_node, *name, *val, *body, true);
         },
+        ASTNode::ExternFunc { name, type_annotation, lang } => {
+            let function_ty = get_llvm_type(compile_context.context, type_annotation).into_function_type();
+            let name_mangled = mangle_name(name.get_str(&compile_context.rustaml_context.str_interner), type_annotation, *lang);
+            
+            let function = compile_context.module.add_function(&name_mangled, function_ty, Some(Linkage::External)); // TODO : what linkage ?
+            compile_context.functions.insert(*name, function);
+        }
         ASTNode::TopLevel { nodes } => {
             // placeholder for imports (TODO ?)
             for &n in nodes {

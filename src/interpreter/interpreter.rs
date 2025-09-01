@@ -9,6 +9,9 @@ use rand::prelude::*;
 use crate::ast::ASTRef;
 use crate::ast::PatternRef;
 use crate::debug_println;
+use crate::interpreter::ffi::call_ffi_function;
+use crate::interpreter::ffi::get_ffi_func;
+use crate::interpreter::ffi::FFIFunc;
 use crate::interpreter::gc::{try_gc_collect, Gc, GcContext};
 use crate::rustaml::ensure_stack;
 use crate::rustaml::RustamlContext;
@@ -360,10 +363,17 @@ impl Val {
 
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
+enum FunctionBody {
+    AST(ASTRef),
+    FFI(FFIFunc),
+}
+
+#[derive(Clone, PartialEq, DebugWithContext)]
+#[debug_context(RustamlContext)]
 pub struct FunctionDef {
     name : StringRef,
     args : Box<[StringRef]>,
-    body : ASTRef,
+    body : FunctionBody,
 }
 
 pub struct InterpretContext<'context> {
@@ -820,24 +830,27 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_bo
 }
 
 fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val> ) -> Val {
-    let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
-    for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
-        if let Some(old_val) = context.vars.get(arg_name) {
-            old_vals.push((*arg_name, old_val.clone()));
-        }
-        context.vars.insert(*arg_name, arg_val.clone());
-    }
-
-
-    let res_val = ensure_stack(|| interpret_node(context, func_def.body));
-
-    for arg_name in &func_def.args {
-        context.vars.remove(arg_name);
-    }
-    for (old_name, old_val) in old_vals {
-        context.vars.insert(old_name, old_val);
-    }
-    res_val
+    match &func_def.body {
+        FunctionBody::AST(a) => {
+            let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
+            for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
+                if let Some(old_val) = context.vars.get(arg_name) {
+                    old_vals.push((*arg_name, old_val.clone()));
+                }
+                context.vars.insert(*arg_name, arg_val.clone());
+            }
+            let res_val = ensure_stack(|| interpret_node(context, *a));
+            for arg_name in &func_def.args {
+                context.vars.remove(arg_name);
+            }
+            for (old_name, old_val) in old_vals {
+                context.vars.insert(old_name, old_val);
+            }
+            res_val
+        },
+        
+        FunctionBody::FFI(f) => call_ffi_function(context, f, &args_val),
+    }    
 }
 
 fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args : Box<[ASTRef]>) -> Val {
@@ -855,16 +868,7 @@ fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args
     let func_def = match callee_val {
         Val::Function(f) => f,
         _ => unreachable!(),
-    };
-
-    //let func_def = context.functions.get(&name).unwrap_or_else(|| panic!("Function {} not found", name.get_str(&context.rustaml_context.str_interner))).to_owned();
-
-    // TODO : remove this
-    if args.len() != func_def.args.len() {
-        panic!("Invalid args number in function call, expected {}, got {}", func_def.args.len(), args.len());
-    }
-
-    
+    };    
     
     call_function(context, &func_def, args_val)
 }
@@ -1047,7 +1051,7 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
             let func_def = FunctionDef { 
                 name, 
                 args,
-                body,
+                body: FunctionBody::AST(body),
             };
             context.vars.insert(name, Val::Function(func_def));
             //context.functions.insert(name, func_def);
@@ -1057,9 +1061,20 @@ fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
             let func_def = FunctionDef {
                 name: context.rustaml_context.str_interner.intern_compiler("anon_func"), // add an index to not have the same name for all closures ?
                 args,
-                body,
+                body: FunctionBody::AST(body),
             };
             Val::Function(func_def)
+        }
+        ASTNode::ExternFunc { name, type_annotation, lang } => {
+            //call_function_ffi(context, name, type_annotation, lang)
+            let ffi_fun = get_ffi_func(context, name, type_annotation, lang);
+            let func_def = FunctionDef { 
+                name, 
+                args: Box::new([]), // unused (TODO ?, not need to pass this ?)
+                body: FunctionBody::FFI(ffi_fun),
+            };
+            context.vars.insert(name, Val::Function(func_def));
+            Val::Unit
         }
         ASTNode::Float { nb } => Val::Float(nb),
         ASTNode::Integer { nb } => Val::Integer(nb),

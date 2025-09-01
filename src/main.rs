@@ -30,6 +30,7 @@ mod rustaml;
 mod debug;
 mod types;
 mod types_debug;
+mod mangle;
 
 use cfg_if::cfg_if;
 

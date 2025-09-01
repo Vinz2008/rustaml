@@ -1,0 +1,5 @@
+extern "C" function sin : float -> float ;;
+
+let a = sin 2.3 ;;
+
+let _ = print a ;;
