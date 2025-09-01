@@ -1,0 +1,5 @@
+let gen_str len = match len with
+  | 0 -> ""
+  | l -> "a" ^ gen_str (len - 1) ;;
+
+let s = gen_str 100000 ;;

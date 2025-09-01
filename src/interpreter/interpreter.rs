@@ -497,26 +497,32 @@ fn interpret_binop_str(context: &mut InterpretContext, op : Operator, lhs_val : 
         _ => unreachable!(),
     };
     
-    match op {
+    let v = match op {
         Operator::StrAppend => {
             let str_ref = lhs_str.add(rhs_str, &mut context.rustaml_context.str_interner);
             context.gc_context.add_allocation(str_ref.len(&context.rustaml_context.str_interner));
             Val::String(str_ref)
         },
         _ => unreachable!()
-    }
+    };
+
+    // TODO : activate this
+    //try_gc_collect(context); // try gc collect because these operators create big allocations
+
+    v
 }
 
-fn interpret_binop_list(list_pool : &mut ListPool, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+fn interpret_binop_list(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
 
     let rhs_list = match rhs_val {
         Val::List(l) => l,
         _ => unreachable!(),
     };
 
-    match op {
+    let v = match op {
         // TODO : use the already existing subtree, should it be clone ?
-        Operator::ListAppend => Val::List(list_pool.push(List::new(lhs_val, rhs_list))),
+        // TODO : call add_allocation for gc in these cases
+        Operator::ListAppend => Val::List(context.rustaml_context.list_node_pool.push(List::new(lhs_val, rhs_list))),
         Operator::ListMerge => {
             // TODO : optimize this ?
             let lhs_list = match lhs_val {
@@ -524,23 +530,27 @@ fn interpret_binop_list(list_pool : &mut ListPool, op : Operator, lhs_val : Val,
                 _ => unreachable!(),
             };
 
-            let mut cloned_lhs = lhs_list.get(list_pool).clone().deep_clone(list_pool);
+            let mut cloned_lhs = lhs_list.get(&context.rustaml_context.list_node_pool).clone().deep_clone(&mut context.rustaml_context.list_node_pool);
 
             let mut rhs_vals = Vec::new();
-            for v in rhs_list.get(list_pool).iter(list_pool) {
+            for v in rhs_list.get(&context.rustaml_context.list_node_pool).iter(&context.rustaml_context.list_node_pool) {
                 rhs_vals.push(v.clone()); // TODO : add a deep clone for vals for situations like this (where val is cloned, but need to deep clone for immutability)
             }
 
             for v in rhs_vals {
-                cloned_lhs.append(list_pool, v);
+                cloned_lhs.append(&mut context.rustaml_context.list_node_pool, v);
             }
 
-            let cloned_lhs_ref = list_pool.push(cloned_lhs);
+            let cloned_lhs_ref = context.rustaml_context.list_node_pool.push(cloned_lhs);
 
             Val::List(cloned_lhs_ref)
         }
         _ => unreachable!(),
-    }
+    };
+    // TODO : activate this
+    //try_gc_collect(context);
+    
+    v
 }
 
 fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, rhs : ASTRef) -> Val {
@@ -553,7 +563,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
         Type::Float => interpret_binop_float(op, lhs_val, rhs_val),
         Type::Bool => interpret_binop_bool(op, lhs_val, rhs_val),
         Type::Str => interpret_binop_str(context, op, lhs_val, rhs_val),
-        Type::List(_) => interpret_binop_list(&mut context.rustaml_context.list_node_pool, op, lhs_val, rhs_val),
+        Type::List(_) => interpret_binop_list(context, op, lhs_val, rhs_val),
         _ => unreachable!(),
     }
 
