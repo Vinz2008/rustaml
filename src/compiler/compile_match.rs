@@ -61,9 +61,6 @@ fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut C
         compile_context.builder.position_at_end(has_matched_everything_bb);
         create_br_unconditional(compile_context, after_bb);
 
-
-        // TODO : for the phi, if we comes from the last cmp, it is true, else it is false
-
         compile_context.builder.position_at_end(after_bb);
         let phi_node = compile_context.builder.build_phi(compile_context.context.bool_type(), "phi_match_static_list").unwrap();
         let mut incoming_phi : Vec<(&dyn BasicValue<'_>, inkwell::basic_block::BasicBlock<'_>)> = Vec::new();
@@ -114,14 +111,11 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
         },
         Pattern::String(s) => {
             let str_cmp_fun = compile_context.get_internal_function("__str_cmp");
-            // TODO : verify it these strings are deduplicated
             let pattern_str_val = create_string(compile_context, s.get_str(&compile_context.rustaml_context.str_interner));
 
             let args = vec![pattern_str_val.into(), matched_val.try_into().unwrap()];
             compile_context.builder.build_call(str_cmp_fun, &args, "pattern_match_str_cmp").unwrap().as_any_value_enum().into_int_value()
         },
-        // TODO
-        // TODO : need to recursively make compares if there is more than one destructuring
         Pattern::ListDestructure(_, _) => compile_context.builder.build_int_compare(IntPredicate::NE, matched_val.into_pointer_value(), compile_context.context.ptr_type(AddressSpace::default()).const_null(), "cmp_destructure_not_empty").unwrap(),
         //p => panic!("unknown pattern {:?}", DebugWrapContext::new(p, compile_context.rustaml_context)),
     }
@@ -165,7 +159,7 @@ fn match_is_all_range(compile_context: &CompileContext<'_, '_, '_>, matched_val_
             let has_true = patterns.iter().any(|e| matches!(e.0.get(&compile_context.rustaml_context.pattern_pool), Pattern::Bool(true)));
             let has_false = patterns.iter().any(|e| matches!(e.0.get(&compile_context.rustaml_context.pattern_pool), Pattern::Bool(false)));
             has_true && has_false
-        }, 
+        },
         _ => false, // TODO
     }
 }
@@ -288,7 +282,6 @@ fn compile_match_switch<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
 }
 
 // TODO : test nested matchs for problem with bb placement (use move_bb_after_current ?)
-// TODO : add an optimization for switch and test code generation 
 pub fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, match_node : ASTRef, matched_expr : ASTRef, patterns : &[(PatternRef, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
     
     let matched_val = compile_expr(compile_context, matched_expr);
@@ -299,7 +292,6 @@ pub fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     let match_type_llvm = get_llvm_type(compile_context.context, match_type);
     
 
-    // TODO : what other types match ?
     if match_can_use_switch(compile_context, matched_val_type, patterns) {
         return compile_match_switch(compile_context, matched_val, match_type_llvm, matched_val_type, patterns);
     }
@@ -339,7 +331,6 @@ pub fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
         compile_context.builder.position_at_end(*pattern_else_bb);
     }
 
-    // TODO : exit with error if no case was matched
     // TODO : add line number ? 
     codegen_runtime_error(compile_context, "no match branch was found");
 
