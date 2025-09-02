@@ -163,7 +163,8 @@ impl DebugWithContext<RustamlContext> for ASTRef {
 
 #[derive(Clone, Copy, PartialEq, DebugWithContext)]
 pub enum ExternLang {
-    C
+    C,
+    CPP,
 }
 
 #[derive(Clone, PartialEq, DebugWithContext)]
@@ -188,6 +189,7 @@ pub enum ASTNode {
         name : StringRef,
         type_annotation : Type,
         lang : ExternLang,
+        so_str : Option<StringRef>,
     },
     VarDecl {
         name: StringRef,
@@ -924,6 +926,7 @@ fn parse_extern_func(parser: &mut Parser, extern_range_start : usize) -> Result<
 
     let extern_lang = match s.as_str() {
         "C" => ExternLang::C,
+        "C++" | "Cpp" => ExternLang::CPP,
         _ => panic!("Unknown lang in extern function {}", s), // TODO : better error handling
     };
 
@@ -939,6 +942,21 @@ fn parse_extern_func(parser: &mut Parser, extern_range_start : usize) -> Result<
     parser.eat_tok(Some(TokenDataTag::Colon))?;
     let (type_annotation, mut end_range) = parse_type_annotation(parser)?;
 
+    let mut so_str = None;
+
+
+    if let Some(TokenData::String(_)) = parser.current_tok_data(){
+        let so_str_tok = parser.eat_tok(None)?;
+        so_str = match so_str_tok.tok_data {
+            TokenData::String(s) => {
+                let s = parser.rustaml_context.str_interner.intern_compiler(&s.iter().collect::<String>());
+                Some(s)
+            },
+            _ => unreachable!(),
+        };
+        end_range = so_str_tok.range.end;
+    } 
+
     if let Some(TokenData::EndOfExpr) = parser.current_tok_data() {
         let eof_tok = parser.eat_tok(Some(TokenDataTag::EndOfExpr)).unwrap();
         end_range = eof_tok.range.end;
@@ -947,7 +965,8 @@ fn parse_extern_func(parser: &mut Parser, extern_range_start : usize) -> Result<
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::ExternFunc { 
         name: parser.rustaml_context.str_interner.intern_compiler(&func_name), 
         type_annotation, 
-        lang: extern_lang, 
+        lang: extern_lang,
+        so_str,
     }, extern_range_start..end_range))
 }
 

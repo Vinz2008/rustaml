@@ -33,12 +33,12 @@ pub fn get_list_type<'llvm_ctx>(llvm_context: &'llvm_ctx Context) -> StructType<
 
 fn get_llvm_type_ctype<'llvm_ctx>(llvm_context : &'llvm_ctx Context, c_type : &CType) -> AnyTypeEnum<'llvm_ctx> {
     match c_type {
+        CType::U8 | CType::I8 => llvm_context.i8_type().as_any_type_enum(),
         CType::I16 | CType::U16 => llvm_context.i16_type().as_any_type_enum(),
         CType::I32 | CType::U32 => llvm_context.i32_type().as_any_type_enum(),
         CType::I64 | CType::U64 => llvm_context.i64_type().as_any_type_enum(),
         CType::F32 => llvm_context.f32_type().as_any_type_enum(),
         CType::F64 => llvm_context.f64_type().as_any_type_enum(),
-        _ => unreachable!()
     }
 }
 

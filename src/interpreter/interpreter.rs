@@ -1071,9 +1071,9 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
             };
             Val::Function(func_def)
         }
-        ASTNode::ExternFunc { name, type_annotation, lang } => {
+        ASTNode::ExternFunc { name, type_annotation, lang, so_str } => {
             //call_function_ffi(context, name, type_annotation, lang)
-            let ffi_fun = get_ffi_func(context, name, type_annotation, lang);
+            let ffi_fun = get_ffi_func(context, name, type_annotation, lang, so_str);
             let func_def = FunctionDef { 
                 name, 
                 args: Box::new([]), // unused (TODO ?, not need to pass this ?)

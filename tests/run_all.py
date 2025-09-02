@@ -130,7 +130,7 @@ def test_file(filename : str, command : COMMAND, is_release_mode : bool, is_debu
     cmd = f"{exe_path} "
     match command:
         case COMMAND.COMPILE:
-            cmd += "compile -o out "
+            cmd += "compile -o out -Ltests "
             if is_debuginfo:
                 cmd += "-g "
         case COMMAND.INTERPRET:
@@ -140,7 +140,10 @@ def test_file(filename : str, command : COMMAND, is_release_mode : bool, is_debu
     
     cmd += os.path.join(scripts_dir, filename)
 
-    pipe = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = scripts_dir + ":" + env.get("LD_LIBRARY_PATH", "")
+
+    pipe = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
     out, _ = pipe.communicate()
     # print(out)
     return_code = pipe.returncode
@@ -166,7 +169,9 @@ def test_file(filename : str, command : COMMAND, is_release_mode : bool, is_debu
     match command:
         case COMMAND.COMPILE:
             cmd_run = "./out"
-            pipe = subprocess.Popen(cmd_run, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            env = os.environ.copy()
+            env["LD_LIBRARY_PATH"] = scripts_dir + ":" + env.get("LD_LIBRARY_PATH", "")
+            pipe = subprocess.Popen(cmd_run, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
             out_run, _ = pipe.communicate()
             return_code_run = pipe.returncode
             is_err_run = is_error(return_code_run)

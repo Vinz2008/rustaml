@@ -343,7 +343,7 @@ mod tests {
 
     #[test]
     fn debuginfo_get_debug_loc() {
-        let content = ContentLoc::new("aa\nbbb\ncd".chars().collect::<Vec<_>>());
+        let content = ContentLoc::new(&"aa\nbbb\ncd".chars().collect::<Vec<_>>());
         let range = 7..9;
         let debug_loc = get_debug_loc(&content, range);
         assert_eq!(debug_loc.line_nb, 3);

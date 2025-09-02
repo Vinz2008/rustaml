@@ -1,5 +1,5 @@
 use core::panic;
-use std::{hash::{Hash, Hasher}, io::Write, ops::Range, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
+use std::{hash::{Hash, Hasher}, io::Write, ops::Range, path::{Path, MAIN_SEPARATOR}, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
@@ -7,7 +7,6 @@ use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
 // TODO : add generic enums to have results for error handling
-// TODO : add a C FFI
 
 pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     pub rustaml_context : &'context RustamlContext,
@@ -23,6 +22,8 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>, // TODO : replace this with a hashmap ?
     pub global_strs : FxHashMap<String, PointerValue<'llvm_ctx>>,
     pub is_optimized : bool,
+
+    shared_libs : Vec<String>,
 
     pub monomorphized_internal_fun : FxHashMap<&'static str, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>>, // (Type A, Type B) = function List A -> List B
 }
@@ -1085,12 +1086,16 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
 
             compile_var_decl(compile_context, ast_node, *name, *val, *body, true);
         },
-        ASTNode::ExternFunc { name, type_annotation, lang } => {
+        ASTNode::ExternFunc { name, type_annotation, lang, so_str } => {
             let function_ty = get_llvm_type(compile_context.context, type_annotation).into_function_type();
             let name_mangled = mangle_name(name.get_str(&compile_context.rustaml_context.str_interner), type_annotation, *lang);
             
             let function = compile_context.module.add_function(&name_mangled, function_ty, Some(Linkage::External)); // TODO : what linkage ?
             compile_context.functions.insert(*name, function);
+            if let Some(so_str) = so_str {
+                compile_context.shared_libs.push(so_str.get_str(&compile_context.rustaml_context.str_interner).to_owned());
+            }
+            
         }
         ASTNode::TopLevel { nodes } => {
             // placeholder for imports (TODO ?)
@@ -1121,7 +1126,7 @@ fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : O
 // TODO : instead install file in filesystem ?
 const STD_C_CONTENT: &str = include_str!("../../std.c");
 
-fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : OptimizationLevel, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool){
+fn link_exe(filename_out : &Path, bitcode_file : &Path, shared_libs : &[String], lib_search_paths : &[String], opt_level : OptimizationLevel, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool){
     // use cc ?
     // TODO : use lld (https://github.com/mun-lang/lld-rs) for linking instead ?
     // TODO : use libclang ? (clang-rs ? https://github.com/llvm/llvm-project/blob/main/clang/tools/driver/cc1_main.cpp#L85 ?)
@@ -1162,7 +1167,34 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
         link_cmd.arg("-fsanitize=address");
     }
 
-    if !link_cmd.arg("-lm").arg("-o").arg(filename_out).arg(out_std_path_str).arg(bitcode_file).spawn().expect("linker failed").wait().unwrap().success() {
+    for search_path in lib_search_paths {
+        link_cmd.arg("-L".to_owned() + search_path);
+    }
+
+    for lib in shared_libs {
+        if lib.starts_with("..") || lib.starts_with(MAIN_SEPARATOR){
+            // full path
+            link_cmd.arg(lib);
+        } else {
+            let lib = if lib.starts_with("./") || lib.starts_with(".\\"){
+                lib[2..].to_owned()
+            } else {
+                if lib.starts_with("lib") && lib.ends_with(".so"){
+                    let suffix_stripped = lib.strip_suffix(".so").unwrap();
+                    let lib = "-l".to_owned() + &suffix_stripped[3..];
+                    lib
+                } else {
+                    lib.to_owned()
+                }
+            };
+            // local or global
+            link_cmd.arg(lib);
+        }
+    }
+
+    let final_args = link_cmd.arg("-lm").arg("-o").arg(filename_out).arg(out_std_path_str).arg(bitcode_file);
+
+    if !final_args.spawn().expect("linker failed").wait().unwrap().success() {
         return;
     }
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
@@ -1171,7 +1203,7 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, opt_level : Optimization
 const DEBUGINFO_VERSION: u64 = 3;
 
 // TODO : pass all the args after optimization level as a struct named OptionalArgs
-pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level_nb : u8, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool) {
+pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level_nb : u8, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, lib_search_paths : Vec<String>) {
     let context = Context::create();
     let builder = context.create_builder();
     let filename_path = filename.parent().map(|e| e.as_os_str().to_str().unwrap()).unwrap();
@@ -1253,6 +1285,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         internal_functions,
         external_symbols_declared: FxHashSet::default(),
         global_strs: FxHashMap::default(),
+        shared_libs: Vec::new(),
         monomorphized_internal_fun: init_monomorphized_internal_fun(),
     };
 
@@ -1328,7 +1361,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
 
 
     if let Some(f_out) = filename_out {
-        link_exe(f_out,  &temp_path_bitcode, optimization_level, disable_gc, enable_sanitizer, enable_debuginfos);
+        link_exe(f_out,  &temp_path_bitcode, &compile_context.shared_libs, &lib_search_paths, optimization_level, disable_gc, enable_sanitizer, enable_debuginfos);
         if !keep_temp {
             std::fs::remove_file(temp_path_bitcode).expect("Couldn't delete bitcode file");
         }

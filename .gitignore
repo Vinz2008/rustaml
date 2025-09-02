@@ -7,3 +7,5 @@ tests/big_file.rml
 flamegraph.svg
 perf.data*
 .env
+*.o
+*.so

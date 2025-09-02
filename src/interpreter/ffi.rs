@@ -1,12 +1,15 @@
-use std::{ffi::CString, os::raw::c_void};
+use std::{ffi::CString, os::raw::c_void, rc::Rc};
 
 use crate::{ast::{CType, ExternLang, Type}, interpreter::{InterpretContext, Val}, mangle::mangle_name, rustaml::RustamlContext, string_intern::StringRef};
 
 use debug_with_context::DebugWithContext;
 use libffi::{low::CodePtr, middle::{Arg, Cif, Type as FFIType}};
+use libloading::Library;
+use pathbuf::pathbuf;
 
 #[derive(Clone)]
 pub struct FFIFunc {
+    lib : Rc<Library>,
     code_ptr : CodePtr,
     cif : Cif,
     ret_type : Type,
@@ -49,16 +52,26 @@ fn get_ffi_type(t : &Type) -> FFIType {
 }
 
 // TODO : return a result and do better error handling
-pub fn get_ffi_func(context : &mut InterpretContext, name: StringRef, func_type : Type, external_lang : ExternLang) -> FFIFunc {
+pub fn get_ffi_func(context : &mut InterpretContext, name: StringRef, func_type : Type, external_lang : ExternLang, so_str : Option<StringRef>) -> FFIFunc {
     let mangled_name = mangle_name(name.get_str(&context.rustaml_context.str_interner), &func_type, external_lang);
 
 
     // TODO : add support for explicit shared library name in extern function
-    #[cfg(unix)]
-    let lib = libloading::os::unix::Library::this();
+    let lib = if let Some(so_name) = so_str {
 
-    #[cfg(windows)]
-    let lib = libloading::windows::unix::Library::this();
+        let path = pathbuf![so_name.get_str(&context.rustaml_context.str_interner)];
+        unsafe { 
+            Library::new(path).unwrap()
+        }
+    }  else {
+        #[cfg(unix)]
+        let lib = libloading::os::unix::Library::this();
+
+        #[cfg(windows)]
+        let lib = libloading::windows::unix::Library::this();
+
+        lib.into()
+    };
 
     let (ret_type, arg_types) = match func_type {
         Type::Function(args, ret, _) => (ret, args),
@@ -79,6 +92,7 @@ pub fn get_ffi_func(context : &mut InterpretContext, name: StringRef, func_type 
             code_ptr,
             cif,
             ret_type: *ret_type,
+            lib : Rc::new(lib),
         }
 
     }

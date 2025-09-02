@@ -1,3 +1,5 @@
+// need LD_LIBRARY_PATH=./tests when running outside of tests folder
+
 extern "C" function sin : float -> float ;;
 
 let a = sin 2.3 ;;
@@ -10,4 +12,8 @@ let _ = print a ;;
 
 extern "C" function strlen : str -> c_type.size_t ;;
 let a = strlen "test" ;;
+let _ = print a ;;
+
+extern "C++" function my_cos : float -> float "libcpp_ffi.so" ;;
+let a = my_cos 2.3 ;;
 let _ = print a ;;

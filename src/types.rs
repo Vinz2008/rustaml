@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 // TODO : replace these with use std::range::Range when https://github.com/rust-lang/rust/issues/125687 is added without a feature, then remove all the ranges clones because the new version is Copy
 use std::ops::Range;
 
-use crate::{ast::{ASTNode, ASTRef, CType, Pattern, PatternRef, Type}, debug_println, lexer::Operator, rustaml::{nearest_string, RustamlContext}, string_intern::StringRef};
+use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, debug_println, lexer::Operator, rustaml::{nearest_string, RustamlContext}, string_intern::StringRef};
 
 
 // TODO : make this part generic for every err (something like Ranged<TypesErr>)
@@ -580,7 +580,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             }, range);
         }
 
-        ASTNode::ExternFunc { name, type_annotation, lang } => {
+        ASTNode::ExternFunc { name, type_annotation, lang: _, so_str: _ } => {
             let function_id = create_function(context, name, new_type_var);
             context.type_infos.ast_var_ids.insert(ast, function_id);
 
