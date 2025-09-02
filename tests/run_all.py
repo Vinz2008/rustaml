@@ -73,6 +73,7 @@ def get_error_message(command : COMMAND, return_code : int, filename : str, is_r
         case _:
             sys.exit(f"Unknown error return code {return_code}")
 
+replace_all_outputs = False
 
 class CheckOutputOutput:
     def __init__(self, success : bool, diff : str | None):
@@ -94,7 +95,7 @@ def check_output(command : COMMAND, filename : str, out_run : bytes) -> CheckOut
     output_filename = os.path.join("output_tests", output_filename)
     output_filename = os.path.join(scripts_dir, output_filename)
 
-    if os.path.exists(output_filename) and not (filename in replace_outputs):
+    if os.path.exists(output_filename) and not (filename in replace_outputs) and not replace_all_outputs:
         old_output_file = open(output_filename, mode="r")
         old_output_content = old_output_file.read()
         if old_output_content != out_run:
@@ -281,6 +282,8 @@ if __name__ == '__main__':
         elif arg == "--replace-output":
             i += 1
             replace_outputs.append(sys.argv[i])
+        elif arg == "--replace-all-outputs":
+            replace_all_outputs = True
     
     ensure_compiler_built(is_release_mode)
     
