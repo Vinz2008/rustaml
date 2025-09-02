@@ -5,6 +5,7 @@ from colorama import Fore, Style
 from tabulate import tabulate
 from yaspin import yaspin
 from yaspin.spinners import Spinners
+from difflib import unified_diff
 
 
 scripts_dir = os.path.dirname(os.path.realpath(__file__))
@@ -23,9 +24,16 @@ excluded_files = [
     "interpreter_error.rml",
 ]
 
-should_panic_files = {
+
+skip_check_output = [
+    "rand.rml" # TODO : set a custom seed to make it work
+]
+
+replace_outputs = [] # will be appended during runtime
+
+should_panic_files = [
  #    "panic.rml"
-}
+]
 
 def is_error(return_code : int) -> bool:
     return return_code != 0
@@ -66,14 +74,50 @@ def get_error_message(command : COMMAND, return_code : int, filename : str, is_r
             sys.exit(f"Unknown error return code {return_code}")
 
 
+class CheckOutputOutput:
+    def __init__(self, success : bool, diff : str | None):
+        self.success = success
+        self.diff = diff
+
+def check_output(command : COMMAND, filename : str, out_run : bytes) -> CheckOutputOutput:
+    if filename in skip_check_output:
+        return CheckOutputOutput(True, None)
+    out_run = out_run.decode()
+    match command:
+        case COMMAND.COMPILE:
+            command_suffix = "compiler"
+        case COMMAND.INTERPRET:
+            command_suffix = "interpreter"
+        case _:
+            return CheckOutputOutput(True, None)
+    output_filename = os.path.splitext(filename)[0] + "." + command_suffix + ".txt"
+    output_filename = os.path.join("output_tests", output_filename)
+    output_filename = os.path.join(scripts_dir, output_filename)
+
+    if os.path.exists(output_filename) and not (filename in replace_outputs):
+        old_output_file = open(output_filename, mode="r")
+        old_output_content = old_output_file.read()
+        if old_output_content != out_run:
+            diff = unified_diff(old_output_content.splitlines(), out_run.splitlines(), lineterm='')
+            diff = '\n' + '\n'.join(list(diff)) + '\n'
+            return CheckOutputOutput(False, diff)
+    else:
+        new_output_file = open(output_filename, mode="w")
+        new_output_file.write(out_run)
+    
+    return CheckOutputOutput(True, None)
+
+    
+
 class WHEN_ERROR:
     INTERPRETER = 1
     COMPILER = 2
     COMPILER_RUN = 3
     CHECK = 4
+    OUTPUT_CHECK = 5
 
 class TestFileOutput:
-    def __init__(self, output_print : str, out_process : str, error_message : str | None, when_error : WHEN_ERROR | None):
+    def __init__(self, output_print : str, out_process : bytes, error_message : str | None, when_error : WHEN_ERROR | None):
         self.output_print = output_print
         self.error_message = error_message
         self.when_error = when_error
@@ -131,7 +175,9 @@ def test_file(filename : str, command : COMMAND, is_release_mode : bool, is_debu
         case COMMAND.INTERPRET | COMMAND.CHECK:
             out_run = out
     
-
+    check_output_out = check_output(command, filename, out_run)
+    if not check_output_out.success:
+        return TestFileOutput("❌", check_output_out.diff.encode(), "Error when checking output", WHEN_ERROR.OUTPUT_CHECK)
     # return "✅", "", out
     return TestFileOutput("✅", out, None, None)
 
@@ -216,7 +262,8 @@ if __name__ == '__main__':
     command = COMMAND.ALL
     is_release_mode = False
     is_debuginfo = False
-    for arg in sys.argv:
+    for i in range(len(sys.argv)):
+        arg = sys.argv[i]
         if arg == "--interpret":
             command = COMMAND.INTERPRET
         elif arg == "--compile":
@@ -231,6 +278,9 @@ if __name__ == '__main__':
             is_release_mode = False
         elif arg == "--debuginfo":
             is_debuginfo = True
+        elif arg == "--replace-output":
+            i += 1
+            replace_outputs.append(sys.argv[i])
     
     ensure_compiler_built(is_release_mode)
     

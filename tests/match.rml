@@ -8,15 +8,19 @@ let match_switch2 a = match a with
   | 2 -> 36
   | a -> a ;;
 
-let m1 = match_switch1 (rand ()) ;;
+// put rand back instead of these numbers in these calls for defeating optimizations after adding seeds for tests
+let r1 = 1 ;;
+let r2 = 2 ;;
+let r3 = 3 ;;
+let m1 = match_switch1 r1 ;;
 let _ = print m1 ;;
 
-let m2 = match_switch2 (rand ()) ;;
+let m2 = match_switch2 r2 ;;
 let _ = print m2 ;;
 
 let match_bool a = match a with
   | true -> 12
   | false -> 6 ;;
 
-let m_b = match_bool ((rand ()) == 3) ;;
+let m_b = match_bool (r3 == 3) ;;
 let _ = print m_b ;;
