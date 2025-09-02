@@ -62,7 +62,7 @@ pub fn nearest_string<'a>(searched_str : &str, strings : impl IntoIterator<Item 
     nearest
 }
 
-pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<char>, content_str: Option<&str>, filename : &Path, already_added_filenames : Option<&mut FxHashSet<PathBuf>>) -> Result<ASTRef, ()> /*Result<(ASTRef, FxHashMap<StringRef, Type>), ()>*/ {
+pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<char>, content_str: Option<&str>, filename : &Path, already_added_filenames : Option<&mut FxHashSet<PathBuf>>) -> Result<ASTRef, ()> {
     
     let content_str = match content_str {
         Some(c) => c,

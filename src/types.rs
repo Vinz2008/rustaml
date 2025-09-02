@@ -610,14 +610,6 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         ASTNode::FunctionCall { callee, args } => {
             let callee_type_var = collect_constraints(context, callee)?;
 
-            /*let function_id = get_var_id(context, name, range.clone())?;
-            let fun_type_var = get_function_type_var(context, function_id);*/
-
-            // TODO : replace the unwrap_or ?
-            /*if let Type::Function(arg_types, ret, _) = context.functions_type_annotations.get(&name).unwrap_or(&Type::Any) {
-                context.push_constraint(TypeConstraint::IsType(new_type_var, *ret.clone()));
-            }*/
-
             let ret_type_var = new_type_var;
 
             let args_type_vars = args.iter().map(|&e| collect_constraints(context, e)).collect::<Result<Vec<_>, TypesErr>>()?;

@@ -43,15 +43,6 @@ pub fn interpret_code(code : &str, filename : &Path, is_debug_print  : bool) -> 
         },
     };
 
-    /*let ast_and_vars = ast::parse(tokens, &mut rustaml_context);
-    let (ast, _vars) = match ast_and_vars {
-        Ok(a_v) => a_v,
-        Err(e) => {
-            print_error::print_parser_error(e, filename, code);
-            return Err(());
-        },
-    };*/
-
     let ast = ast::parse(tokens, &mut rustaml_context, filename.to_path_buf(), None);
     let ast = match ast {
         Ok(a) => a,

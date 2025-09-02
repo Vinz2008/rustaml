@@ -59,17 +59,6 @@ fn print_number_parsing_failure(error_basic_infos : ErrorBasicInfos, buf  : Box<
 }
 
 fn nearest_op(s : &str) -> String {
-    /*let mut min_distance = usize::MAX;
-    let mut nearest = Operator::OPERATORS[0]; 
-    for op in Operator::OPERATORS {
-        let distance = levenshtein(s, op);
-        if distance < min_distance {
-            min_distance = distance;
-            nearest = op;
-        }
-    }
-    nearest*/
-
     nearest_string(s, Operator::OPERATORS, Some(Operator::OPERATORS[0])).unwrap().to_owned()
 }
 
@@ -155,15 +144,6 @@ fn print_unexpected_tok_error(error_basic_infos : ErrorBasicInfos, tok : TokenDa
         ..Default::default()
     }
 }
-
-/*n print_type_inference_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, arg_name : &str) -> ErrorPrint<'a> {
-    ErrorPrint {
-        error_basic_infos,
-        message: format!("Type inference error with the argument {:?}", arg_name),
-        label: Some("This argument's type couldn't be deduced from the body of the function"),
-        note: Some("Either add a type annotation, or change the body to disambiguate".to_owned()),
-    }
-}*/
 
 fn print_unknown_type_annotation<'a>(error_basic_infos : ErrorBasicInfos<'a>, type_str : &str) -> ErrorPrint<'a> {
     ErrorPrint {

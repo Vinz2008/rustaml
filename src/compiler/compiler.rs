@@ -554,10 +554,6 @@ fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
         return compile_context.context.bool_type().const_int(true as u64, false);
     }
 
-    /*if matches!(op, Operator::And | Operator::Or){
-        return compile_binop_bool_logical(compile_context, op, lhs_val, rhs_val, name);
-    }*/
-
     match (lhs_val, rhs_val){
         (AnyValueEnum::IntValue(i),  AnyValueEnum::IntValue(i2)) => {
             let predicate = match op {
@@ -812,10 +808,6 @@ fn compile_unop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
 }
 
 fn compile_var_use<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef, name : StringRef) -> AnyValueEnum<'llvm_ctx> {
-    
-    /*for (v, v_t) in &compile_context.var_types {
-        println!("{} = {:?}", v.get_str(&compile_context.rustaml_context.str_interner), v_t);
-    }*/
 
     let var_id = get_var_id(compile_context, ast_node);
     
@@ -869,13 +861,6 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
         Type::List(e) => e.as_ref(),
         _ => unreachable!(),
     };
-
-    /*for e in list {
-        println!("e = {:?}", DebugWrapContext::new(e, compile_context.rustaml_context));
-    }
-
-
-    dbg!(&list_element_type);*/
 
     let type_tag_val = get_type_tag_val(compile_context.context, list_element_type);
 
