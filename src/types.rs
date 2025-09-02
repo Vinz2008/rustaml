@@ -376,6 +376,12 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             }
             
         }
+
+        ASTNode::Cast { to_type, expr } => {
+            collect_constraints(context, expr)?;
+            context.push_constraint(Constraint::IsType(new_type_var, to_type), range);
+        }
+
         ASTNode::VarUse { name } => {
             let var_id = get_var_id(context, name, range.clone())?;
 
@@ -716,8 +722,9 @@ fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
             Some(Type::Function(args.into_boxed_slice(), Box::new(ret), variadic))
         },
         (_, t_g) | (t_g, _) if matches!(t_g, Type::Generic(_)) => Some(t_g.clone()), // TODO ?
-        // TODO
+        // TODO (put these in a different function like c_type_merge)
         (Type::CType(CType::I32), Type::Integer) | (Type::Integer, Type::CType(CType::I32)) => Some(Type::Integer), // TODO
+        (Type::CType(CType::F64), Type::Float) | (Type::Float, Type::CType(CType::F64)) => Some(Type::Float), // TODO
         _ => None,
     };
 

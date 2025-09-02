@@ -235,6 +235,10 @@ pub enum ASTNode {
         callee : ASTRef,
         args : Box<[ASTRef]>,
     },
+    Cast {
+        to_type : Type,
+        expr : ASTRef,
+    },
     Unit,
 }
 
@@ -465,8 +469,17 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
                     };
 
                     let c_type = match c_type_name.as_str() {
+                        // TODO : where do you put char ?
+                        "u8" | "uchar" => CType::U8,
+                        "i8" | "char" => CType::I8,
+                        "u16" | "ushort" => CType::U16,
+                        "i16" | "short" => CType::I16,
+                        "u32" | "uint" => CType::U32,
                         "i32" | "int" => CType::I32,
                         "u64" | "size_t" => CType::U64,
+                        "i64" | "long" => CType::I64,
+                        "f32" | "float" => CType::F32,
+                        "f64" | "double" => CType::F64,
                         _ => unreachable!()
                     };
 
@@ -938,6 +951,16 @@ fn parse_extern_func(parser: &mut Parser, extern_range_start : usize) -> Result<
     }, extern_range_start..end_range))
 }
 
+fn parse_cast(parser : &mut Parser, cast_range_start : usize) -> Result<ASTRef, ParserErr> {
+    let (cast_type, _) = parse_type_annotation(parser)?;
+    let expr = parse_node(parser)?;
+    let end_range = expr.get_range(&parser.rustaml_context.ast_pool).end;
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::Cast { 
+        to_type: cast_type, 
+        expr, 
+    }, cast_range_start..end_range))
+}
+
 fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let tok = parser.eat_tok(None).unwrap();
     let tok_range = tok.range.clone();
@@ -956,6 +979,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         TokenData::ArrayOpen => parse_static_list(parser, tok_range.start),
         TokenData::Op(op) => parse_unary_op(parser, op, tok_range.start),
         TokenData::Extern => parse_extern_func(parser, tok_range.start),
+        TokenData::Cast => parse_cast(parser, tok_range.start),
         //t => panic!("t: {:?}", t),
         t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))
     };

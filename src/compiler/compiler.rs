@@ -1,7 +1,7 @@
 use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, ops::Range, path::Path, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -255,6 +255,15 @@ fn compile_if<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>
     phi_node.as_any_value_enum()
 }
 
+fn get_format_ctype(c_type : &CType) -> &'static str {
+    match c_type {
+        CType::I32 => "%d\n",
+        CType::U64 => "%ld\n",
+        _ => panic!("Can't print ctypes {:?}", c_type)  // TODO
+    }
+    
+}
+
 fn get_format_string(print_type : &Type) -> &'static str {
     match print_type {
         Type::Integer => "%ld\n", // TODO : verify it is good
@@ -264,7 +273,7 @@ fn get_format_string(print_type : &Type) -> &'static str {
         Type::Function(_, _, _) => panic!("Can't print functions"),
         Type::Unit => "%s\n",
         Type::Never => "", // can't print it, normally if the function is really a never type, it should be never return, so the print should never be called 
-        Type::CType(c_type) => todo!(), // TODO
+        Type::CType(c_type) => get_format_ctype(c_type),
         Type::Any => encountered_any_type(),
         Type::Generic(_) => unreachable!(),
     }
@@ -939,6 +948,21 @@ fn compile_anon_func<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     function
 }
 
+fn compile_cast<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, to_type : &Type, expr : ASTRef) -> AnyValueEnum<'llvm_ctx> {
+    let start_type = expr.get_type(&compile_context.rustaml_context.ast_pool);
+    let start_val = compile_expr(compile_context, expr);
+
+    let i32_type = compile_context.context.i32_type();
+    let i64_type = compile_context.context.i64_type();
+    match (start_type, to_type){
+        (t1, t2) if t1 == t2 => start_val, // TODO : add a warning in this case
+        // TODO
+        (Type::CType(CType::I32), Type::Integer) => compile_context.builder.build_int_s_extend(start_val.into_int_value(), i64_type, "c_i32_to_int").unwrap().as_any_value_enum(),
+        (Type::Integer, Type::CType(CType::I32)) => compile_context.builder.build_int_truncate(start_val.into_int_value(), i32_type, "int_to_c_i32").unwrap().as_any_value_enum(),
+        _ => panic!("Wrong cast"),
+    }
+}
+
 // TODO : replace AnyValueEnum with BasicMetadataValueEnum in compile_expr and other functions ?
 pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef) -> AnyValueEnum<'llvm_ctx> {
     let range = ast_node.get_range(&compile_context.rustaml_context.ast_pool);
@@ -958,6 +982,7 @@ pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
         },
         ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, *matched_expr, patterns),
         ASTNode::AnonFunc { args, body, type_annotation: _ } => compile_anon_func(compile_context, ast_node, args, *body).as_any_value_enum(),
+        ASTNode::Cast { to_type, expr } => compile_cast(compile_context, to_type, *expr),
         ASTNode::Unit => get_void_val(compile_context.context),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(t, compile_context.rustaml_context)), 
         //_ => todo!()

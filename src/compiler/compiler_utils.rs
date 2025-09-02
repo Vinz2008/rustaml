@@ -1,6 +1,6 @@
-use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace};
+use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace};
 
-use crate::{ast::Type, compiler::CompileContext, string_intern::StringRef};
+use crate::{ast::{CType, Type}, compiler::CompileContext, string_intern::StringRef};
 
 pub fn encountered_any_type() -> ! {
     panic!("Encountered Any when compiling")
@@ -31,6 +31,17 @@ pub fn get_list_type<'llvm_ctx>(llvm_context: &'llvm_ctx Context) -> StructType<
 }
 
 
+fn get_llvm_type_ctype<'llvm_ctx>(llvm_context : &'llvm_ctx Context, c_type : &CType) -> AnyTypeEnum<'llvm_ctx> {
+    match c_type {
+        CType::I16 | CType::U16 => llvm_context.i16_type().as_any_type_enum(),
+        CType::I32 | CType::U32 => llvm_context.i32_type().as_any_type_enum(),
+        CType::I64 | CType::U64 => llvm_context.i64_type().as_any_type_enum(),
+        CType::F32 => llvm_context.f32_type().as_any_type_enum(),
+        CType::F64 => llvm_context.f64_type().as_any_type_enum(),
+        _ => unreachable!()
+    }
+}
+
 // TODO : make strings a pointer to a struct with a string and a len
 pub fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type : &Type) -> AnyTypeEnum<'llvm_ctx> {
     match rustaml_type {
@@ -53,6 +64,7 @@ pub fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type 
         Type::Str => llvm_context.ptr_type(AddressSpace::default()).into(),
         Type::Unit | Type::Never => llvm_context.void_type().into(),
         Type::Any => encountered_any_type(),
+        Type::CType(c_type) => get_llvm_type_ctype(llvm_context, c_type),
         Type::Generic(_) | Type::CType(_) => unreachable!(),
     }
 }

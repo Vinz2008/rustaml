@@ -1,4 +1,4 @@
-use std::os::raw::c_void;
+use std::{ffi::CString, os::raw::c_void};
 
 use crate::{ast::{CType, ExternLang, Type}, interpreter::{InterpretContext, Val}, mangle::mangle_name, rustaml::RustamlContext, string_intern::StringRef};
 
@@ -34,6 +34,8 @@ fn get_ffi_type(t : &Type) -> FFIType {
             match c_type {
                 CType::I32 => FFIType::i32(),
                 CType::U64 => FFIType::u64(),
+                CType::F32 => FFIType::f32(),
+                CType::F64 => FFIType::f64(),
                 _ => todo!(),
             }
         }
@@ -89,22 +91,40 @@ pub fn get_ffi_func(context : &mut InterpretContext, name: StringRef, func_type 
     todo!()
 }*/
 
+struct FFIContext {
+    u8s : Vec<u8>,
+    c_strs : Vec<CString>,
+    c_str_ptrs : Vec<*const i8>,
+}
+
+impl FFIContext {
+    fn new(args_len : usize) -> FFIContext {
+        FFIContext {
+            u8s: Vec::with_capacity(args_len), // to prevent pointer invalidation, reserve the max size possible, even if bigger than needed
+            c_strs: Vec::with_capacity(args_len),
+            c_str_ptrs: Vec::with_capacity(args_len),
+        }
+    }
+}
+
 // TODO
-fn get_arg(context : &mut InterpretContext, v : &Val) -> Arg {
+fn get_arg(context : &mut InterpretContext, ffi_context : &mut FFIContext, v : &Val) -> Arg {
     match v {
         Val::Integer(i) => Arg::new(i),
         Val::Float(f) => Arg::new(f),
         Val::String(s) => {
             let arg_str = s.get_str(&context.rustaml_context.str_interner);
             let cstring = std::ffi::CString::new(arg_str).unwrap();
-            let cstring_ptr = cstring.as_ptr();
+            
             // TODO : leak the CString ? add it to a list to free it manually when returning the ffi part
-            std::mem::forget(cstring);
-            Arg::new(&cstring_ptr)
+            ffi_context.c_strs.push(cstring);
+            let cstring_ptr = ffi_context.c_strs.last().unwrap().as_ptr();
+            ffi_context.c_str_ptrs.push(cstring_ptr);
+            Arg::new(ffi_context.c_str_ptrs.last().unwrap())
         },
         Val::Bool(b) => {
-            let b_u8 = *b as u8;
-            Arg::new(&b_u8)
+            ffi_context.u8s.push(*b as u8);
+            Arg::new(ffi_context.u8s.last().unwrap())
         }
         /*Val::Function(func_def) => {
             let arg_ptr = get_function_ptr(context, func_def);
@@ -115,8 +135,10 @@ fn get_arg(context : &mut InterpretContext, v : &Val) -> Arg {
 }
 
 pub fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFIFunc, args : &[Val]) -> Val {
+    let mut ffi_context = FFIContext::new(args.len());
+
     unsafe  {
-        let args = args.iter().map(|e| get_arg(context, e)).collect::<Vec<_>>();
+        let args = args.iter().map(|e| get_arg(context, &mut ffi_context, e)).collect::<Vec<_>>();
         match &ffi_func.ret_type {
             Type::Integer => {
                 let i = ffi_func.cif.call(ffi_func.code_ptr, &args);
@@ -164,6 +186,14 @@ pub fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFIFunc, a
                 CType::U64 => {
                     let i : u64 = ffi_func.cif.call(ffi_func.code_ptr, &args);
                     Val::Integer(i.try_into().expect("Couldn't convert a c_type.u64 to a Integer (which is under the hood a i64)"))
+                }
+                CType::F32 => {
+                    let f : f32 = ffi_func.cif.call(ffi_func.code_ptr, &args);
+                    Val::Float(f as f64)
+                },
+                CType::F64 => {
+                    let f : f64 = ffi_func.cif.call(ffi_func.code_ptr, &args);
+                    Val::Float(f)
                 }
                 _ => todo!(),
             }

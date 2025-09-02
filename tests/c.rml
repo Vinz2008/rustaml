@@ -5,7 +5,7 @@ let _ = print a ;;
 
 // extern "C" function abs : c_type.i32 -> c_type.i32 ;;
 extern "C" function abs : c_type.int -> c_type.int ;;
-let a = abs (-3) ;;
+let a = cast int  (abs (cast c_type.int (-3))) ;;
 let _ = print a ;;
 
 extern "C" function strlen : str -> c_type.size_t ;;

@@ -1032,6 +1032,12 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : ASTRef, patter
     panic!("No pattern was matched in match expressions (not exhaustive match)")
 }
 
+fn interpret_cast(context : &mut InterpretContext, to_type : Type, expr : ASTRef) -> Val {
+    let val = interpret_node(context, expr);
+    // TODO
+    val
+}
+
 // TODO: add a real call to collect_gc
 
 pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
@@ -1108,6 +1114,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr, patterns.as_ref()),
         ASTNode::String { str } => Val::String(str),
         ASTNode::List { list } => Val::List(List::new_from(context, &list)),
+        ASTNode::Cast { to_type, expr } => interpret_cast(context, to_type, expr), // TODO
         ASTNode::Unit => Val::Unit,
         //n => panic!("unexpected ast node when interpreting : {:?}", n),
     }
