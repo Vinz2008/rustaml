@@ -723,8 +723,8 @@ fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
         },
         (_, t_g) | (t_g, _) if matches!(t_g, Type::Generic(_)) => Some(t_g.clone()), // TODO ?
         // TODO (put these in a different function like c_type_merge)
-        (Type::CType(CType::I32), Type::Integer) | (Type::Integer, Type::CType(CType::I32)) => Some(Type::Integer), // TODO
-        (Type::CType(CType::F64), Type::Float) | (Type::Float, Type::CType(CType::F64)) => Some(Type::Float), // TODO
+        //(Type::CType(CType::I32), Type::Integer) | (Type::Integer, Type::CType(CType::I32)) => Some(Type::Integer), // TODO
+        //(Type::CType(CType::F64), Type::Float) | (Type::Float, Type::CType(CType::F64)) => Some(Type::Float), // TODO
         _ => None,
     };
 

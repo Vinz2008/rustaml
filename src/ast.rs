@@ -480,7 +480,7 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
                         "i64" | "long" => CType::I64,
                         "f32" | "float" => CType::F32,
                         "f64" | "double" => CType::F64,
-                        _ => unreachable!()
+                        _ => panic!("Invalid c type"),
                     };
 
                     return Ok((Type::CType(c_type) , c_type_name_tok.range.end))

@@ -32,11 +32,16 @@ fn get_ffi_type(t : &Type) -> FFIType {
         Type::Function(_, _, _) | Type::Str => FFIType::pointer(),
         Type::CType(c_type) => {
             match c_type {
+                CType::U8 => FFIType::u8(),
+                CType::I8 => FFIType::i8(),
+                CType::U16 => FFIType::u16(),
+                CType::I16 => FFIType::i16(),
+                CType::U32 => FFIType::u32(),
                 CType::I32 => FFIType::i32(),
                 CType::U64 => FFIType::u64(),
+                CType::I64 => FFIType::i64(),
                 CType::F32 => FFIType::f32(),
                 CType::F64 => FFIType::f64(),
-                _ => todo!(),
             }
         }
         _ => unreachable!()
