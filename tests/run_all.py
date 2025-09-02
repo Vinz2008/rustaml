@@ -65,6 +65,20 @@ def get_error_message(command : COMMAND, return_code : int, filename : str, is_r
         case _:
             sys.exit(f"Unknown error return code {return_code}")
 
+
+class WHEN_ERROR:
+    INTERPRETER = 1
+    COMPILER = 2
+    COMPILER_RUN = 3
+    CHECK = 4
+
+class TestFileOutput:
+    def __init__(self, output_print : str, out_process : str, error_message : str | None, when_error : WHEN_ERROR | None):
+        self.output_print = output_print
+        self.error_message = error_message
+        self.when_error = when_error
+        self.out_process = out_process
+
 def test_file(filename : str, command : COMMAND, is_release_mode : bool, is_debuginfo : bool):
     cmd = f"{exe_path} "
     match command:
@@ -92,10 +106,34 @@ def test_file(filename : str, command : COMMAND, is_release_mode : bool, is_debu
     should_print_error_message = is_err if command != COMMAND.INTERPRET else (not should_panic and is_err) or (should_panic and not is_err)
     if should_print_error_message:
         error_message = get_error_message(command, return_code, filename, is_release_mode)
-        return "❌", error_message, out
-        
-    return "✅", "", out
+        #return "❌", error_message, is_error_in_run, out
+        match command:
+            case COMMAND.COMPILE:
+                when_error = WHEN_ERROR.COMPILER
+            case COMMAND.INTERPRET:
+                when_error = WHEN_ERROR.INTERPRETER
+            case COMMAND.CHECK:
+                when_error = WHEN_ERROR.CHECK
+        return TestFileOutput("❌", out, error_message, when_error)
 
+    match command:
+        case COMMAND.COMPILE:
+            cmd_run = "./out"
+            pipe = subprocess.Popen(cmd_run, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            out_run, _ = pipe.communicate()
+            return_code_run = pipe.returncode
+            is_err_run = is_error(return_code_run)
+
+            if is_err_run:
+                return TestFileOutput("❌", out_run, "Error when running the compiled output", WHEN_ERROR.COMPILER_RUN)
+
+            # TODO
+        case COMMAND.INTERPRET | COMMAND.CHECK:
+            out_run = out
+    
+
+    # return "✅", "", out
+    return TestFileOutput("✅", out, None, None)
 
 def print_error(filename: str, error_message : str, out : bytes):
     print(f"{Fore.RED}ERROR :{Style.RESET_ALL} {error_message}")
@@ -124,15 +162,16 @@ def test_all_files(command : COMMAND, is_release_mode: bool, is_debuginfo : bool
         if extension == ".rml" and file not in excluded_files:
             print(f"{file} ", end='', flush=True)
             summary_filenames.append(file)
-            output_print, error_message, out = test_file(file, command, is_release_mode, is_debuginfo)
+            #output_print, error_message, is_error_in_run, out = test_file(file, command, is_release_mode, is_debuginfo)
+            output_test = test_file(file, command, is_release_mode, is_debuginfo)
             if command == COMMAND.COMPILE:
-                summary_compiler.append(output_print)
+                summary_compiler.append(output_test.output_print)
             else:
-                summary_interpreter.append(output_print)
+                summary_interpreter.append(output_test.output_print)
                 
-            print(output_print)
-            if error_message != "":
-                print_error(file, error_message, out)
+            print(output_test.output_print)
+            if output_test.error_message != None:
+                print_error(file, output_test.error_message, output_test.out_process)
             
     print(f"{Fore.BLUE}END TESTING {command_type_str}{Style.RESET_ALL}")
 
