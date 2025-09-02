@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 // TODO : replace these with use std::range::Range when https://github.com/rust-lang/rust/issues/125687 is added without a feature, then remove all the ranges clones because the new version is Copy
 use std::ops::Range;
 
-use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, debug_println, lexer::Operator, rustaml::{nearest_string, RustamlContext}, string_intern::StringRef};
+use crate::{ast::{ASTNode, ASTRef, CType, Pattern, PatternRef, Type}, debug_println, lexer::Operator, rustaml::{nearest_string, RustamlContext}, string_intern::StringRef};
 
 
 // TODO : make this part generic for every err (something like Ranged<TypesErr>)
@@ -716,6 +716,8 @@ fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
             Some(Type::Function(args.into_boxed_slice(), Box::new(ret), variadic))
         },
         (_, t_g) | (t_g, _) if matches!(t_g, Type::Generic(_)) => Some(t_g.clone()), // TODO ?
+        // TODO
+        (Type::CType(CType::I32), Type::Integer) | (Type::Integer, Type::CType(CType::I32)) => Some(Type::Integer), // TODO
         _ => None,
     };
 

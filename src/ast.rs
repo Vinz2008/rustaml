@@ -238,6 +238,22 @@ pub enum ASTNode {
     Unit,
 }
 
+
+// TODO : add alias for these (be able to use float, double, int, long in code)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CType {
+    U8,
+    I8,
+    U16,
+    I16,
+    U32,
+    I32,
+    I64,
+    U64,
+    F32,
+    F64,
+}
+
 // TODO : add a type pool to remove boxes (test performance ? normally should be useful for lowering the type size, it would become only 64 bit and we could make it Copy, but we wouldn't use it everywhere there is Type like for other types, just in refence in the type to other types to lower the size while only indexing in the vector when it is really needed)
 // THE PROBLEM : would need to make the type system only have functions with only one args, but could do it by returning type of function types, which could even help for currying
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Tag)]
@@ -250,6 +266,7 @@ pub enum Type {
     List(Box<Type>),
     Any, // not already resolved type during type checking
     Generic(GenericIdx),
+    CType(CType),
     Unit,
     Never,
 }
@@ -275,6 +292,7 @@ impl Display for Type {
             Type::Never => f.write_char('!'),
             Type::Any => f.write_str("Any"), // TODO
             Type::Generic(_g_idx) => panic!("Can't print generic type"), // TODO ?
+            Type::CType(c_type) => todo!(), // TODO
             Type::Function(_, _, _) => unreachable!(),
         }
         
@@ -438,6 +456,22 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
                     let type_annot = Type::List(Box::new(elem_type));
                     return Ok((type_annot, array_close_tok.range.end));
                 },
+                "c_type" => {
+                    parser.eat_tok(Some(TokenDataTag::Dot))?;
+                    let c_type_name_tok = parser.eat_tok(Some(TokenDataTag::Identifier))?;
+                    let c_type_name = match c_type_name_tok.tok_data {
+                        TokenData::Identifier(i) => i.iter().collect::<String>(),
+                        _ => unreachable!(),
+                    };
+
+                    let c_type = match c_type_name.as_str() {
+                        "i32" | "int" => CType::I32,
+                        "u64" | "size_t" => CType::U64,
+                        _ => unreachable!()
+                    };
+
+                    return Ok((Type::CType(c_type) , c_type_name_tok.range.end))
+                }
                 s => return Err(ParserErr::new(ParserErrData::UnknownTypeAnnotation { type_str: s.to_owned() }, tok.range.clone())),
             };
             Ok((type_annot, tok.range.end))

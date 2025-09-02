@@ -264,6 +264,7 @@ fn get_format_string(print_type : &Type) -> &'static str {
         Type::Function(_, _, _) => panic!("Can't print functions"),
         Type::Unit => "%s\n",
         Type::Never => "", // can't print it, normally if the function is really a never type, it should be never return, so the print should never be called 
+        Type::CType(c_type) => todo!(), // TODO
         Type::Any => encountered_any_type(),
         Type::Generic(_) => unreachable!(),
     }

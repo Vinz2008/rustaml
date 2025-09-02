@@ -15,7 +15,7 @@ pub fn get_type_tag(t : &Type) -> u8 {
         Type::Str => 4,
         Type::List(_) => 5,
         // TODO : add a type tag for Unit ?
-        Type::Any | Type::Unit | Type::Never | Type::Generic(_) => panic!("no type tag for this type {:?} !!", t),
+        Type::Any | Type::Unit | Type::Never | Type::CType(_) | Type::Generic(_) => panic!("no type tag for this type {:?} !!", t),
     }
 }
 
@@ -53,7 +53,7 @@ pub fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type 
         Type::Str => llvm_context.ptr_type(AddressSpace::default()).into(),
         Type::Unit | Type::Never => llvm_context.void_type().into(),
         Type::Any => encountered_any_type(),
-        Type::Generic(_) => unreachable!(),
+        Type::Generic(_) | Type::CType(_) => unreachable!(),
     }
 }
 
@@ -229,7 +229,7 @@ pub fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
         Type::Str | Type::List(_) | Type::Function(_, _, _) => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_to_val").unwrap(),
         Type::Never | Type::Unit => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_nothing_to_val").unwrap(),
         Type::Any => encountered_any_type(),
-        Type::Generic(_) => unreachable!(),
+        Type::Generic(_) | Type::CType(_) => unreachable!(),
     }
 }
 

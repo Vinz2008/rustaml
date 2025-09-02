@@ -1,5 +1,13 @@
 extern "C" function sin : float -> float ;;
 
 let a = sin 2.3 ;;
+let _ = print a ;;
 
+// extern "C" function abs : c_type.i32 -> c_type.i32 ;;
+extern "C" function abs : c_type.int -> c_type.int ;;
+let a = abs (-3) ;;
+let _ = print a ;;
+
+extern "C" function strlen : str -> c_type.size_t ;;
+let a = strlen "test" ;;
 let _ = print a ;;

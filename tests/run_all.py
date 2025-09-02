@@ -84,6 +84,8 @@ def check_output(command : COMMAND, filename : str, out_run : bytes) -> CheckOut
     if filename in skip_check_output:
         return CheckOutputOutput(True, None)
     out_run = out_run.decode()
+
+    # TODO : in the future, put only one (need to fix formatting before that)
     match command:
         case COMMAND.COMPILE:
             command_suffix = "compiler"

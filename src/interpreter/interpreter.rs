@@ -363,7 +363,7 @@ impl Val {
 
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
-enum FunctionBody {
+pub enum FunctionBody {
     AST(ASTRef),
     FFI(FFIFunc),
 }
@@ -373,7 +373,7 @@ enum FunctionBody {
 pub struct FunctionDef {
     name : StringRef,
     args : Box<[StringRef]>,
-    body : FunctionBody,
+    pub body : FunctionBody,
 }
 
 pub struct InterpretContext<'context> {
@@ -1034,7 +1034,7 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : ASTRef, patter
 
 // TODO: add a real call to collect_gc
 
-fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
+pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
     let ast_node = ast.get(&context.rustaml_context.ast_pool).clone(); // remove the clone ? (because there are indexes in the ast node, the clone is not a deep copy)
     match ast_node {
         ASTNode::TopLevel { nodes } => {

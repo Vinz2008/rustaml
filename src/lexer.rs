@@ -103,6 +103,7 @@ pub enum TokenData {
     ArrayClose,
     Colon, // :
     Comma, // ,
+    Dot, // .
     Arrow, // ->
     Pipe, // |
     EndOfExpr, // ;;
@@ -319,6 +320,7 @@ fn lex_op(lexer: &mut Lexer) -> Result<Option<Token>, LexerErr> {
         ":" => TokenData::Colon,
         ".." => TokenData::Range(false),
         "=.." => TokenData::Range(true),
+        "." => TokenData::Dot,
         _ => TokenData::Op(Operator::str_to_op(&op_str, &range)?)
     };
 
