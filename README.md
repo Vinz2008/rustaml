@@ -10,6 +10,7 @@ A simple functional language (still very in progress) inspired by ocaml and writ
 - Pattern Matching
 - Immutability
 - Static types with Hindley–Milner type system
+- Generic functions
 - Good error messages
 
 
