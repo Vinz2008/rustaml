@@ -178,7 +178,7 @@ static Val deep_clone_val(uint8_t tag, Val val){
 }
 
 struct ListNode* __list_node_merge(struct ListNode* list1, struct ListNode* list2){
-    struct ListNode* list1_cloned = deep_clone_list(list1);
+    struct ListNode* list1_cloned = deep_clone_list(list1); // TODO : do I really need to deep clone, not just clone the list ?
     struct ListNode* list2_cloned = deep_clone_list(list2);
 
     struct ListNode* list1_last = list1_cloned;
