@@ -84,7 +84,7 @@ pub fn get_ffi_func(context : &mut InterpretContext, name: StringRef, func_type 
         let code_ptr = CodePtr::from_ptr(function_ptr);
 
         let ret_type_ffi = get_ffi_type(ret_type.as_ref());
-        let arg_types = arg_types.iter().map(|e| get_ffi_type(e)).collect::<Vec<_>>(); // TODO
+        let arg_types = arg_types.iter().map(get_ffi_type).collect::<Vec<_>>(); // TODO
 
         let cif = Cif::new(arg_types, ret_type_ffi);
 

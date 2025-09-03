@@ -8,7 +8,6 @@ use enum_tags::{Tag, TaggedEnum};
 use pathbuf::pathbuf;
 
 use crate::rustaml::read_file;
-use crate::types::GenericIdx;
 use crate::{debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, rustaml::{get_ast_from_string, RustamlContext}, string_intern::StringRef, types_debug::PrintTypedContext};
 use debug_with_context::{DebugWithContext, DebugWrapContext};
 
@@ -164,7 +163,7 @@ impl DebugWithContext<RustamlContext> for ASTRef {
 #[derive(Clone, Copy, PartialEq, DebugWithContext)]
 pub enum ExternLang {
     C,
-    CPP,
+    Cpp,
 }
 
 #[derive(Clone, PartialEq, DebugWithContext)]
@@ -298,7 +297,7 @@ impl Display for Type {
             Type::Never => f.write_char('!'),
             Type::Any => f.write_str("Any"), // TODO
             Type::Generic(_g_idx) => panic!("Can't print generic type"), // TODO ?
-            Type::CType(c_type) => todo!(), // TODO
+            Type::CType(_) => todo!(), // TODO
             Type::Function(_, _, _) => unreachable!(),
         }
         
@@ -438,7 +437,7 @@ fn parse_float(parser: &mut Parser, nb: f64, range : Range<usize>) -> ASTRef {
     parser.rustaml_context.ast_pool.push(ASTNode::Float { nb }, range)
 }
 
-fn parse_string(parser: &mut Parser, buf : Box<[char]>, range : Range<usize>) -> ASTRef {
+fn parse_string(parser: &mut Parser, buf : &[char], range : Range<usize>) -> ASTRef {
     parser.rustaml_context.ast_pool.push(ASTNode::String { str: parser.rustaml_context.str_interner.intern_compiler(&buf.iter().collect::<String>()) }, range)
 }
 
@@ -658,7 +657,7 @@ fn is_function_arg_start(tok_data : Option<&TokenData>) -> bool {
     }
 }
 
-fn parse_var_use_in_function(parser : &mut Parser , identifier_buf : Box<[char]>, tok_range : Range<usize>) -> Result<ASTRef, ParserErr> {
+fn parse_var_use_in_function(parser : &mut Parser, identifier_buf : &[char], tok_range : Range<usize>) -> Result<ASTRef, ParserErr> {
     let identifier = parser.rustaml_context.str_interner.intern_compiler(&identifier_buf.iter().collect::<String>());
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::VarUse { name: identifier }, tok_range))
 
@@ -670,8 +669,8 @@ fn parse_function_arg(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
     let node = match tok.tok_data {
         TokenData::Integer(nb) => Ok(parse_integer(parser, nb, tok_range)),
         TokenData::Float(nb) => Ok(parse_float(parser, nb, tok_range)),
-        TokenData::String(buf) => Ok(parse_string(parser, buf, tok_range)),
-        TokenData::Identifier(buf) => parse_var_use_in_function(parser, buf, tok_range),
+        TokenData::String(buf) => Ok(parse_string(parser, &buf, tok_range)),
+        TokenData::Identifier(buf) => parse_var_use_in_function(parser, &buf, tok_range),
         TokenData::True => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: true }, tok_range)),
         TokenData::False => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: false }, tok_range)),
         TokenData::ParenOpen => parse_parenthesis(parser, tok_range.start), // TODO : move this to the start of parse_node and make it unreachable! ? (because each time there are parenthesis, parse_node -> parse_primary -> parse_node is added to the call stack) 
@@ -711,7 +710,7 @@ fn parse_function_call(parser: &mut Parser, mut callee : ASTRef) -> Result<ASTRe
     Ok(callee)
 }
 
-fn parse_identifier_expr(parser: &mut Parser, identifier_buf : Box<[char]>, identifier_range : Range<usize>) -> Result<ASTRef, ParserErr> {
+fn parse_identifier_expr(parser: &mut Parser, identifier_buf : &[char], identifier_range : Range<usize>) -> Result<ASTRef, ParserErr> {
     let identifier = parser.rustaml_context.str_interner.intern_compiler(&identifier_buf.iter().collect::<String>());
 
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::VarUse { name: identifier }, identifier_range))
@@ -938,7 +937,7 @@ fn parse_extern_func(parser: &mut Parser, extern_range_start : usize) -> Result<
 
     let extern_lang = match s.as_str() {
         "C" => ExternLang::C,
-        "C++" | "Cpp" => ExternLang::CPP,
+        "C++" | "Cpp" => ExternLang::Cpp,
         _ => panic!("Unknown lang in extern function {}", s), // TODO : better error handling
     };
 
@@ -1001,8 +1000,8 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         TokenData::Match => parse_match(parser, tok_range.start),
         TokenData::Integer(nb) => Ok(parse_integer(parser, nb, tok_range)),
         TokenData::Float(nb) => Ok(parse_float(parser, nb, tok_range)),
-        TokenData::String(buf) => Ok(parse_string(parser, buf, tok_range)),
-        TokenData::Identifier(buf) => parse_identifier_expr(parser, buf, tok_range),
+        TokenData::String(buf) => Ok(parse_string(parser, &buf, tok_range)),
+        TokenData::Identifier(buf) => parse_identifier_expr(parser, &buf, tok_range),
         TokenData::Function => parse_anonymous_function(parser, tok_range.start),
         TokenData::True => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: true }, tok_range)),
         TokenData::False => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: false }, tok_range)),
@@ -1163,7 +1162,7 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 
 pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext, filename : PathBuf, already_added_filenames : Option<&mut FxHashSet<PathBuf>>) -> Result<ASTRef, ParserErr> {
     //let mut imported_files = FxHashSet::from_iter([filename.clone()]);
-    let filename_complete_path = filename.canonicalize().unwrap_or(PathBuf::new()).clone();
+    let filename_complete_path = filename.canonicalize().unwrap_or_default().clone();
     let imported_files = if let Some(already_added_filenames) = already_added_filenames {
         //imported_files.extend(already_added_filenames);
         already_added_filenames.insert(filename_complete_path);

@@ -732,7 +732,7 @@ fn set_type_with_changed(type_mut : &mut Option<Type>, t: Type, changed : &mut b
     
 }
 
-const ANON_FUNC_NAME : &'static str = "";
+const ANON_FUNC_NAME : &str = "[anonymous function]";
 
 fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], constraints_ranges : &[Range<usize>]) -> Result<(), TypesErr> {
     //println!("constraints: {:?}", constraints);

@@ -55,7 +55,7 @@ pub struct DebugInfosInner<'llvm_ctx> {
 
 // TODO : add a way to transform a range to a line number and column
 
-const DW_ATE_ADDRESS: LLVMDWARFTypeEncoding = 0x01;
+//const DW_ATE_ADDRESS: LLVMDWARFTypeEncoding = 0x01;
 const DW_ATE_BOOLEAN: LLVMDWARFTypeEncoding = 0x02;
 const DW_ATE_FLOAT: LLVMDWARFTypeEncoding = 0x04;
 const DW_ATE_SIGNED: LLVMDWARFTypeEncoding = 0x05;
@@ -82,7 +82,7 @@ fn create_main_function<'llvm_ctx>(target_infos : &TargetInfos, debug_builder: &
 
     let i32_ty = debug_builder.create_basic_type("i32_main_ret", 32, DW_ATE_SIGNED, LLVMDIFlagPublic).unwrap().as_type();
     let i8_ty = debug_builder.create_basic_type("i8_main_arg", 8, DW_ATE_SIGNED, LLVMDIFlagPublic).unwrap().as_type();
-    let i8_ptr_ty = debug_builder.create_pointer_type("i8_ptr_main_arg", i8_ty, target_infos.get_ptr_size_in_bits().try_into().unwrap(), target_infos.get_ptr_alignement_in_bits(), AddressSpace::default()).as_type();
+    let i8_ptr_ty = debug_builder.create_pointer_type("i8_ptr_main_arg", i8_ty, target_infos.get_ptr_size_in_bits().into(), target_infos.get_ptr_alignement_in_bits(), AddressSpace::default()).as_type();
     let flags = LLVMDIFlagPrivate;
     let subroutine_type = debug_builder.create_subroutine_type(
         debug_compile_unit.get_file(),
@@ -177,7 +177,7 @@ fn get_list_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>) -> DIType<'
     let unique_id = "list_struct"; // TODO ?
     let runtime_language = 0; // TODO
     let line_nb = 0;
-    let list_struct_ty = inner.debug_builder.create_struct_type(scope, "list_struct", file, line_nb, inner.target_infos.get_list_size_in_bits() as u64, inner.target_infos.get_list_alignement_in_bits(), 0x0, None, elements, runtime_language, None, unique_id);
+    let list_struct_ty = inner.debug_builder.create_struct_type(scope, "list_struct", file, line_nb, inner.target_infos.get_list_size_in_bits(), inner.target_infos.get_list_alignement_in_bits(), 0x0, None, elements, runtime_language, None, unique_id);
     inner.debug_builder.create_pointer_type("list_pointer", list_struct_ty.as_type(), inner.target_infos.get_ptr_size_in_bits() as u64, inner.target_infos.get_ptr_alignement_in_bits(), AddressSpace::default()).as_type()
 }
 
@@ -221,7 +221,7 @@ fn get_debug_info_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>, t : &
 
             let pointee = get_debug_info_type(inner, &Type::Unit);
 
-            let name = &format!("function({}{}) -> {}", DisplayVecArgs(&args), (if *is_variadic { ", ..." } else { "" }), ret.as_ref());
+            let name = &format!("function({}{}) -> {}", DisplayVecArgs(args), (if *is_variadic { ", ..." } else { "" }), ret.as_ref());
             inner.debug_builder.create_pointer_type(name, pointee, inner.target_infos.get_ptr_size_in_bits() as u64, inner.target_infos.get_ptr_alignement_in_bits(), AddressSpace::default()).as_type()
         }
         _ => {

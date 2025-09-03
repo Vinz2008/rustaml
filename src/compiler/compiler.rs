@@ -515,13 +515,13 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
                 return compile_panic(compile_context, message_val);
             }
             "map" => {
-                let list = args[0].clone();
-                let func = args[1].clone();
+                let list = args[0];
+                let func = args[1];
                 return compile_map(compile_context, list, func);
             }
             "filter" => {
-                let list = args[0].clone();
-                let func = args[1].clone();
+                let list = args[0];
+                let func = args[1];
                 return compile_filter(compile_context, list, func);
             }
             n => (Some(n.to_owned()), Some(*name)),
@@ -572,7 +572,7 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
     let name_anon_func_call = "anon_func_call";
 
     let ret = match callee_val {
-        AnyValueEnum::FunctionValue(fun) => compile_context.builder.build_call(fun, args_vals.as_slice(), name_str.as_ref().map(|s| s.as_str()).unwrap_or(name_anon_func_call)),
+        AnyValueEnum::FunctionValue(fun) => compile_context.builder.build_call(fun, args_vals.as_slice(), name_str.as_deref().unwrap_or(name_anon_func_call)),
         _ => compile_context.builder.build_indirect_call(callee_type_llvm, callee_val.into_pointer_value(), args_vals.as_slice(), name_anon_func_call)
     }.unwrap().try_as_basic_value();
 
@@ -1071,7 +1071,7 @@ fn get_var_type<'context>(compile_context: &'context CompileContext<'context, '_
 fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, args : &[StringRef], body : ASTRef, ast_node : ASTRef, arg_types : &[Type], return_type : &Type) -> FunctionValue<'llvm_ctx> {
     //println!("typeinfos function_env : {:?}", DebugWrapContext::new(&compile_context.typeinfos.functions_env, compile_context.rustaml_context));
             
-    let return_type_llvm = get_llvm_type(compile_context, &return_type);
+    let return_type_llvm = get_llvm_type(compile_context, return_type);
     let param_types = arg_types;
     debug_println!(compile_context.rustaml_context.is_debug_print, "function {:?} param types : {:?}", DebugWrapContext::new(&name, compile_context.rustaml_context), param_types);
     let param_types_llvm = param_types.iter().map(|t| get_llvm_type(compile_context, t)).collect::<Vec<_>>();
@@ -1080,7 +1080,7 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
     let function = compile_context.module.add_function(name.get_str(&compile_context.rustaml_context.str_interner), function_type, Some(inkwell::module::Linkage::Internal));
             
     let function_range = ast_node.get_range(&compile_context.rustaml_context.ast_pool);
-    let di_subprogram = compile_context.debug_info.add_function(name.get_str(&compile_context.rustaml_context.str_interner), &param_types, &return_type, compile_context.rustaml_context.content.as_ref().unwrap(), function_range, compile_context.is_optimized);
+    let di_subprogram = compile_context.debug_info.add_function(name.get_str(&compile_context.rustaml_context.str_interner), param_types, return_type, compile_context.rustaml_context.content.as_ref().unwrap(), function_range, compile_context.is_optimized);
     if let Some(di_subprogram) = di_subprogram {
         function.set_subprogram(di_subprogram);
         // TODO : set debuginfo location on builder
@@ -1104,7 +1104,7 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
 
     for (((arg_name, arg_val), arg_type_llvm), arg_type) in args.iter().zip(function.get_param_iter()).zip(param_types_llvm).zip(param_types) {
         let var_ptr = create_var(compile_context, *arg_name, arg_val.as_any_value_enum(), arg_type_llvm);
-        compile_context.debug_info.declare_var(arg_name.get_str(&compile_context.rustaml_context.str_interner), &arg_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), range.clone());
+        compile_context.debug_info.declare_var(arg_name.get_str(&compile_context.rustaml_context.str_interner), arg_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), range.clone());
     }
 
     let ret = compile_expr(compile_context, body);
@@ -1119,7 +1119,7 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
     compile_context.builder.build_return(return_val).unwrap();
 
     for arg in args {
-        compile_context.var_vals.remove(&arg);
+        compile_context.var_vals.remove(arg);
     }
 
     compile_context.debug_info.end_lexical_block();
@@ -1257,14 +1257,12 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, shared_libs : &[String],
         } else {
             let lib = if lib.starts_with("./") || lib.starts_with(".\\"){
                 lib[2..].to_owned()
+            } else if lib.starts_with("lib") && lib.ends_with(".so"){
+                let suffix_stripped = lib.strip_suffix(".so").unwrap();
+                let lib = "-l".to_owned() + &suffix_stripped[3..];
+                lib
             } else {
-                if lib.starts_with("lib") && lib.ends_with(".so"){
-                    let suffix_stripped = lib.strip_suffix(".so").unwrap();
-                    let lib = "-l".to_owned() + &suffix_stripped[3..];
-                    lib
-                } else {
-                    lib.to_owned()
-                }
+                lib.to_owned()
             };
             // local or global
             link_cmd.arg(lib);

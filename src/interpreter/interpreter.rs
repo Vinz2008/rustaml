@@ -364,8 +364,8 @@ impl Val {
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 pub enum FunctionBody {
-    AST(ASTRef),
-    FFI(FFIFunc),
+    Ast(ASTRef),
+    Ffi(FFIFunc),
 }
 
 #[derive(Clone, PartialEq, DebugWithContext)]
@@ -831,7 +831,7 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_bo
 
 fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val> ) -> Val {
     match &func_def.body {
-        FunctionBody::AST(a) => {
+        FunctionBody::Ast(a) => {
             let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
             for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
                 if let Some(old_val) = context.vars.get(arg_name) {
@@ -849,7 +849,7 @@ fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_v
             res_val
         },
         
-        FunctionBody::FFI(f) => call_ffi_function(context, f, &args_val),
+        FunctionBody::Ffi(f) => call_ffi_function(context, f, &args_val),
     }    
 }
 
@@ -857,10 +857,9 @@ fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args
 
     let args_val = args.iter().map(|e| interpret_node(context, *e)).collect::<Vec<_>>();
 
-    if let ASTNode::VarUse { name } = callee.get(&context.rustaml_context.ast_pool) {
-        if STD_FUNCTIONS.contains(&name.get_str(&context.rustaml_context.str_interner)){
-            return interpret_std_function(context, *name, args_val);
-        }
+    if let ASTNode::VarUse { name } = callee.get(&context.rustaml_context.ast_pool) 
+            && STD_FUNCTIONS.contains(&name.get_str(&context.rustaml_context.str_interner)){
+        return interpret_std_function(context, *name, args_val);
     }
 
     let callee_val = interpret_node(context, callee);
@@ -1057,7 +1056,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
             let func_def = FunctionDef { 
                 name, 
                 args,
-                body: FunctionBody::AST(body),
+                body: FunctionBody::Ast(body),
             };
             context.vars.insert(name, Val::Function(func_def));
             //context.functions.insert(name, func_def);
@@ -1067,7 +1066,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
             let func_def = FunctionDef {
                 name: context.rustaml_context.str_interner.intern_compiler("anon_func"), // add an index to not have the same name for all closures ?
                 args,
-                body: FunctionBody::AST(body),
+                body: FunctionBody::Ast(body),
             };
             Val::Function(func_def)
         }
@@ -1077,7 +1076,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
             let func_def = FunctionDef { 
                 name, 
                 args: Box::new([]), // unused (TODO ?, not need to pass this ?)
-                body: FunctionBody::FFI(ffi_fun),
+                body: FunctionBody::Ffi(ffi_fun),
             };
             context.vars.insert(name, Val::Function(func_def));
             Val::Unit

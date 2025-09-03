@@ -7,7 +7,7 @@ fn get_type_symbol(t : &Type) -> Symbol {
         Type::Integer => "long",
         Type::Float => "double",
         Type::Bool => "bool",
-        Type::CType(c_type) => todo!(),
+        Type::CType(_) => todo!(),
         _ => unreachable!(),
     }.to_owned();
 
@@ -30,6 +30,6 @@ fn mangle_cpp(s : &str, function_type : &Type) -> String {
 pub fn mangle_name_external(s : &str, function_type : &Type, lang : ExternLang) -> String {
     match lang {
         ExternLang::C => s.to_owned(),
-        ExternLang::CPP => mangle_cpp(s, function_type),
+        ExternLang::Cpp => mangle_cpp(s, function_type),
     }
 }
