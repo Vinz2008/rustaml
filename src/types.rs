@@ -714,9 +714,6 @@ fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
             Some(Type::Function(args.into_boxed_slice(), Box::new(ret), variadic))
         },
         (_, t_g) | (t_g, _) if matches!(t_g, Type::Generic(_)) => Some(t_g.clone()), // TODO ?
-        // TODO (put these in a different function like c_type_merge)
-        //(Type::CType(CType::I32), Type::Integer) | (Type::Integer, Type::CType(CType::I32)) => Some(Type::Integer), // TODO
-        //(Type::CType(CType::F64), Type::Float) | (Type::Float, Type::CType(CType::F64)) => Some(Type::Float), // TODO
         _ => None,
     };
 
@@ -747,7 +744,6 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
             let range = constraints_ranges[idx].clone();
             //dbg!(c);
             match c {
-                // TODO : add support for the Never type in these constraints
                 Constraint::IsType(tv, t) => {
                     let root_tv = table.find_root(*tv);
                     let merged_type = match &table.real_types[root_tv.0 as usize] {
@@ -755,7 +751,6 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                             if let Some(merged_type) = merge_types(tv_type, t) {
                                 merged_type
                             } else {
-                                // TODO : add ranges to typevars ? or to constraints ?
                                 return Err(TypesErr::new(TypesErrData::WrongType { expected_type: t.clone(), got_type: tv_type.clone() }, range));
                             }
                         },
@@ -806,9 +801,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                 // TODO : add in this constraint if it a function call or decl for message error
                 Constraint::FunctionType { fun_type_var, args_type_vars, ret_type_var, is_variadic, function_name } => {
                     let fun_root = table.find_root(*fun_type_var);
-                    let fun_type = table.real_types[fun_root.0 as usize].clone();
-
-                    
+                    let fun_type = table.real_types[fun_root.0 as usize].clone(); 
 
                     // TODO : remove these resolve_type ?
 
@@ -975,17 +968,17 @@ fn std_function_constraint(context : &mut TypeContext, name : &'static str, args
 }
 
 fn std_functions_constraints_types(context : &mut TypeContext) {
-    let print_type = Type::Generic(context.new_generic_type());
+    let print_type = Type::Generic(0);
     std_function_constraint(context, "print", vec![print_type], Type::Unit, false);
     std_function_constraint(context, "rand", vec![Type::Unit], Type::Integer, false);
     std_function_constraint(context, "format", vec![Type::Str], Type::Str, true);
     std_function_constraint(context, "panic", vec![Type::Str], Type::Never, true);
-    let generic_type_elem_map_input = Type::Generic(context.new_generic_type());
-    let generic_type_elem_map_output = Type::Generic(context.new_generic_type());
+    let generic_type_elem_map_input = Type::Generic(0);
+    let generic_type_elem_map_output = Type::Generic(1);
     std_function_constraint(context, "map", vec![Type::List(Box::new(generic_type_elem_map_input.clone())), Type::Function(Box::new([generic_type_elem_map_input]), Box::new(generic_type_elem_map_output.clone()), false)], Type::List(Box::new(generic_type_elem_map_output)), false);
     
     
-    let generic_type_elem_filter = Type::Generic(context.new_generic_type());
+    let generic_type_elem_filter = Type::Generic(0);
     std_function_constraint(context, "filter", vec![Type::List(Box::new(generic_type_elem_filter.clone())), Type::Function(Box::new([generic_type_elem_filter.clone()]), Box::new(Type::Bool), false)], Type::List(Box::new(generic_type_elem_filter)), false);
     // TODO : add a rand_f ? or make the rand function generic with its return ?
 }

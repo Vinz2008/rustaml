@@ -43,15 +43,15 @@ fn get_llvm_type_ctype<'llvm_ctx>(llvm_context : &'llvm_ctx Context, c_type : &C
 }
 
 // TODO : make strings a pointer to a struct with a string and a len
-pub fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type : &Type) -> AnyTypeEnum<'llvm_ctx> {
+pub fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, '_, 'llvm_ctx>, rustaml_type : &Type) -> AnyTypeEnum<'llvm_ctx> {
     match rustaml_type {
-        Type::Integer => llvm_context.i64_type().into(),
-        Type::Bool => llvm_context.bool_type().into(),
-        Type::Float => llvm_context.f64_type().into(),
+        Type::Integer => compile_context.context.i64_type().into(),
+        Type::Bool => compile_context.context.bool_type().into(),
+        Type::Float => compile_context.context.f64_type().into(),
         Type::Function(args, ret, is_variadic) => {
-            let ret_llvm = get_llvm_type(llvm_context, ret);
-            let param_types = args.iter().map(|t| any_type_to_metadata(llvm_context, get_llvm_type(llvm_context, t)) ).collect::<Vec<_>>();
-            get_fn_type(llvm_context, ret_llvm, &param_types, *is_variadic).into()
+            let ret_llvm = get_llvm_type(compile_context, ret);
+            let param_types = args.iter().map(|t| any_type_to_metadata(compile_context.context, get_llvm_type(compile_context, t)) ).collect::<Vec<_>>();
+            get_fn_type(compile_context.context, ret_llvm, &param_types, *is_variadic).into()
         },
 
         // layout of list
@@ -60,12 +60,12 @@ pub fn get_llvm_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, rustaml_type 
         //      void* val; // can be also a i64 or f64 depending on type_tag
         //      struct ListNode* next; // if empty null 
         // }
-        Type::List(_t) => llvm_context.ptr_type(AddressSpace::default()).into(), // TODO ?
-        Type::Str => llvm_context.ptr_type(AddressSpace::default()).into(),
-        Type::Unit | Type::Never => llvm_context.void_type().into(),
+        Type::List(_t) => compile_context.context.ptr_type(AddressSpace::default()).into(), // TODO ?
+        Type::Str => compile_context.context.ptr_type(AddressSpace::default()).into(),
+        Type::Unit | Type::Never => compile_context.context.void_type().into(),
         Type::Any => encountered_any_type(),
-        Type::CType(c_type) => get_llvm_type_ctype(llvm_context, c_type),
-        Type::Generic(_) | Type::CType(_) => unreachable!(),
+        Type::CType(c_type) => get_llvm_type_ctype(compile_context.context, c_type),
+        Type::Generic(gen_num) => get_llvm_type(compile_context, compile_context.generic_map.get(gen_num).unwrap()),
     }
 }
 
@@ -145,7 +145,7 @@ pub fn create_var<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_
     if alloca_type.is_void_type(){
         return compile_context.context.ptr_type(AddressSpace::default()).const_null(); // to represent a var containing a void, if it is written to, it is a bug
     }
-    let var_alloca = create_entry_block_alloca(compile_context, name.get_str(&compile_context.rustaml_context.str_interner), alloca_type);
+    let var_alloca = create_entry_block_alloca(compile_context, &name.get_str(&compile_context.rustaml_context.str_interner).to_owned(), alloca_type);
     compile_context.builder.build_store(var_alloca, TryInto::<BasicValueEnum>::try_into(val).unwrap()).unwrap();
     compile_context.var_vals.insert(name, var_alloca);
     var_alloca
@@ -222,7 +222,7 @@ fn load_type_tag<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 pub fn load_list_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, elem_type : &Type, list : PointerValue<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
     let list_type = get_list_type(compile_context.context);
     let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 1, "load_list_val_gep").unwrap();
-    let elem_type_llvm = get_llvm_type(compile_context.context, elem_type);
+    let elem_type_llvm = get_llvm_type(compile_context, elem_type);
     compile_context.builder.build_load( TryInto::<BasicTypeEnum>::try_into(elem_type_llvm).unwrap(), gep_ptr, "load_val_gep").unwrap()
 }
 

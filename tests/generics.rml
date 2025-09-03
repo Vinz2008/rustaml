@@ -1,0 +1,6 @@
+let generic_cmp a b : 'a -> 'a -> bool = a == b ;;
+
+let i = generic_cmp 1 2 ;;
+let _ = print i ;;
+let f = generic_cmp 2.0 3.3 ;;
+let _ = print f ;;

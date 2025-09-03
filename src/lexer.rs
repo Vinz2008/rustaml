@@ -105,6 +105,7 @@ pub enum TokenData {
     Colon, // :
     Comma, // ,
     Dot, // .
+    Apostrophe, // '
     Arrow, // ->
     Pipe, // |
     EndOfExpr, // ;;
@@ -372,6 +373,10 @@ pub fn lex(content: Vec<char>, is_debug_print : bool) -> Result<Vec<Token>, Lexe
                     _ => return Err(LexerErr::new(LexerErrData::NotCompleteEndOfExpr, lexer.pos-1..lexer.pos-1)),
                 }
             },
+            '\'' => {
+                // TODO : handling of char litteral ?
+                Some(Token::new(TokenData::Apostrophe, range))
+            }
             '\"' => Some(lex_string(&mut lexer)?),
             op_char if Operator::is_char_op(op_char) => lex_op(&mut lexer)?,
             '0'..='9' => Some(lex_nb(&mut lexer)?),

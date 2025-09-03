@@ -27,7 +27,7 @@ fn mangle_cpp(s : &str, function_type : &Type) -> String {
     
 }
 
-pub fn mangle_name(s : &str, function_type : &Type, lang : ExternLang) -> String {
+pub fn mangle_name_external(s : &str, function_type : &Type, lang : ExternLang) -> String {
     match lang {
         ExternLang::C => s.to_owned(),
         ExternLang::CPP => mangle_cpp(s, function_type),

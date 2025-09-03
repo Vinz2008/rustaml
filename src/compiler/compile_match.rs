@@ -81,19 +81,19 @@ fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut C
 }
 
 fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_expr_type : &Type) -> IntValue<'llvm_ctx>{
-    match pattern.get(&compile_context.rustaml_context.pattern_pool) {
-        Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap_or_else(|_| panic!("not an int value : {:?}", matched_val)), compile_context.context.i64_type().const_int(*i as u64, false), "match_int_cmp").unwrap(),
-        Pattern::Float(f) => compile_context.builder.build_float_compare(FloatPredicate::OEQ, matched_val.into_float_value(), compile_context.context.f64_type().const_float(*f), "match_float_cmp").unwrap(),
-        Pattern::Bool(b) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.into_int_value(), compile_context.context.bool_type().const_int(*b as u64, false), "match_bool_cmp").unwrap(),
+    match pattern.get(&compile_context.rustaml_context.pattern_pool).clone() {
+        Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap_or_else(|_| panic!("not an int value : {:?}", matched_val)), compile_context.context.i64_type().const_int(i as u64, false), "match_int_cmp").unwrap(),
+        Pattern::Float(f) => compile_context.builder.build_float_compare(FloatPredicate::OEQ, matched_val.into_float_value(), compile_context.context.f64_type().const_float(f), "match_float_cmp").unwrap(),
+        Pattern::Bool(b) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.into_int_value(), compile_context.context.bool_type().const_int(b as u64, false), "match_bool_cmp").unwrap(),
         Pattern::Range(lower, upper, inclusivity) => {
-            let (lower_predicate, upper_predicate) = if *inclusivity {
+            let (lower_predicate, upper_predicate) = if inclusivity {
                 (IntPredicate::SLE, IntPredicate::SGE)
             }  else {
                 (IntPredicate::SLT, IntPredicate::SGT)
             };
             // TODO : replace with compile function like below ?
-            let lower_cmp = compile_context.builder.build_int_compare(lower_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*lower as u64, false), "match_int_cmp_range_lower").unwrap();
-            let upper_cmp = compile_context.builder.build_int_compare(upper_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(*upper as u64, false), "match_int_cmp_range_upper").unwrap();
+            let lower_cmp = compile_context.builder.build_int_compare(lower_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(lower as u64, false), "match_int_cmp_range_lower").unwrap();
+            let upper_cmp = compile_context.builder.build_int_compare(upper_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(upper as u64, false), "match_int_cmp_range_upper").unwrap();
             
             // TODO : instead of creating a and, short circuit this with multiple branches ? (return a vec with the branches that need to be made ?)
             let combined_bool_val = compile_context.builder.build_and(lower_cmp, upper_cmp, "match_range_and").unwrap();
@@ -107,11 +107,11 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
                 _ => unreachable!(),   
             };
 
-            compile_short_circuiting_match_static_list(compile_context, matched_val.into_pointer_value(), pattern_list, &elem_type)
+            compile_short_circuiting_match_static_list(compile_context, matched_val.into_pointer_value(), &pattern_list, &elem_type)
         },
         Pattern::String(s) => {
             let str_cmp_fun = compile_context.get_internal_function("__str_cmp");
-            let pattern_str_val = create_string(compile_context, s.get_str(&compile_context.rustaml_context.str_interner));
+            let pattern_str_val = create_string(compile_context, &s.get_str(&compile_context.rustaml_context.str_interner).to_owned());
 
             let args = vec![pattern_str_val.into(), matched_val.try_into().unwrap()];
             compile_context.builder.build_call(str_cmp_fun, &args, "pattern_match_str_cmp").unwrap().as_any_value_enum().into_int_value()
@@ -124,10 +124,10 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
 
 // init vars, etc
 fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type){
-    match pattern.get(&compile_context.rustaml_context.pattern_pool) {
+    match pattern.get(&compile_context.rustaml_context.pattern_pool).clone() {
         Pattern::VarName(n) => {
-            let matched_val_type_llvm = get_llvm_type(compile_context.context, matched_val_type);
-            create_var(compile_context, *n, matched_val, matched_val_type_llvm);
+            let matched_val_type_llvm = get_llvm_type(compile_context, matched_val_type);
+            create_var(compile_context, n, matched_val, matched_val_type_llvm);
         }
         Pattern::ListDestructure(head, tail) => {
             let element_type = match matched_val_type {
@@ -135,12 +135,12 @@ fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContex
                 _ => unreachable!(),
             };
 
-            let element_type_llvm = get_llvm_type(compile_context.context, element_type);
+            let element_type_llvm = get_llvm_type(compile_context, element_type);
             let matched_val_list = matched_val.into_pointer_value();
             let head_val = load_list_val(compile_context, element_type, matched_val_list);
-            create_var(compile_context, *head, head_val.into(), element_type_llvm);
+            create_var(compile_context, head, head_val.into(), element_type_llvm);
             let tail_val = load_list_tail(compile_context, matched_val_list);
-            compile_pattern_match_prologue(compile_context, *tail, tail_val.into(), matched_val_type);
+            compile_pattern_match_prologue(compile_context, tail, tail_val.into(), matched_val_type);
         }
        _ => {}
     }
@@ -286,14 +286,14 @@ pub fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     
     let matched_val = compile_expr(compile_context, matched_expr);
     //let matched_val_type = matched_expr.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
-    let matched_val_type = matched_expr.get_type(&compile_context.rustaml_context.ast_pool);
+    let matched_val_type = matched_expr.get_type(&compile_context.rustaml_context.ast_pool).clone();
 
-    let match_type = match_node.get_type(&compile_context.rustaml_context.ast_pool);
-    let match_type_llvm = get_llvm_type(compile_context.context, match_type);
+    let match_type = match_node.get_type(&compile_context.rustaml_context.ast_pool).clone();
+    let match_type_llvm = get_llvm_type(compile_context, &match_type);
     
 
-    if match_can_use_switch(compile_context, matched_val_type, patterns) {
-        return compile_match_switch(compile_context, matched_val, match_type_llvm, matched_val_type, patterns);
+    if match_can_use_switch(compile_context, &matched_val_type, patterns) {
+        return compile_match_switch(compile_context, matched_val, match_type_llvm, &matched_val_type, patterns);
     }
 
     let function = get_current_function(compile_context.builder);
@@ -317,10 +317,10 @@ pub fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     for (pattern, pattern_bbs) in patterns.iter().zip(&match_bbs) {
         let (pattern, pattern_body) = pattern;
         let (pattern_bb, pattern_else_bb) = pattern_bbs;
-        compile_pattern_match(compile_context, *pattern, matched_val, matched_val_type, *pattern_bb, *pattern_else_bb);
+        compile_pattern_match(compile_context, *pattern, matched_val, &matched_val_type, *pattern_bb, *pattern_else_bb);
         move_bb_after_current(compile_context, *pattern_bb);
         compile_context.builder.position_at_end(*pattern_bb);
-        compile_pattern_match_prologue(compile_context, *pattern, matched_val, matched_val_type);
+        compile_pattern_match_prologue(compile_context, *pattern, matched_val, &matched_val_type);
         let pattern_body_val = compile_expr(compile_context, *pattern_body);
         //compile_pattern_match_epilogue(compile_context, pattern);
         match_phi_bbs.push(compile_context.builder.get_insert_block().unwrap());

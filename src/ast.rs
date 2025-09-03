@@ -271,7 +271,7 @@ pub enum Type {
     Str,
     List(Box<Type>),
     Any, // not already resolved type during type checking
-    Generic(GenericIdx),
+    Generic(u32),
     CType(CType),
     Unit,
     Never,
@@ -494,6 +494,18 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
         TokenData::ParenOpen => {
             let paren_close_tok = parser.eat_tok(Some(TokenDataTag::ParenClose))?;
             Ok((Type::Unit, paren_close_tok.range.end))
+        },
+        TokenData::Apostrophe => {
+            let identifier_generic = parser.eat_tok(Some(TokenDataTag::Identifier))?;
+            let type_generic = match identifier_generic.tok_data {
+                TokenData::Identifier(i) => i.iter().collect::<String>(),
+                _ => unreachable!(),
+            };
+            assert!(type_generic.len() == 1); // TODO : better error handling
+            let first_c = type_generic.chars().next().unwrap();
+            assert!(first_c.is_alphabetic());
+            let gen_nb = (first_c as u32) - ('a' as u32);
+            Ok((Type::Generic(gen_nb), identifier_generic.range.end))
         },
         _ => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: tok.tok_data }, tok.range.clone())),
     }
