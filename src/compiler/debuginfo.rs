@@ -119,9 +119,9 @@ impl<'llvm_ctx> DebugInfosInner<'llvm_ctx>{
     }
 }
 
-struct DebugLoc {
-    line_nb : u32,
-    column : u32,
+pub struct LineColLoc {
+    pub line_nb : u32,
+    pub column : u32,
 }
 
 #[derive(Clone)]
@@ -141,7 +141,7 @@ impl ContentLoc {
 }
 
 // TODO : add better way (for example when generating ranges, when lexing, add it in a hashmap ?)
-fn get_debug_loc(content_loc : &ContentLoc, range : Range<usize>) -> DebugLoc {
+pub fn get_debug_loc(content_loc : &ContentLoc, range : Range<usize>) -> LineColLoc {
     let newline_idx = content_loc.newlines_idx.partition_point(|e| *e <= range.start);
 
     let new_line_before_line_offset = if let Some(i) = newline_idx.checked_sub(1) {
@@ -155,7 +155,7 @@ fn get_debug_loc(content_loc : &ContentLoc, range : Range<usize>) -> DebugLoc {
     let line_nb = newline_idx + 1;
 
 
-    DebugLoc { 
+    LineColLoc { 
         line_nb: line_nb.try_into().unwrap(),
         column: column_nb.try_into().unwrap(),
     }

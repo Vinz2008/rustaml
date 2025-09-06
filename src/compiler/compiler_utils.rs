@@ -1,6 +1,6 @@
 use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace};
 
-use crate::{ast::{CType, Type}, compiler::CompileContext, string_intern::StringRef};
+use crate::{ast::{CType, Type}, compiler::{debuginfo::LineColLoc, CompileContext}, string_intern::StringRef};
 
 pub fn encountered_any_type() -> ! {
     panic!("Encountered Any when compiling")
@@ -163,7 +163,8 @@ pub fn create_string<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     
 }
 
-pub fn codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, message : &str){
+pub fn codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, message : &str, line_col : LineColLoc){
+    let message = &format!("{} [{}:{}]\n", message, line_col.line_nb, line_col.column); // TODO : add filename
     let message_str = create_string(compile_context, message);
     _codegen_runtime_error(compile_context, message_str)
 }

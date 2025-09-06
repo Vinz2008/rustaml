@@ -30,3 +30,8 @@ let match_switch_int_no_fallback a = match a with
 
 let m_i_n_f = match_switch_int_no_fallback 2 ;;
 let _ = print m_i_n_f ;;
+
+let match_fail a = match a with 
+  | 1 -> 3 ;;
+
+let _ = print (match_fail 2) ;;
