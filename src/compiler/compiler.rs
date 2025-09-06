@@ -983,7 +983,7 @@ fn compile_anon_func<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     let entry = compile_context.context.append_basic_block(function, "entry");
     compile_context.builder.position_at_end(entry);
 
-    let range = ast_node.get_range(&compile_context.rustaml_context.ast_pool); // TODO
+    let range = ast_node.get_range(&compile_context.rustaml_context.ast_pool);
 
     // TODO : need a way to reset vars (for example swap the current vars with an empty one, then put it back)
     for (((arg_name, arg_val), arg_type_llvm), arg_type) in args.iter().zip(function.get_param_iter()).zip(&arg_types_llvm).zip(arg_types) {
@@ -1060,10 +1060,7 @@ fn get_var_type<'context>(compile_context: &'context CompileContext<'context, '_
         },
         
         None => {
-            //let var_val_ast = *compile_context.typeinfos.vars_ast.get(&name).unwrap_or_else(|| panic!("Unknown var {:?}", DebugWrapContext::new(&name, compile_context.rustaml_context))); // TODO : add better handling instead of unwrap (the var not found should be here ?)
-            //var_val_ast.get_type(&compile_context.rustaml_context.ast_pool)
             panic!("Compiler: unknown var : {:?}", DebugWrapContext::new(&name, compile_context.rustaml_context));
-            //unreachable!()
         }
     }
 }
