@@ -1,3 +1,5 @@
+use std::{cmp::max, ops::{Range, RangeInclusive}};
+
 use inkwell::{basic_block::BasicBlock, types::{AnyTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue}, AddressSpace, FloatPredicate, IntPredicate};
 
 use crate::{ast::{ASTRef, Pattern, PatternRef, Type}, compiler::{compile_expr, CompileContext}, compiler::compiler_utils::{codegen_runtime_error, create_br_conditional, create_br_unconditional, create_string, create_var, get_current_function, get_llvm_type, get_void_val, load_list_tail, load_list_val, move_bb_after_current}};
@@ -72,7 +74,6 @@ fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut C
         incoming_phi.push((&const_false, is_null_last_bb));
         let const_true = compile_context.context.bool_type().const_int(true as u64, false);
         incoming_phi.push((&const_true, has_matched_everything_bb));
-        // TODO
 
         phi_node.add_incoming(&incoming_phi);
 
@@ -153,6 +154,7 @@ fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
 }
 
 // for analyzing the ranges of match (make it smarter ?)
+// TODO : use this function to check in the AST to have a warning for non exhaustive match
 fn match_is_all_range(compile_context: &CompileContext<'_, '_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
     match matched_val_type {
         Type::Bool => {
@@ -160,6 +162,41 @@ fn match_is_all_range(compile_context: &CompileContext<'_, '_, '_>, matched_val_
             let has_false = patterns.iter().any(|e| matches!(e.0.get(&compile_context.rustaml_context.pattern_pool), Pattern::Bool(false)));
             has_true && has_false
         },
+        Type::Integer => {
+            let mut ranges : Vec<RangeInclusive<i64>> = Vec::new();
+
+            for (p, _) in patterns {
+                match p.get(&compile_context.rustaml_context.pattern_pool) {
+                    Pattern::Integer(nb) => ranges.push(*nb..=*nb),
+                    Pattern::Range(start, end, inclusivity) => {
+                        dbg!((start, end, inclusivity));
+                        if *inclusivity {
+                            ranges.push(*start..=*end);
+                        } else {
+                            let end_exclusive = max(end-1, *start);
+                            ranges.push(*start..=end_exclusive);
+                        }
+                    },
+                    _ => {}
+                }
+            }
+
+            let mut merged_range = ranges[0].clone();
+
+            ranges.sort_by_key(|e| *e.start());
+
+            for range in ranges.into_iter().skip(1){
+                if range.start() < merged_range.start(){
+                    merged_range = *range.start()..=*merged_range.end();
+                }
+
+                if range.end() > merged_range.end(){
+                    merged_range = *merged_range.start()..=*range.end();
+                }
+            }
+
+            merged_range == (i64::MIN..=i64::MAX)
+        }
         _ => false, // TODO
     }
 }

@@ -429,7 +429,8 @@ impl Parser<'_> {
     }
 }
 
-fn parse_integer(parser: &mut Parser, nb: i64, range : Range<usize>) -> ASTRef {
+fn parse_integer(parser: &mut Parser, nb: i128, range : Range<usize>) -> ASTRef {
+    let nb = nb.try_into().expect("Number is more than 64 bits"); // TODO : better error handling
     parser.rustaml_context.ast_pool.push(ASTNode::Integer { nb }, range)
 }
 
@@ -759,9 +760,26 @@ where F: Fn(&mut Parser) -> Result<T, ParserErr>
     Ok((elems, array_close_tok.range.end))
 }
 
+fn parse_integer_pattern(parser : &mut Parser, token : &Token) -> Result<(i64, usize), ParserErr> {
+     match token.tok_data {
+        TokenData::Integer(nb) => Ok((nb.try_into().unwrap(), token.range.end)),
+        TokenData::Op(Operator::Minus) => {
+            let int_tok = parser.eat_tok(Some(TokenDataTag::Integer))?;
+            match int_tok.tok_data {
+                TokenData::Integer(nb) => {
+                    let nb = (-nb).try_into().unwrap();
+                    Ok((nb, int_tok.range.end))
+                },
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
 fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
     let pattern_tok = parser.eat_tok(None)?;
-    let pattern_first_tok_range = pattern_tok.range;
+    let pattern_first_tok_range = pattern_tok.range.clone();
 
     let (pattern, range) = match pattern_tok.tok_data {
         TokenData::Identifier(buf) => {
@@ -780,15 +798,19 @@ fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
             };
             (p, pattern_first_tok_range)
         },
-        TokenData::Integer(nb) => { 
+        TokenData::Integer(_) | TokenData::Op(Operator::Minus) => { 
+           let nb = parse_integer_pattern(parser, &pattern_tok)?.0;
+            
             if let Some(&TokenData::Range(inclusivity)) = parser.current_tok_data() {
                 parser.eat_tok(None)?;
-                let end_tok = parser.eat_tok(Some(TokenDataTag::Integer))?;
+                let end_tok = parser.eat_tok(None)?;
+                let (end_nb, end_tok_range_end) = parse_integer_pattern(parser, &end_tok)?;
+                /*let end_tok = parser.eat_tok(Some(TokenDataTag::Integer))?;
                 let end_nb = match end_tok.tok_data {
                     TokenData::Integer(end) => end,
                     _ => unreachable!(),
-                };
-                (Pattern::Range(nb, end_nb, inclusivity), pattern_first_tok_range.start..end_tok.range.end)
+                };*/
+                (Pattern::Range(nb, end_nb, inclusivity), pattern_first_tok_range.start..end_tok_range_end)
 
             } else {
                 (Pattern::Integer(nb), pattern_first_tok_range)

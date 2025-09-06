@@ -124,7 +124,7 @@ struct Args {
 }
 
 #[cfg(not(feature = "native"))]
-pub fn compile(_frontend_output : FrontendOutput, _rustaml_context: &mut RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer : bool, _enable_debuginfos : bool) {
+pub fn compile(_frontend_output : FrontendOutput, _rustaml_context: &mut RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer : bool, _enable_debuginfos : bool, _lib_search_paths : Vec<String>) {
     panic!("the compiler feature was not enabled");
 }
 

@@ -1,6 +1,6 @@
 use std::{ops::Range, path::Path};
 
-use crate::{ast::{ParserErr, ParserErrData, Type}, lexer::{LexerErr, Operator, TokenData, TokenDataTag}, rustaml::nearest_string, types::{TypesErr, TypesErrData}};
+use crate::{ast::{ParserErr, ParserErrData, Type}, lexer::{LexerErr, NbTypeError, Operator, TokenData, TokenDataTag}, rustaml::nearest_string, types::{TypesErr, TypesErrData}};
 use crate::lexer::LexerErrData;
 
 use ariadne::{Color, ColorGenerator, Label, Report, ReportKind, Source};
@@ -49,10 +49,10 @@ fn print_error(err : ErrorPrint){
 
 
 
-fn print_number_parsing_failure(error_basic_infos : ErrorBasicInfos, buf  : Box<[char]>) -> ErrorPrint{
+fn print_number_parsing_failure(error_basic_infos : ErrorBasicInfos, buf  : Box<[char]>, nb_type : NbTypeError) -> ErrorPrint{
     ErrorPrint {
         error_basic_infos,
-        message: format!("Failure when parsing number \"{:?}\"", buf),
+        message: format!("Failure when parsing number \"{:?}\" of type {:?}", buf, nb_type),
 
         ..Default::default()
     }
@@ -108,7 +108,7 @@ pub fn print_lexer_error(lexer_error : LexerErr, filename : &Path, content : &st
     };
 
     let error_print = match *lexer_error.lexer_err_data {
-        LexerErrData::NumberParsingFailure(b) => print_number_parsing_failure(error_basic_infos, b),
+        LexerErrData::NumberParsingFailure(b, nb_type) => print_number_parsing_failure(error_basic_infos, b, nb_type),
         LexerErrData::InvalidOp(s) => print_invalid_op_error(error_basic_infos, s),
         LexerErrData::UnexpectedEOF => print_unexpected_eof_error(error_basic_infos),
         LexerErrData::UnexpectedChar(c) => print_unexpected_char_error(error_basic_infos, c),

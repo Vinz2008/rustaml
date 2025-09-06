@@ -24,3 +24,9 @@ let match_bool a = match a with
 
 let m_b = match_bool (r3 == 3) ;;
 let _ = print m_b ;;
+
+let match_switch_int_no_fallback a = match a with
+  | -9223372036854775808=..9223372036854775807 -> 3 ;;
+
+let m_i_n_f = match_switch_int_no_fallback 2 ;;
+let _ = print m_i_n_f ;;

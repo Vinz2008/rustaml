@@ -82,7 +82,7 @@ pub enum TokenData {
     Identifier(Box<[char]>),
     String(Box<[char]>),
     Op(Operator),
-    Integer(i64),
+    Integer(i128),
     Float(f64),
     Let,
     If,
@@ -130,9 +130,15 @@ struct Lexer {
     pos: usize,
 }
 
+#[derive(Debug)]
+pub enum NbTypeError {
+    Float,
+    Integer,
+}
+
 #[derive(Debug, Tag)]
 pub enum LexerErrData {
-    NumberParsingFailure(Box<[char]>),
+    NumberParsingFailure(Box<[char]>, NbTypeError),
     InvalidOp(String),
     UnexpectedChar(char),
     UnexpectedEOF,
@@ -233,7 +239,7 @@ fn lex_nb(lexer: &mut Lexer) -> Result<Token, LexerErr> {
         let nb = str::parse::<f64>(str.as_str());
         let nb = match nb {
             Ok(n) => n,
-            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(buf.into_boxed_slice()), range)),
+            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(buf.into_boxed_slice(), NbTypeError::Float), range)),
         };
 
         //dbg!(nb);
@@ -241,11 +247,11 @@ fn lex_nb(lexer: &mut Lexer) -> Result<Token, LexerErr> {
         Ok(Token::new(TokenData::Float(nb), range))
     } else {
 
-        let nb = str::parse::<i64>(str.as_str());
+        let nb = str::parse::<i128>(str.as_str());
 
         let nb = match nb {
             Ok(n) => n,
-            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(buf.into_boxed_slice()), range)),
+            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(buf.into_boxed_slice(), NbTypeError::Integer), range)),
         };
 
         //dbg!(nb);
