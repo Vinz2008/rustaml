@@ -580,6 +580,11 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
 }
 
 fn interpret_unop(context : &mut InterpretContext, op : Operator, expr : ASTRef) -> Val {
+    match (op, expr.get(&context.rustaml_context.ast_pool)){
+        (Operator::Minus, ASTNode::Integer { nb }) => return Val::Integer((-nb).try_into().unwrap()),
+        _ => {}
+    }
+
     let expr_val = interpret_node(context, expr);
 
     match op {
@@ -1082,7 +1087,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
             Val::Unit
         }
         ASTNode::Float { nb } => Val::Float(nb),
-        ASTNode::Integer { nb } => Val::Integer(nb),
+        ASTNode::Integer { nb } => Val::Integer(nb.try_into().unwrap()),
         ASTNode::Boolean { b } => Val::Bool(b),
         ASTNode::VarDecl { name, val, body, var_type: _ } => {
             let val_node = interpret_node(context, val);

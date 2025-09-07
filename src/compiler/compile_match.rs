@@ -1,8 +1,8 @@
-use std::{cmp::max, ops::{Range, RangeInclusive}};
+use std::{cmp::max, ops::RangeInclusive};
 
 use inkwell::{basic_block::BasicBlock, types::{AnyTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue}, AddressSpace, FloatPredicate, IntPredicate};
 
-use crate::{ast::{ASTRef, Pattern, PatternRef, Type}, compiler::{compile_expr, compiler_utils::{codegen_runtime_error, create_br_conditional, create_br_unconditional, create_string, create_var, get_current_function, get_llvm_type, get_void_val, load_list_tail, load_list_val, move_bb_after_current}, debuginfo::get_debug_loc, CompileContext}};
+use crate::{ast::{ASTRef, Pattern, PatternRef, Type}, compiler::{compile_expr, compiler_utils::{codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_string, create_var, get_current_function, get_llvm_type, get_void_val, load_list_tail, load_list_val, move_bb_after_current}, debuginfo::get_debug_loc, CompileContext}};
 
 // TODO : when will be added or patterns (TODO) (for ex : match a with | [1, 2, 3] | [2, 3, 4]) I can create a more optimized version when matching multiple lists by creating a decision tree in the compiled program
 fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list_val : PointerValue<'llvm_ctx>, pattern_list : &[PatternRef], elem_type : &Type) -> IntValue<'llvm_ctx>{
@@ -371,7 +371,7 @@ pub fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
 
     // TODO : add line number ? 
     let line_col = get_debug_loc(compile_context.rustaml_context.content.as_ref().unwrap(), match_range);
-    codegen_runtime_error(compile_context, "no match branch was found", line_col);
+    codegen_lang_runtime_error(compile_context, "no match branch was found", line_col);
 
     move_bb_after_current(compile_context, after_match);
     compile_context.builder.position_at_end(after_match);

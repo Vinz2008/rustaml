@@ -1,8 +1,8 @@
 use core::panic;
-use std::{hash::{Hash, Hasher}, io::Write, ops::Range, path::{Path, MAIN_SEPARATOR}, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
+use std::{hash::{Hash, Hasher}, i64, io::Write, ops::Range, path::{Path, MAIN_SEPARATOR}, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
-use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
+use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{get_debug_loc, DebugInfo, DebugInfosInner, TargetInfos}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
@@ -582,16 +582,82 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
     }
 }
 
-fn compile_binop_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, name : &str) -> IntValue<'llvm_ctx>{
+fn compile_check_overflow<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, intrisic_name : &'static str, message : &'static str, i : IntValue<'llvm_ctx>, i2 : IntValue<'llvm_ctx>, name : &str, range : Range<usize>) -> IntValue<'llvm_ctx> {
+    // TODO : do the instrisic find only one time ?
+    let llvm_sadd_intrisic = Intrinsic::find(intrisic_name).unwrap();
+    let llvm_sadd_decl = llvm_sadd_intrisic.get_declaration(compile_context.module, &[compile_context.context.i64_type().into()]).unwrap();
+
+    let res_struct_val = compile_context.builder.build_call(llvm_sadd_decl, &[i.into(), i2.into()], name).unwrap().as_any_value_enum().into_struct_value();
+    let res_val = compile_context.builder.build_extract_value(res_struct_val, 0, &format!("extract_val_{}", name)).unwrap().into_int_value();
+    let is_overflow = compile_context.builder.build_extract_value(res_struct_val, 1, &format!("extract_overflow_{}", name)).unwrap().into_int_value();
+                    
+    let this_function = get_current_function(compile_context.builder);
+    let overflow_bb = compile_context.context.append_basic_block(this_function, &format!("overflow_{}", name));
+    let after_overflow_check_bb = compile_context.context.append_basic_block(this_function, &format!("after_overflow_check_{}", name));
+
+    compile_context.builder.build_conditional_branch(is_overflow, overflow_bb, after_overflow_check_bb).unwrap();
+
+    compile_context.builder.position_at_end(overflow_bb);
+    codegen_lang_runtime_error(compile_context, message, get_debug_loc(compile_context.rustaml_context.content.as_ref().unwrap(), range));
+
+    compile_context.builder.position_at_end(after_overflow_check_bb);
+
+    res_val
+}
+
+fn compile_div_checked<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, i : IntValue<'llvm_ctx>, i2 : IntValue<'llvm_ctx>, range : Range<usize>) -> IntValue<'llvm_ctx> {
+    let line_col = get_debug_loc(compile_context.rustaml_context.content.as_ref().unwrap(), range);
+    
+    let const_zero = compile_context.context.i64_type().const_zero();
+    let is_zero = compile_context.builder.build_int_compare(IntPredicate::EQ, i2, const_zero, &format!("cmp_div_zero")).unwrap();
+
+    let this_function = get_current_function(compile_context.builder);
+    let is_zero_bb = compile_context.context.append_basic_block(this_function, "div_zero");
+
+    let check_overflow_bb = compile_context.context.append_basic_block(this_function, "check_overflow_div");
+    
+    
+    compile_context.builder.build_conditional_branch(is_zero, is_zero_bb, check_overflow_bb).unwrap();
+
+
+    compile_context.builder.position_at_end(is_zero_bb);
+    codegen_lang_runtime_error(compile_context, "Division by zero", line_col.clone());
+
+    let is_overflow_bb = compile_context.context.append_basic_block(this_function, "overflow_div");
+
+    let after_checks = compile_context.context.append_basic_block(this_function, "after_div_checks");
+
+    compile_context.builder.position_at_end(check_overflow_bb);
+    let const_minus_one = compile_context.context.i64_type().const_int((-1i64) as u64, false);
+    let is_rhs_minus_one = compile_context.builder.build_int_compare(IntPredicate::EQ, i2, const_minus_one, &format!("cmp_lhs_-1")).unwrap();
+    
+    let const_i64_min = compile_context.context.i64_type().const_int(i64::MIN as u64, false);
+    let is_lhs_i64_min = compile_context.builder.build_int_compare(IntPredicate::EQ, i, const_i64_min, &format!("cmp_rhs_i64_min")).unwrap();
+    
+    let is_overflow = compile_context.builder.build_and(is_rhs_minus_one, is_lhs_i64_min, "and_div_overflow_check").unwrap();
+
+    compile_context.builder.position_at_end(check_overflow_bb);
+    compile_context.builder.build_conditional_branch(is_overflow, is_overflow_bb, after_checks).unwrap();
+
+    compile_context.builder.position_at_end(is_overflow_bb);
+    codegen_lang_runtime_error(compile_context, "Overflow when dividing", line_col);
+
+
+    compile_context.builder.position_at_end(after_checks);
+    
+    compile_context.builder.build_int_signed_div(i, i2, "div").unwrap()
+}
+
+fn compile_binop_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, name : &str, range : Range<usize>) -> IntValue<'llvm_ctx>{
     
     match (lhs_val, rhs_val){
         (AnyValueEnum::IntValue(i),  AnyValueEnum::IntValue(i2)) => {
             match op {
                 // TODO : add check for overflow like in rust (with a flag to activate it)
-                Operator::Plus => compile_context.builder.build_int_add(i, i2, name).unwrap(),
-                Operator::Minus => compile_context.builder.build_int_sub(i, i2, name).unwrap(),
-                Operator::Mult => compile_context.builder.build_int_mul(i, i2, name).unwrap(),
-                Operator::Div => compile_context.builder.build_int_signed_div(i, i2, name).unwrap(),
+                Operator::Plus => compile_check_overflow(compile_context, "llvm.sadd.with.overflow", "Overflow when adding", i, i2, name, range),
+                Operator::Minus => compile_check_overflow(compile_context, "llvm.ssub.with.overflow", "Overflow when substracting", i, i2, name, range),
+                Operator::Mult => compile_check_overflow(compile_context, "llvm.smul.with.overflow", "Overflow when multiplying", i, i2, name, range),
+                Operator::Div => compile_div_checked(compile_context, i, i2, range),
                 _ => unreachable!(),
             }
         }
@@ -830,7 +896,7 @@ fn compile_binop_bool_logical<'llvm_ctx>(compile_context: &mut CompileContext<'_
     }
 }
 
-fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs : ASTRef, rhs : ASTRef) -> AnyValueEnum<'llvm_ctx> {
+fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs : ASTRef, rhs : ASTRef, range : Range<usize>) -> AnyValueEnum<'llvm_ctx> {
     let name = format!("{:?}", op).to_lowercase();
     if matches!(op, Operator::And | Operator::Or){
         return compile_binop_bool_logical(compile_context, op, lhs, rhs, name).as_any_value_enum();
@@ -842,7 +908,7 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     let lhs_type = lhs.get_type(&compile_context.rustaml_context.ast_pool).clone();
 
     match op.get_type() {
-        Type::Integer => compile_binop_int(compile_context, op, lhs_val, rhs_val, &name).into(),
+        Type::Integer => compile_binop_int(compile_context, op, lhs_val, rhs_val, &name, range).into(),
         Type::Float => compile_binop_float(compile_context, op, lhs_val, rhs_val, &name).into(),
         Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, lhs_type, &name).into(),
         Type::Str => compile_binop_str(compile_context, op, lhs_val, rhs_val, &name),
@@ -852,6 +918,10 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 }
 
 fn compile_unop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, expr : ASTRef) -> AnyValueEnum<'llvm_ctx>{
+    match (op, expr.get(&compile_context.rustaml_context.ast_pool)){
+        (Operator::Minus, ASTNode::Integer { nb }) => return create_int(compile_context, -nb).as_any_value_enum(),
+        _ => {}
+    }
     let expr_val = compile_expr(compile_context, expr);
     
     match op {
@@ -1030,7 +1100,7 @@ pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
         ASTNode::VarDecl { name, val, body, var_type: _ } => compile_var_decl(compile_context, ast_node, name, val, body, false),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => compile_if(compile_context, cond_expr, then_body, else_body),
         ASTNode::FunctionCall { callee, args } => compile_function_call(compile_context, callee, &args, range),
-        ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, op, lhs, rhs),
+        ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, op, lhs, rhs, range),
         ASTNode::UnaryOp { op, expr } => compile_unop(compile_context, op, expr),
         ASTNode::VarUse { name } => compile_var_use(compile_context, ast_node, name),
         ASTNode::List { list } => { 

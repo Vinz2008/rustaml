@@ -119,6 +119,7 @@ impl<'llvm_ctx> DebugInfosInner<'llvm_ctx>{
     }
 }
 
+#[derive(Clone)]
 pub struct LineColLoc {
     pub line_nb : u32,
     pub column : u32,

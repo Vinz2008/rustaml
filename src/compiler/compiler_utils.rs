@@ -69,7 +69,8 @@ pub fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, '_, 'llvm_
     }
 }
 
-pub fn create_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, nb : i64) -> IntValue<'llvm_ctx> {
+pub fn create_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, nb : i128) -> IntValue<'llvm_ctx> {
+    let nb : i64 = nb.try_into().unwrap(); // TODO : better error handling
     compile_context.context.i64_type().const_int(nb as u64, true)
 }
 
@@ -163,10 +164,14 @@ pub fn create_string<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     
 }
 
+pub fn codegen_lang_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, message : &str, line_col : LineColLoc){
+    codegen_runtime_error(compile_context, &format!("LANG RUNTIME ERROR: {}", message), line_col);
+}
+
 pub fn codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, message : &str, line_col : LineColLoc){
     let message = &format!("{} [{}:{}]\n", message, line_col.line_nb, line_col.column); // TODO : add filename
     let message_str = create_string(compile_context, message);
-    _codegen_runtime_error(compile_context, message_str)
+    _codegen_runtime_error(compile_context, message_str);
 }
 
 pub fn _codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, message_str : PointerValue<'llvm_ctx>){

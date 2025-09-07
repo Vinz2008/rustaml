@@ -1,0 +1,16 @@
+let plus a b = a + b ;;
+let _ = print (plus 2 3) ;;
+// let _ = print (plus 9223372036854775807 9223372036854775807) ;;
+
+let minus a b = a - b ;;
+let _ = print(minus 3 2) ;;
+// let _ = print (minus 9223372036854775807 (-3)) ;;
+
+let mult a b = a * b ;;
+let _ = print(mult 15 22) ;;
+// let _ = print (mult 9223372036854775807 3) ;;
+
+let div a b = a / b ;;
+let _ = print(div 9 3) ;;
+// let _ = print (div 8 0) ;;
+// let _ = print (div (-9223372036854775808) (-1))

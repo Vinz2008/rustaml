@@ -28,6 +28,8 @@ pub enum Pattern {
     Underscore,
 }
 
+// TODO : add a warning for recursive functions without base case (ex : just a function call directly)
+
 #[derive(Default, Clone)]
 pub struct PatternPool {
     pattern_vec : Vec<Pattern>,
@@ -209,7 +211,7 @@ pub enum ASTNode {
         patterns : Box<[(PatternRef, ASTRef)]>,
     },
     Integer {
-        nb: i64,
+        nb: i128, // put i128 to hold i64::Min without the sign
     },
     Float {
         nb: f64,
@@ -430,7 +432,7 @@ impl Parser<'_> {
 }
 
 fn parse_integer(parser: &mut Parser, nb: i128, range : Range<usize>) -> ASTRef {
-    let nb = nb.try_into().expect("Number is more than 64 bits"); // TODO : better error handling
+    //let nb = nb.try_into().expect("Number is more than 64 bits
     parser.rustaml_context.ast_pool.push(ASTNode::Integer { nb }, range)
 }
 
