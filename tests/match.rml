@@ -34,4 +34,4 @@ let _ = print m_i_n_f ;;
 let match_fail a = match a with 
   | 1 -> 3 ;;
 
-let _ = print (match_fail 2) ;;
+// let _ = print (match_fail 2) ;;

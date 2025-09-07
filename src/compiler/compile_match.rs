@@ -90,11 +90,11 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
             let (lower_predicate, upper_predicate) = if inclusivity {
                 (IntPredicate::SLE, IntPredicate::SGE)
             }  else {
-                (IntPredicate::SLT, IntPredicate::SGT)
+                (IntPredicate::SLE, IntPredicate::SGT)
             };
             // TODO : replace with compile function like below ?
-            let lower_cmp = compile_context.builder.build_int_compare(lower_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(lower as u64, false), "match_int_cmp_range_lower").unwrap();
-            let upper_cmp = compile_context.builder.build_int_compare(upper_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(upper as u64, false), "match_int_cmp_range_upper").unwrap();
+            let lower_cmp = compile_context.builder.build_int_compare(lower_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(upper as u64, false), "match_int_cmp_range_lower").unwrap();
+            let upper_cmp = compile_context.builder.build_int_compare(upper_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(lower as u64, false), "match_int_cmp_range_upper").unwrap();
             
             // TODO : instead of creating a and, short circuit this with multiple branches ? (return a vec with the branches that need to be made ?)
             let combined_bool_val = compile_context.builder.build_and(lower_cmp, upper_cmp, "match_range_and").unwrap();
@@ -181,21 +181,26 @@ fn match_is_all_range(compile_context: &CompileContext<'_, '_, '_>, matched_val_
                 }
             }
 
-            let mut merged_range = ranges[0].clone();
+            let mut merged_range = ranges.get(0).cloned();
 
             ranges.sort_by_key(|e| *e.start());
 
             for range in ranges.into_iter().skip(1){
-                if range.start() < merged_range.start(){
-                    merged_range = *range.start()..=*merged_range.end();
-                }
 
-                if range.end() > merged_range.end(){
-                    merged_range = *merged_range.start()..=*range.end();
+                if let Some(merged_range) = &mut merged_range {
+                    if range.start() < merged_range.start(){
+                        *merged_range = *range.start()..=*merged_range.end();
+                    }
+
+                    if range.end() > merged_range.end(){
+                        *merged_range = *merged_range.start()..=*range.end();
+                    }
+                } else {
+                    merged_range = Some(range);
                 }
             }
 
-            merged_range == (i64::MIN..=i64::MAX)
+            merged_range == Some(i64::MIN..=i64::MAX)
         }
         _ => false, // TODO
     }

@@ -1130,7 +1130,6 @@ pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
         ASTNode::Cast { to_type, expr } => compile_cast(compile_context, &to_type, expr),
         ASTNode::Unit => get_void_val(compile_context.context),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(&t, compile_context.rustaml_context)), 
-        //_ => todo!()
     }
 }
 

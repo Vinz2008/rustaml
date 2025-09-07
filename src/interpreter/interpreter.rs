@@ -374,6 +374,7 @@ pub struct FunctionDef {
     name : StringRef,
     args : Box<[StringRef]>,
     pub body : FunctionBody,
+    pub function_def_ast : ASTRef,
 }
 
 pub struct InterpretContext<'context> {
@@ -955,7 +956,7 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
                     if inclusivity {
                         start <= *matched_nb && *matched_nb <= end
                     } else {
-                        start < *matched_nb && *matched_nb < end
+                        start <= *matched_nb && *matched_nb < end
                     }
                 },
                 _ => unreachable!(),
@@ -1105,6 +1106,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
                 name, 
                 args,
                 body: FunctionBody::Ast(body),
+                function_def_ast: ast,
             };
             context.vars.insert(name, Val::Function(func_def));
             //context.functions.insert(name, func_def);
@@ -1115,6 +1117,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
                 name: context.rustaml_context.str_interner.intern_compiler("anon_func"), // add an index to not have the same name for all closures ?
                 args,
                 body: FunctionBody::Ast(body),
+                function_def_ast: ast,
             };
             Val::Function(func_def)
         }
@@ -1125,6 +1128,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
                 name, 
                 args: Box::new([]), // unused (TODO ?, not need to pass this ?)
                 body: FunctionBody::Ffi(ffi_fun),
+                function_def_ast: ast,
             };
             context.vars.insert(name, Val::Function(func_def));
             Val::Unit

@@ -496,8 +496,15 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
             Ok((type_annot, tok.range.end))
         },
         TokenData::ParenOpen => {
-            let paren_close_tok = parser.eat_tok(Some(TokenDataTag::ParenClose))?;
-            Ok((Type::Unit, paren_close_tok.range.end))
+            if matches!(parser.current_tok_data(), Some(TokenData::ParenClose)){
+                let paren_close_tok = parser.eat_tok(None)?;
+                Ok((Type::Unit, paren_close_tok.range.end))
+            } else {
+                let inner_type_annotation = parse_type_annotation(parser)?.0;
+                let paren_close_tok = parser.eat_tok(Some(TokenDataTag::ParenClose))?;
+                Ok((inner_type_annotation, paren_close_tok.range.end))
+            }
+            
         },
         TokenData::Apostrophe => {
             let identifier_generic = parser.eat_tok(Some(TokenDataTag::Identifier))?;

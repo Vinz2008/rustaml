@@ -17,3 +17,7 @@ let _ = print a ;;
 extern "C++" function my_cos : float -> float "libcpp_ffi.so" ;;
 let a = my_cos 2.3 ;;
 let _ = print a ;;
+
+extern "C" function func_for_function : (() -> int) -> int "libcpp_ffi.so" ;;
+let a = func_for_function (function _ : (() -> int) -> 2) ;;
+let _ = print a ;;

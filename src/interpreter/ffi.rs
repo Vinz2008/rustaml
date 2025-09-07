@@ -1,9 +1,9 @@
 use std::{ffi::CString, os::raw::c_void, rc::Rc};
 
-use crate::{ast::{CType, ExternLang, Type}, interpreter::{InterpretContext, Val}, mangle::mangle_name_external, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{CType, ExternLang, Type}, interpreter::{interpret_node, FunctionBody, FunctionDef, InterpretContext, Val}, mangle::mangle_name_external, rustaml::RustamlContext, string_intern::StringRef};
 
 use debug_with_context::DebugWithContext;
-use libffi::{low::CodePtr, middle::{Arg, Cif, Type as FFIType}};
+use libffi::{low::CodePtr, middle::{Arg, Cif, Closure, Type as FFIType}, raw::ffi_cif};
 use libloading::Library;
 use pathbuf::pathbuf;
 
@@ -47,6 +47,7 @@ fn get_ffi_type(t : &Type) -> FFIType {
                 CType::F64 => FFIType::f64(),
             }
         }
+        t => panic!("t : {:?}", t),
         _ => unreachable!()
     }
 }
@@ -110,23 +111,97 @@ pub fn get_ffi_func(context : &mut InterpretContext, name: StringRef, func_type 
     todo!()
 }*/
 
+fn get_function_closure(context : &mut InterpretContext, ffi_context : &mut FFIContext, func_def : &FunctionDef) -> Closure<'static> {
+    let function_type = func_def.function_def_ast.get_type(&context.rustaml_context.ast_pool);
+    let (args, ret) = match function_type {
+        Type::Function(args, ret, is_variadic) => {
+            if *is_variadic {
+                panic!("Can't pass a variadic function to a ffi function in the interpreter")
+            } else {
+                (args.as_ref(), ret.as_ref())
+            }
+        },
+        _ => unreachable!(),
+    };
+
+    
+    let arg_types = match args {
+        [Type::Unit] => vec![],
+        args => args.iter().map(|e| get_ffi_type(e)).collect::<Vec<_>>(),
+    };
+    
+    let ret_type = get_ffi_type(ret);
+
+    let cif = Cif::new(arg_types, ret_type);
+
+    
+    let user_data = UserData {
+        ctx: context as *mut _ as *mut c_void,
+        function_def: func_def as *const FunctionDef,
+    };
+
+    /*let user_data = Box::new(user_data);
+
+    ffi_context.user_datas.push(user_data);*/
+    let user_data = Box::new(user_data);
+
+    let user_data_ptr = Box::leak(user_data);
+
+    let closure = Closure::new_mut(cif, function_ptr_trampoline, user_data_ptr /*ffi_context.user_datas.last_mut().unwrap()*/);
+
+    closure
+}
+
+struct UserData {
+    ctx : *mut c_void,
+    function_def : *const FunctionDef,
+    // TODO : add arg types
+}
+
+unsafe extern "C" fn function_ptr_trampoline(_cif: &ffi_cif, result : &mut c_void, args: *const *const c_void, user_data : &mut UserData){
+    unsafe {
+        // TODO : args
+        let user_data = &mut *(user_data as *mut UserData);
+        let context = &mut *(user_data.ctx as *mut InterpretContext);
+        let func_def = & *(user_data.function_def as *const FunctionDef);
+        let res_val = match &func_def.body {
+            FunctionBody::Ast(ast) => interpret_node(context, *ast), // TODO : use function call instead to make args work
+            FunctionBody::Ffi(ffi) => todo!(),
+        };
+
+        match res_val {
+            Val::Integer(i) => *(result as *mut _ as *mut i64) = i,
+            // TODO : add more
+            _ => todo!()
+        }
+    }
+    
+}
+
 struct FFIContext {
     u8s : Vec<u8>,
     c_strs : Vec<CString>,
     c_str_ptrs : Vec<*const i8>,
+    // TODO : verify if they are needed
+    closures : Vec<Closure<'static>>,
+    fn_ptrs : Vec<*const c_void>,
+    //user_datas : Vec<UserData>,
 }
 
 impl FFIContext {
     fn new(args_len : usize) -> FFIContext {
+        // TODO : calculate what size is allocated with this
         FFIContext {
             u8s: Vec::with_capacity(args_len), // to prevent pointer invalidation, reserve the max size possible, even if bigger than needed
             c_strs: Vec::with_capacity(args_len),
             c_str_ptrs: Vec::with_capacity(args_len),
+            closures: Vec::with_capacity(args_len),
+            fn_ptrs: Vec::with_capacity(args_len),
+            //user_datas: Vec::with_capacity(args_len),
         }
     }
 }
 
-// TODO
 fn get_arg(context : &mut InterpretContext, ffi_context : &mut FFIContext, v : &Val) -> Arg {
     match v {
         Val::Integer(i) => Arg::new(i),
@@ -145,10 +220,17 @@ fn get_arg(context : &mut InterpretContext, ffi_context : &mut FFIContext, v : &
             ffi_context.u8s.push(*b as u8);
             Arg::new(ffi_context.u8s.last().unwrap())
         }
-        /*Val::Function(func_def) => {
-            let arg_ptr = get_function_ptr(context, func_def);
-            Arg::new(&arg_ptr)
-        },*/
+        Val::Function(func_def) => {
+            let closure = get_function_closure(context, ffi_context, func_def);
+            
+            ffi_context.closures.push(closure);
+
+            let fn_arg: unsafe extern "C" fn() = *ffi_context.closures.last().unwrap().code_ptr();
+            let arg_ptr = fn_arg as *const () as *const c_void;
+
+            ffi_context.fn_ptrs.push(arg_ptr);
+            Arg::new(ffi_context.fn_ptrs.last().unwrap())
+        },
         _ => unreachable!(),
     }
 }
@@ -158,7 +240,7 @@ pub fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFIFunc, a
 
     unsafe  {
         let args = args.iter().map(|e| get_arg(context, &mut ffi_context, e)).collect::<Vec<_>>();
-        match &ffi_func.ret_type {
+        let val = match &ffi_func.ret_type {
             Type::Integer => {
                 let i = ffi_func.cif.call(ffi_func.code_ptr, &args);
                 Val::Integer(i)
@@ -202,6 +284,10 @@ pub fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFIFunc, a
                     let i : i32 = ffi_func.cif.call(ffi_func.code_ptr, &args);
                     Val::Integer(i as i64)
                 }
+                CType::I64 => {
+                    let i : i64 = ffi_func.cif.call(ffi_func.code_ptr, &args);
+                    Val::Integer(i)
+                }
                 CType::U64 => {
                     let i : u64 = ffi_func.cif.call(ffi_func.code_ptr, &args);
                     Val::Integer(i.try_into().expect("Couldn't convert a c_type.u64 to a Integer (which is under the hood a i64)"))
@@ -214,10 +300,11 @@ pub fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFIFunc, a
                     let f : f64 = ffi_func.cif.call(ffi_func.code_ptr, &args);
                     Val::Float(f)
                 }
-                _ => todo!(),
             }
             _ => unreachable!(),
-        }
+        };
+        // TODO free leaked box for function args of closure
+        val
         
     }
 }
