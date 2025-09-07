@@ -605,27 +605,32 @@ fn compile_check_overflow<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_
     res_val
 }
 
-fn compile_div_checked<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, i : IntValue<'llvm_ctx>, i2 : IntValue<'llvm_ctx>, range : Range<usize>) -> IntValue<'llvm_ctx> {
+fn compile_div_or_rem_checked<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, i : IntValue<'llvm_ctx>, i2 : IntValue<'llvm_ctx>, is_div : bool, name : &str, range : Range<usize>) -> IntValue<'llvm_ctx> {
     let line_col = get_debug_loc(compile_context.rustaml_context.content.as_ref().unwrap(), range);
     
     let const_zero = compile_context.context.i64_type().const_zero();
     let is_zero = compile_context.builder.build_int_compare(IntPredicate::EQ, i2, const_zero, &format!("cmp_div_zero")).unwrap();
 
     let this_function = get_current_function(compile_context.builder);
-    let is_zero_bb = compile_context.context.append_basic_block(this_function, "div_zero");
+    let is_zero_bb = compile_context.context.append_basic_block(this_function, &format!("{}_zero", name));
 
-    let check_overflow_bb = compile_context.context.append_basic_block(this_function, "check_overflow_div");
+    let check_overflow_bb = compile_context.context.append_basic_block(this_function, &format!("check_overflow_{}", name));
     
     
     compile_context.builder.build_conditional_branch(is_zero, is_zero_bb, check_overflow_bb).unwrap();
 
 
     compile_context.builder.position_at_end(is_zero_bb);
-    codegen_lang_runtime_error(compile_context, "Division by zero", line_col.clone());
+    let zero_error = if is_div {
+        "Division by zero"
+    } else {
+        "Calculating remainder with zero"
+    };
+    codegen_lang_runtime_error(compile_context, zero_error, line_col.clone());
 
-    let is_overflow_bb = compile_context.context.append_basic_block(this_function, "overflow_div");
+    let is_overflow_bb = compile_context.context.append_basic_block(this_function, &format!("overflow_{}", name));
 
-    let after_checks = compile_context.context.append_basic_block(this_function, "after_div_checks");
+    let after_checks = compile_context.context.append_basic_block(this_function, &format!("after_checks_{}", name));
 
     compile_context.builder.position_at_end(check_overflow_bb);
     let const_minus_one = compile_context.context.i64_type().const_int((-1i64) as u64, false);
@@ -634,18 +639,29 @@ fn compile_div_checked<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
     let const_i64_min = compile_context.context.i64_type().const_int(i64::MIN as u64, false);
     let is_lhs_i64_min = compile_context.builder.build_int_compare(IntPredicate::EQ, i, const_i64_min, &format!("cmp_rhs_i64_min")).unwrap();
     
-    let is_overflow = compile_context.builder.build_and(is_rhs_minus_one, is_lhs_i64_min, "and_div_overflow_check").unwrap();
+    let is_overflow = compile_context.builder.build_and(is_rhs_minus_one, is_lhs_i64_min, &format!("and_overflow_check_{}", name)).unwrap();
 
     compile_context.builder.position_at_end(check_overflow_bb);
     compile_context.builder.build_conditional_branch(is_overflow, is_overflow_bb, after_checks).unwrap();
 
     compile_context.builder.position_at_end(is_overflow_bb);
-    codegen_lang_runtime_error(compile_context, "Overflow when dividing", line_col);
+    let overflow_error = if is_div {
+        "Overflow when dividing"
+    } else {
+        "Overflow when calculating remainder"
+    };
+
+    codegen_lang_runtime_error(compile_context, overflow_error, line_col);
 
 
     compile_context.builder.position_at_end(after_checks);
     
-    compile_context.builder.build_int_signed_div(i, i2, "div").unwrap()
+    if is_div {
+        compile_context.builder.build_int_signed_div(i, i2, "div").unwrap()
+    } else {
+        compile_context.builder.build_int_signed_rem(i, i2, "rem").unwrap()
+    }
+    
 }
 
 fn compile_binop_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, name : &str, range : Range<usize>) -> IntValue<'llvm_ctx>{
@@ -657,7 +673,8 @@ fn compile_binop_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
                 Operator::Plus => compile_check_overflow(compile_context, "llvm.sadd.with.overflow", "Overflow when adding", i, i2, name, range),
                 Operator::Minus => compile_check_overflow(compile_context, "llvm.ssub.with.overflow", "Overflow when substracting", i, i2, name, range),
                 Operator::Mult => compile_check_overflow(compile_context, "llvm.smul.with.overflow", "Overflow when multiplying", i, i2, name, range),
-                Operator::Div => compile_div_checked(compile_context, i, i2, range),
+                Operator::Div => compile_div_or_rem_checked(compile_context, i, i2, true, name, range),
+                Operator::Rem => compile_div_or_rem_checked(compile_context, i, i2, false, name, range),
                 _ => unreachable!(),
             }
         }
@@ -674,6 +691,7 @@ fn compile_binop_float<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
                 Operator::MinusFloat => compile_context.builder.build_float_sub(f, f2, name).unwrap(),
                 Operator::MultFloat => compile_context.builder.build_float_mul(f, f2, name).unwrap(),
                 Operator::DivFloat => compile_context.builder.build_float_div(f, f2, name).unwrap(),
+                Operator::RemFloat => compile_context.builder.build_float_rem(f, f2, name).unwrap(),
                 _ => unreachable!(),
             }
         },

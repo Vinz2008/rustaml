@@ -410,18 +410,47 @@ fn interpret_binop_int(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     };
     let res_nb = match op {
         Operator::Plus => {
-            lhs_nb + rhs_nb
+            match lhs_nb.checked_add(rhs_nb){
+                Some(res) => res,
+                None => runtime_error("Overflow when adding"),
+            }
+            //lhs_nb + rhs_nb
         },
         Operator::Minus => {
-            lhs_nb - rhs_nb
+            match lhs_nb.checked_sub(rhs_nb){
+                Some(res) => res,
+                None => runtime_error("Overflow when substracting"),
+            }
+            //lhs_nb - rhs_nb
         },
         Operator::Mult => {
-            lhs_nb * rhs_nb
+            match lhs_nb.checked_mul(rhs_nb){
+                Some(res) => res,
+                None => runtime_error("Overflow when multiplying")
+            }
+            //lhs_nb * rhs_nb
         },
         Operator::Div => {
-            // TODO : check if 0, have a special error message in this case (return a result), then use unchecked_div to remove the panic check in the assembly 
-            lhs_nb / rhs_nb
+            match lhs_nb.checked_div(rhs_nb){
+                Some(res) => res,
+                None => if rhs_nb == 0 {
+                    runtime_error("Division by zero")
+                } else {
+                    runtime_error("Overflow when dividing")
+                },
+            }
+            //lhs_nb / rhs_nb
         },
+        Operator::Rem => {
+            match lhs_nb.checked_rem(rhs_nb){
+                Some(res) => res,
+                None => if rhs_nb == 0 {
+                    runtime_error("Calculating remainder with zero")
+                } else {
+                    runtime_error("Overflow when calculating remainder")
+                },
+            }
+        }
         _ => unreachable!(),
     };
 
@@ -454,6 +483,9 @@ fn interpret_binop_float(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
             // TODO : check if 0, have a special error message in this case (return a result), then use unchecked_div to remove the panic check in the assembly 
             lhs_nb / rhs_nb
         },
+        Operator::RemFloat => {
+            lhs_nb % rhs_nb
+        }
         _ => unreachable!(),
     };
 
@@ -608,14 +640,25 @@ fn interpret_unop(context : &mut InterpretContext, op : Operator, expr : ASTRef)
     }
 }
 
-// TODO : add line number and file ?
-fn rustaml_panic(message : &str) -> ! {
-    eprintln!("PANIC in rustaml code : {}", message);
+fn runtime_terminate() -> ! {
     // set hook to deactivate printing
     panic::set_hook(Box::new(|_| {
         // do nothing
     }));
     panic!()
+}
+
+// TODO : add line number and file ?
+fn runtime_error(message : &str) -> ! {
+    eprintln!("LANG RUNTIME ERROR : {}", message);
+    runtime_terminate()
+}
+
+
+// TODO : add line number and file ?
+fn rustaml_panic(message : &str) -> ! {
+    eprintln!("PANIC in rustaml code : {}", message);
+    runtime_terminate()
 }
 
 #[derive(DebugWithContext)]

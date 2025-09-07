@@ -341,8 +341,10 @@ fn init_precedences() -> FxHashMap<Operator, (i32, Associativity)> {
         (Operator::MinusFloat, (20, Associativity::Left)),
         (Operator::Mult, (30, Associativity::Left)),
         (Operator::Div, (30, Associativity::Left)),
+        (Operator::Rem, (30, Associativity::Left)),
         (Operator::MultFloat, (30, Associativity::Left)),
         (Operator::DivFloat, (30, Associativity::Left)),
+        (Operator::RemFloat, (30, Associativity::Left)),
     ])
 }
 

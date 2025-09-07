@@ -396,11 +396,11 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             let rhs_type_var = collect_constraints(context, rhs)?;
 
             match op {
-                Operator::Plus | Operator::Minus | Operator::Mult | Operator::Div => {
+                Operator::Plus | Operator::Minus | Operator::Mult | Operator::Div | Operator::Rem => {
                     context.push_constraint(Constraint::IsType(lhs_type_var, Type::Integer), range.clone());
                     context.push_constraint(Constraint::IsType(rhs_type_var, Type::Integer), range.clone());
                 },
-                Operator::PlusFloat | Operator::MinusFloat | Operator::MultFloat | Operator::DivFloat => {
+                Operator::PlusFloat | Operator::MinusFloat | Operator::MultFloat | Operator::DivFloat | Operator::RemFloat => {
                     context.push_constraint(Constraint::IsType(lhs_type_var, Type::Float), range.clone());
                     context.push_constraint(Constraint::IsType(rhs_type_var, Type::Float), range.clone());
                 },
@@ -427,10 +427,10 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             }
 
             match op {
-                Operator::Plus | Operator::Minus | Operator::Mult | Operator::Div => {
+                Operator::Plus | Operator::Minus | Operator::Mult | Operator::Div | Operator::Rem => {
                     context.push_constraint(Constraint::IsType(new_type_var, Type::Integer), range);
                 },
-                Operator::PlusFloat | Operator::MinusFloat | Operator::MultFloat | Operator::DivFloat => {
+                Operator::PlusFloat | Operator::MinusFloat | Operator::MultFloat | Operator::DivFloat | Operator::RemFloat => {
                     context.push_constraint(Constraint::IsType(new_type_var, Type::Float), range);
                 },
                 Operator::IsEqual | Operator::IsNotEqual | Operator::SuperiorOrEqual | Operator::InferiorOrEqual | Operator::Superior | Operator::Inferior => {

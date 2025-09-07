@@ -13,10 +13,12 @@ pub enum Operator {
     Minus,
     Mult,
     Div,
+    Rem,
     PlusFloat,
     MinusFloat,
     MultFloat,
     DivFloat,
+    RemFloat,
     IsEqual,
     IsNotEqual,
     SuperiorOrEqual,
@@ -32,11 +34,11 @@ pub enum Operator {
 }
 
 impl Operator {
-    pub const OPERATORS: [&'static str; 20] = ["+", "-", "*", "/", "+.", "-.", "*.", "/.", "==", "!=", ">=", "<=", ">", "<", "&&", "||", "^", "::", "!", "@"];
+    pub const OPERATORS: [&'static str; 22] = ["+", "-", "*", "/", "%", "+.", "-.", "*.", "/.", "%.", "==", "!=", ">=", "<=", ">", "<", "&&", "||", "^", "::", "!", "@"];
     pub fn get_type(&self) -> Type {
         match self {
-            Self::Plus | Self::Minus | Self::Mult | Self::Div => Type::Integer,
-            Self::PlusFloat | Self::MinusFloat | Self::MultFloat | Self::DivFloat => Type::Float,
+            Self::Plus | Self::Minus | Self::Mult | Self::Div | Self::Rem => Type::Integer,
+            Self::PlusFloat | Self::MinusFloat | Self::MultFloat | Self::DivFloat | Self::RemFloat => Type::Float,
             Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior | Self::Or | Self::And => Type::Bool,
             Self::StrAppend => Type::Str,
             Self::ListAppend | Self::ListMerge => Type::List(Box::new(Type::Any)),
@@ -45,7 +47,7 @@ impl Operator {
     }
 
     fn is_char_op(c : char) -> bool {
-        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '^' | ':' | '!' | '.' | '&' | '|' | '@')
+        matches!(c, '+' | '-' | '*' | '/' | '%' | '=' | '<' | '>' | '^' | ':' | '!' | '.' | '&' | '|' | '@')
     }
 
     pub fn str_to_op(s: &str, range : &Range<usize>) -> Result<Operator, LexerErr> {
@@ -54,6 +56,12 @@ impl Operator {
             "-" => Operator::Minus,
             "*" => Operator::Mult,
             "/" => Operator::Div,
+            "%" => Operator::Rem,
+            "+." => Operator::PlusFloat,
+            "-." => Operator::MinusFloat,
+            "*." => Operator::MultFloat,
+            "/." => Operator::DivFloat,
+            "%." => Operator::RemFloat,
             "==" => Operator::IsEqual,
             "!=" => Operator::IsNotEqual,
             ">=" => Operator::SuperiorOrEqual,
@@ -62,10 +70,6 @@ impl Operator {
             "<" => Operator::Inferior,
             "^" => Operator::StrAppend,
             "::" => Operator::ListAppend,
-            "+." => Operator::PlusFloat,
-            "-." => Operator::MinusFloat,
-            "*." => Operator::MultFloat,
-            "/." => Operator::DivFloat,
             "&&" => Operator::And,
             "||" => Operator::Or,
             "!" => Operator::Not,
