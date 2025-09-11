@@ -57,7 +57,6 @@ pub fn get_ffi_func(context : &mut InterpretContext, name: StringRef, func_type 
     let mangled_name = mangle_name_external(name.get_str(&context.rustaml_context.str_interner), &func_type, external_lang);
 
 
-    // TODO : add support for explicit shared library name in extern function
     let lib = if let Some(so_name) = so_str {
 
         let path = pathbuf![so_name.get_str(&context.rustaml_context.str_interner)];
@@ -85,7 +84,7 @@ pub fn get_ffi_func(context : &mut InterpretContext, name: StringRef, func_type 
         let code_ptr = CodePtr::from_ptr(function_ptr);
 
         let ret_type_ffi = get_ffi_type(ret_type.as_ref());
-        let arg_types = arg_types.iter().map(get_ffi_type).collect::<Vec<_>>(); // TODO
+        let arg_types = arg_types.iter().map(get_ffi_type).collect::<Vec<_>>();
 
         let cif = Cif::new(arg_types, ret_type_ffi);
 
@@ -98,18 +97,6 @@ pub fn get_ffi_func(context : &mut InterpretContext, name: StringRef, func_type 
 
     }
 }
-
-// TODO : use libffi to turn a closure for interpreting the function into a function pointer
-// TODO : is it really possible ? (need to match on : arg nb, ret type, etc)
-/*fn get_function_ptr(context : &mut InterpretContext, func_def : &FunctionDef) -> *const c_void {
-    let closure_f = || match &func_def.body {
-        FunctionBody::AST(ast) => interpret_node(context, *ast),
-        FunctionBody::FFI(ffi) => todo!(),
-    };
-
-    let closure = Closure0::new(&closure_f);
-    todo!()
-}*/
 
 fn get_function_closure(context : &mut InterpretContext, ffi_context : &mut FFIContext, func_def : &FunctionDef) -> Closure<'static> {
     let function_type = func_def.function_def_ast.get_type(&context.rustaml_context.ast_pool);
@@ -158,6 +145,7 @@ struct UserData {
     // TODO : add arg types
 }
 
+
 unsafe extern "C" fn function_ptr_trampoline(_cif: &ffi_cif, result : &mut c_void, args: *const *const c_void, user_data : &mut UserData){
     unsafe {
         // TODO : args
@@ -166,11 +154,14 @@ unsafe extern "C" fn function_ptr_trampoline(_cif: &ffi_cif, result : &mut c_voi
         let func_def = &*user_data.function_def;
         let res_val = match &func_def.body {
             FunctionBody::Ast(ast) => interpret_node(context, *ast), // TODO : use function call instead to make args work
-            FunctionBody::Ffi(ffi) => todo!(),
+            FunctionBody::Ffi(ffi_func) => call_ffi_function(context, ffi_func, &Vec::new()), // TODO : args
         };
 
         match res_val {
             Val::Integer(i) => *(result as *mut _ as *mut i64) = i,
+            Val::Float(f) => *(result as *mut _ as *mut f64) = f,
+            Val::Bool(b) => *(result as *mut _ as *mut u8) = b as u8,
+            Val::Function(f) => todo!(),
             // TODO : add more
             _ => todo!()
         }
@@ -185,7 +176,6 @@ struct FFIContext {
     // TODO : verify if they are needed
     closures : Vec<Closure<'static>>,
     fn_ptrs : Vec<*const c_void>,
-    //user_datas : Vec<UserData>,
 }
 
 impl FFIContext {
@@ -197,7 +187,6 @@ impl FFIContext {
             c_str_ptrs: Vec::with_capacity(args_len),
             closures: Vec::with_capacity(args_len),
             fn_ptrs: Vec::with_capacity(args_len),
-            //user_datas: Vec::with_capacity(args_len),
         }
     }
 }
