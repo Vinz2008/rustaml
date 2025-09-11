@@ -106,8 +106,8 @@ pub fn append_bb_just_after<'llvm_ctx>(compile_context: &mut CompileContext<'_, 
 
 pub fn any_type_to_metadata<'llvm_ctx>(context : &'llvm_ctx Context, t : AnyTypeEnum<'llvm_ctx>) -> BasicMetadataTypeEnum<'llvm_ctx> {
     match t {
-        AnyTypeEnum::FunctionType(_) => BasicMetadataTypeEnum::PointerType(context.ptr_type(AddressSpace::default())),
-        t => t.try_into().unwrap(),
+        AnyTypeEnum::FunctionType(_) | AnyTypeEnum::VoidType(_) => BasicMetadataTypeEnum::PointerType(context.ptr_type(AddressSpace::default())),
+        t => dbg!(t).try_into().unwrap(),
     }
 }
 
