@@ -232,7 +232,7 @@ fn lex_nb(lexer: &mut Lexer) -> Result<Token, LexerErr> {
         lexer.read_char();
     }
 
-    let buf = lexer.content[start_pos..lexer.pos].to_vec();
+    let buf = &lexer.content[start_pos..lexer.pos];
     let range = start_pos..lexer.pos;
 
     //dbg!(&buf);
@@ -243,7 +243,7 @@ fn lex_nb(lexer: &mut Lexer) -> Result<Token, LexerErr> {
         let nb = str::parse::<f64>(str.as_str());
         let nb = match nb {
             Ok(n) => n,
-            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(buf.into_boxed_slice(), NbTypeError::Float), range)),
+            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(buf.to_vec().into_boxed_slice(), NbTypeError::Float), range)),
         };
 
         //dbg!(nb);
@@ -255,7 +255,7 @@ fn lex_nb(lexer: &mut Lexer) -> Result<Token, LexerErr> {
 
         let nb = match nb {
             Ok(n) => n,
-            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(buf.into_boxed_slice(), NbTypeError::Integer), range)),
+            Err(_) => return Err(LexerErr::new(LexerErrData::NumberParsingFailure(buf.to_vec().into_boxed_slice(), NbTypeError::Integer), range)),
         };
 
         //dbg!(nb);
@@ -275,7 +275,7 @@ fn lex_alphabetic(lexer: &mut Lexer) -> Token {
         lexer.read_char();
     }
 
-    let buf = lexer.content[start_pos..lexer.pos].to_vec();
+    let buf = &lexer.content[start_pos..lexer.pos];
 
     //dbg!(&buf);
 
@@ -295,7 +295,7 @@ fn lex_alphabetic(lexer: &mut Lexer) -> Token {
         "cast" => TokenData::Cast,
         "true" => TokenData::True,
         "false" => TokenData::False,
-        _ => TokenData::Identifier(buf.into_boxed_slice()),
+        _ => TokenData::Identifier(buf.to_vec().into_boxed_slice()),
     };
 
     Token::new(tok_data, range)
@@ -314,7 +314,7 @@ fn lex_op(lexer: &mut Lexer) -> Result<Option<Token>, LexerErr> {
         lexer.read_char();
     }
 
-    let buf = lexer.content[start_pos..lexer.pos].to_vec();
+    let buf = &lexer.content[start_pos..lexer.pos];
 
     //dbg!(&buf);
 
