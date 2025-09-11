@@ -1,5 +1,5 @@
 use core::panic;
-use std::{hash::{Hash, Hasher}, i64, io::Write, ops::Range, path::{Path, MAIN_SEPARATOR}, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
+use std::{hash::{Hash, Hasher}, io::Write, ops::Range, path::{Path, MAIN_SEPARATOR}, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{get_debug_loc, DebugInfo, DebugInfosInner, TargetInfos}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
@@ -609,7 +609,7 @@ fn compile_div_or_rem_checked<'llvm_ctx>(compile_context: &mut CompileContext<'_
     let line_col = get_debug_loc(compile_context.rustaml_context.content.as_ref().unwrap(), range);
     
     let const_zero = compile_context.context.i64_type().const_zero();
-    let is_zero = compile_context.builder.build_int_compare(IntPredicate::EQ, i2, const_zero, &format!("cmp_div_zero")).unwrap();
+    let is_zero = compile_context.builder.build_int_compare(IntPredicate::EQ, i2, const_zero, "cmp_div_zero").unwrap();
 
     let this_function = get_current_function(compile_context.builder);
     let is_zero_bb = compile_context.context.append_basic_block(this_function, &format!("{}_zero", name));
@@ -634,10 +634,10 @@ fn compile_div_or_rem_checked<'llvm_ctx>(compile_context: &mut CompileContext<'_
 
     compile_context.builder.position_at_end(check_overflow_bb);
     let const_minus_one = compile_context.context.i64_type().const_int((-1i64) as u64, false);
-    let is_rhs_minus_one = compile_context.builder.build_int_compare(IntPredicate::EQ, i2, const_minus_one, &format!("cmp_lhs_-1")).unwrap();
+    let is_rhs_minus_one = compile_context.builder.build_int_compare(IntPredicate::EQ, i2, const_minus_one, "cmp_lhs_-1").unwrap();
     
     let const_i64_min = compile_context.context.i64_type().const_int(i64::MIN as u64, false);
-    let is_lhs_i64_min = compile_context.builder.build_int_compare(IntPredicate::EQ, i, const_i64_min, &format!("cmp_rhs_i64_min")).unwrap();
+    let is_lhs_i64_min = compile_context.builder.build_int_compare(IntPredicate::EQ, i, const_i64_min, "cmp_rhs_i64_min").unwrap();
     
     let is_overflow = compile_context.builder.build_and(is_rhs_minus_one, is_lhs_i64_min, &format!("and_overflow_check_{}", name)).unwrap();
 
@@ -1253,7 +1253,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             let function_ty = get_llvm_type(compile_context, &type_annotation).into_function_type();
             let name_mangled = mangle_name_external(name.get_str(&compile_context.rustaml_context.str_interner), &type_annotation, lang);
             
-            let function = compile_context.module.add_function(&name_mangled, function_ty, Some(Linkage::External)); // TODO : what linkage ?
+            let function = compile_context.module.add_function(name_mangled.as_ref(), function_ty, Some(Linkage::External)); // TODO : what linkage ?
             compile_context.functions.insert(name, function);
             if let Some(so_str) = so_str {
                 compile_context.shared_libs.push(so_str.get_str(&compile_context.rustaml_context.str_interner).to_owned());

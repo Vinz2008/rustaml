@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use mangler::{mangle, Symbol};
 
 use crate::ast::{ExternLang, Type};
@@ -27,9 +29,9 @@ fn mangle_cpp(s : &str, function_type : &Type) -> String {
     
 }
 
-pub fn mangle_name_external(s : &str, function_type : &Type, lang : ExternLang) -> String {
+pub fn mangle_name_external<'a>(s : &'a str, function_type : &Type, lang : ExternLang) -> Cow<'a, str> {
     match lang {
-        ExternLang::C => s.to_owned(),
-        ExternLang::Cpp => mangle_cpp(s, function_type),
+        ExternLang::C => Cow::Borrowed(s),
+        ExternLang::Cpp => Cow::Owned(mangle_cpp(s, function_type)),
     }
 }

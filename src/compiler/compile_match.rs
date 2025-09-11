@@ -104,11 +104,11 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
         Pattern::List(pattern_list) => {
             
             let elem_type = match matched_expr_type {
-                Type::List(e) => *e.to_owned(),
+                Type::List(e) => e.as_ref(),
                 _ => unreachable!(),   
             };
 
-            compile_short_circuiting_match_static_list(compile_context, matched_val.into_pointer_value(), &pattern_list, &elem_type)
+            compile_short_circuiting_match_static_list(compile_context, matched_val.into_pointer_value(), &pattern_list, elem_type)
         },
         Pattern::String(s) => {
             let str_cmp_fun = compile_context.get_internal_function("__str_cmp");
@@ -181,7 +181,7 @@ fn match_is_all_range(compile_context: &CompileContext<'_, '_, '_>, matched_val_
                 }
             }
 
-            let mut merged_range = ranges.get(0).cloned();
+            let mut merged_range = ranges.first().cloned();
 
             ranges.sort_by_key(|e| *e.start());
 

@@ -62,19 +62,19 @@ const DW_ATE_SIGNED: LLVMDWARFTypeEncoding = 0x05;
 const DW_ATE_NUMERIC_STRING: LLVMDWARFTypeEncoding = 0x0b;
 
 struct TypeData {
-    name : String,
+    name : &'static str,
     size_in_bits : u64,
     encoding : LLVMDWARFTypeEncoding,
 }
 
 fn init_type_data(ptr_size_in_bit : u32) -> FxHashMap<Type, TypeData> {
     FxHashMap::from_iter([
-        (Type::Unit, TypeData { name: "unit".to_owned(), size_in_bits: 0, encoding: 0x00 }),
-        (Type::Integer, TypeData { name: "int".to_owned(), size_in_bits: 64, encoding: DW_ATE_SIGNED }),
-        (Type::Float, TypeData { name: "float".to_owned(), size_in_bits: 64, encoding: DW_ATE_FLOAT }),
+        (Type::Unit, TypeData { name: "unit", size_in_bits: 0, encoding: 0x00 }),
+        (Type::Integer, TypeData { name: "int", size_in_bits: 64, encoding: DW_ATE_SIGNED }),
+        (Type::Float, TypeData { name: "float", size_in_bits: 64, encoding: DW_ATE_FLOAT }),
         // TODO : check size in bits of bool ?
-        (Type::Bool, TypeData { name: "bool".to_owned(), size_in_bits: 8, encoding: DW_ATE_BOOLEAN }),
-        (Type::Str, TypeData { name: "str".to_owned(), size_in_bits: ptr_size_in_bit as u64, encoding: DW_ATE_NUMERIC_STRING }),
+        (Type::Bool, TypeData { name: "bool", size_in_bits: 8, encoding: DW_ATE_BOOLEAN }),
+        (Type::Str, TypeData { name: "str", size_in_bits: ptr_size_in_bit as u64, encoding: DW_ATE_NUMERIC_STRING }),
     ])
 }
 
@@ -227,7 +227,7 @@ fn get_debug_info_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>, t : &
         }
         _ => {
             let type_data = inner.type_data.get(t).unwrap_or_else(|| panic!("type inner data not found : {:?}", t));
-            let di_type = inner.debug_builder.create_basic_type(&type_data.name, type_data.size_in_bits, type_data.encoding, LLVMDIFlagPublic).unwrap().as_type();
+            let di_type = inner.debug_builder.create_basic_type(type_data.name, type_data.size_in_bits, type_data.encoding, LLVMDIFlagPublic).unwrap().as_type();
         
             inner.types.insert(t.clone(), di_type);
             di_type

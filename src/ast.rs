@@ -677,7 +677,7 @@ fn parse_var_use_in_function(parser : &mut Parser, identifier_buf : &[char], tok
 
 fn parse_function_arg(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
     let tok = parser.eat_tok(None).unwrap();
-    let tok_range = tok.range.clone();
+    let tok_range = tok.range;
     let node = match tok.tok_data {
         TokenData::Integer(nb) => Ok(parse_integer(parser, nb, tok_range)),
         TokenData::Float(nb) => Ok(parse_float(parser, nb, tok_range)),

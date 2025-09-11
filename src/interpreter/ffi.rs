@@ -48,7 +48,7 @@ fn get_ffi_type(t : &Type) -> FFIType {
             }
         }
         t => panic!("t : {:?}", t),
-        _ => unreachable!()
+        //_ => unreachable!()
     }
 }
 
@@ -127,7 +127,7 @@ fn get_function_closure(context : &mut InterpretContext, ffi_context : &mut FFIC
     
     let arg_types = match args {
         [Type::Unit] => vec![],
-        args => args.iter().map(|e| get_ffi_type(e)).collect::<Vec<_>>(),
+        args => args.iter().map(get_ffi_type).collect::<Vec<_>>(),
     };
     
     let ret_type = get_ffi_type(ret);
@@ -163,7 +163,7 @@ unsafe extern "C" fn function_ptr_trampoline(_cif: &ffi_cif, result : &mut c_voi
         // TODO : args
         let user_data = &mut *(user_data as *mut UserData);
         let context = &mut *(user_data.ctx as *mut InterpretContext);
-        let func_def = & *(user_data.function_def as *const FunctionDef);
+        let func_def = &*user_data.function_def;
         let res_val = match &func_def.body {
             FunctionBody::Ast(ast) => interpret_node(context, *ast), // TODO : use function call instead to make args work
             FunctionBody::Ffi(ffi) => todo!(),
