@@ -80,11 +80,11 @@ impl Operator {
     }
 }
 
-// TODO : replace all the Vec<char> with slices
+// TODO : replace all the Box<[char]> with borrowed slices
 #[derive(Debug, Clone, Tag, PartialEq)]
 pub enum TokenData {
     Identifier(Box<[char]>),
-    String(Box<[char]>),
+    String(Box<[char]>), 
     Op(Operator),
     Integer(i128),
     Float(f64),

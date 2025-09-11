@@ -145,7 +145,7 @@ fn get_function_closure(context : &mut InterpretContext, ffi_context : &mut FFIC
     ffi_context.user_datas.push(user_data);*/
     let user_data = Box::new(user_data);
 
-    let user_data_ptr = Box::leak(user_data);
+    let user_data_ptr = Box::leak(user_data); // TODO : make this not leak
 
     let closure = Closure::new_mut(cif, function_ptr_trampoline, user_data_ptr /*ffi_context.user_datas.last_mut().unwrap()*/);
 
