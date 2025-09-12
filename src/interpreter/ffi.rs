@@ -9,7 +9,7 @@ use pathbuf::pathbuf;
 
 #[derive(Clone)]
 pub struct FFIFunc {
-    _lib : Rc<Library>, // never read it, just put it there to prevent drop
+    _lib : Option<Rc<Library>>, // never read it, just put it there to prevent drop, optional for functions returned from a function where we don't know the library
     code_ptr : CodePtr,
     cif : Cif,
     ret_type : Type,
@@ -92,34 +92,40 @@ pub fn get_ffi_func(context : &mut InterpretContext, name: StringRef, func_type 
             code_ptr,
             cif,
             ret_type: *ret_type,
-            _lib : Rc::new(lib),
+            _lib : Some(Rc::new(lib)),
         }
 
     }
 }
 
 fn get_function_closure(context : &mut InterpretContext, ffi_context : &mut FFIContext, func_def : &FunctionDef) -> Closure<'static> {
-    let function_type = func_def.function_def_ast.get_type(&context.rustaml_context.ast_pool);
-    let (args, ret) = match function_type {
-        Type::Function(args, ret, is_variadic) => {
-            if *is_variadic {
-                panic!("Can't pass a variadic function to a ffi function in the interpreter")
-            } else {
-                (args.as_ref(), ret.as_ref())
-            }
-        },
-        _ => unreachable!(),
-    };
+    let cif = if let Some(function_def_ast) = func_def.function_def_ast {
+        let function_type = function_def_ast.get_type(&context.rustaml_context.ast_pool);
+        let (args, ret) = match function_type {
+            Type::Function(args, ret, is_variadic) => {
+                if *is_variadic {
+                    panic!("Can't pass a variadic function to a ffi function in the interpreter")
+                } else {
+                    (args.as_ref(), ret.as_ref())
+                }
+            },
+            _ => unreachable!(),
+        };
+        let arg_types = match args {
+            [Type::Unit] => vec![],
+            args => args.iter().map(get_ffi_type).collect::<Vec<_>>(),
+        };
+        
+        let ret_type = get_ffi_type(ret);
 
-    
-    let arg_types = match args {
-        [Type::Unit] => vec![],
-        args => args.iter().map(get_ffi_type).collect::<Vec<_>>(),
+        Cif::new(arg_types, ret_type)
+    } else {
+        let ffi_func = match &func_def.body {
+            FunctionBody::Ffi(ffi) => ffi,
+            FunctionBody::Ast(_) => unreachable!(),
+        };
+        ffi_func.cif.clone()
     };
-    
-    let ret_type = get_ffi_type(ret);
-
-    let cif = Cif::new(arg_types, ret_type);
 
     
     let user_data = UserData {
@@ -132,7 +138,7 @@ fn get_function_closure(context : &mut InterpretContext, ffi_context : &mut FFIC
 
     let user_data_ptr = Box::leak(user_data); // TODO : make this not leak
 
-    let closure = Closure::new_mut(cif, function_ptr_trampoline, user_data_ptr /*ffi_context.user_datas.last_mut().unwrap()*/);
+    let closure = Closure::new_mut(cif, function_ptr_trampoline, user_data_ptr);
 
     closure
 }
@@ -172,7 +178,8 @@ unsafe extern "C" fn function_ptr_trampoline(cif: &ffi_cif, result : &mut c_void
         for i in 0..arg_nb {
             args.push(*args_ptr.wrapping_add(i as usize));
         }
-        let arg_types = match func_def.function_def_ast.get_type(&context.rustaml_context.ast_pool) {
+        // TODO : work on the unwrap ?
+        let arg_types = match func_def.function_def_ast.unwrap().get_type(&context.rustaml_context.ast_pool) {
             Type::Function(args, _, _) => args.as_ref(),
             _ => unreachable!(),
         };
@@ -280,6 +287,18 @@ pub fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFIFunc, a
                 
                 Val::Bool(b)
             }
+            Type::Function(arg_types, ret_type, _) => {
+                // TODO : test this
+                let func_ptr : *const c_void = ffi_func.cif.call(ffi_func.code_ptr, &args);
+                let ret_type_ffi = get_ffi_type(ret_type.as_ref());
+                let arg_types = arg_types.iter().map(get_ffi_type).collect::<Vec<_>>();
+                Val::Function(FunctionDef::new_ffi(context, FFIFunc { 
+                    _lib: None, 
+                    code_ptr: CodePtr::from_ptr(func_ptr), 
+                    cif: Cif::new(arg_types, ret_type_ffi), 
+                    ret_type: ret_type.as_ref().to_owned() 
+                }))
+            },
             Type::CType(c_type) => match c_type {
                 CType::U8 => {
                     let u : u8 = ffi_func.cif.call(ffi_func.code_ptr, &args);

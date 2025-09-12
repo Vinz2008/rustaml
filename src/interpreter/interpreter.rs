@@ -374,7 +374,18 @@ pub struct FunctionDef {
     name : StringRef,
     args : Box<[StringRef]>,
     pub body : FunctionBody,
-    pub function_def_ast : ASTRef,
+    pub function_def_ast : Option<ASTRef>,
+}
+
+impl FunctionDef {
+    pub fn new_ffi(context : &mut InterpretContext, ffi_func : FFIFunc) -> FunctionDef {
+        FunctionDef { 
+            name: context.rustaml_context.str_interner.intern_runtime("<FFI function>"), 
+            args: vec![].into_boxed_slice(), // TODO ? 
+            body: FunctionBody::Ffi(ffi_func), 
+            function_def_ast: None, 
+        }
+    }
 }
 
 pub struct InterpretContext<'context> {
@@ -1106,7 +1117,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
                 name, 
                 args,
                 body: FunctionBody::Ast(body),
-                function_def_ast: ast,
+                function_def_ast: Some(ast),
             };
             context.vars.insert(name, Val::Function(func_def));
             //context.functions.insert(name, func_def);
@@ -1117,7 +1128,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
                 name: context.rustaml_context.str_interner.intern_compiler("anon_func"), // add an index to not have the same name for all closures ?
                 args,
                 body: FunctionBody::Ast(body),
-                function_def_ast: ast,
+                function_def_ast: Some(ast),
             };
             Val::Function(func_def)
         }
@@ -1128,7 +1139,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
                 name, 
                 args: Box::new([]), // unused (TODO ?, not need to pass this ?)
                 body: FunctionBody::Ffi(ffi_fun),
-                function_def_ast: ast,
+                function_def_ast: Some(ast),
             };
             context.vars.insert(name, Val::Function(func_def));
             Val::Unit
