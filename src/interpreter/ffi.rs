@@ -1,9 +1,9 @@
 use std::{ffi::CString, os::raw::c_void, rc::Rc};
 
-use crate::{ast::{CType, ExternLang, Type}, interpreter::{call_function, interpret_node, FunctionBody, FunctionDef, InterpretContext, Val}, mangle::mangle_name_external, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{CType, ExternLang, Type}, interpreter::{call_function, FunctionBody, FunctionDef, InterpretContext, Val}, mangle::mangle_name_external, rustaml::RustamlContext, string_intern::StringRef};
 
 use debug_with_context::DebugWithContext;
-use libffi::{low::CodePtr, middle::{Arg, Cif, Closure, Type as FFIType}, raw::{ffi_cif, ffi_type}};
+use libffi::{low::CodePtr, middle::{Arg, Cif, Closure, Type as FFIType}, raw::ffi_cif};
 use libloading::Library;
 use pathbuf::pathbuf;
 
@@ -139,7 +139,7 @@ fn get_function_closure(context : &mut InterpretContext, ffi_context : &mut FFIC
     //let user_data_ptr = Box::leak(user_data);
     let user_data_ref = unsafe {
         let user_ptr = Box::into_raw(user_data);
-        if (ffi_context.user_data_ffi.len() == USER_DATA_MAX_NB){
+        if ffi_context.user_data_ffi.len() == USER_DATA_MAX_NB {
             panic!("the number of ffi call data has overflowed USER_DATA_MAX_NB");
         }
         ffi_context.user_data_ffi.push(user_ptr);
