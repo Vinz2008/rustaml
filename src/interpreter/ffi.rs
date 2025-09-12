@@ -136,9 +136,17 @@ fn get_function_closure(context : &mut InterpretContext, ffi_context : &mut FFIC
 
     let user_data = Box::new(user_data);
 
-    let user_data_ptr = Box::leak(user_data); // TODO : make this not leak
+    //let user_data_ptr = Box::leak(user_data);
+    let user_data_ref = unsafe {
+        let user_ptr = Box::into_raw(user_data);
+        if (ffi_context.user_data_ffi.len() == USER_DATA_MAX_NB){
+            panic!("the number of ffi call data has overflowed USER_DATA_MAX_NB");
+        }
+        ffi_context.user_data_ffi.push(user_ptr);
+        &mut *(user_ptr)
+    };
 
-    let closure = Closure::new_mut(cif, function_ptr_trampoline, user_data_ptr);
+    let closure = Closure::new_mut(cif, function_ptr_trampoline, user_data_ref);
 
     closure
 }
@@ -210,17 +218,21 @@ struct FFIContext {
     // TODO : verify if they are needed
     closures : Vec<Closure<'static>>,
     fn_ptrs : Vec<*const c_void>,
+    user_data_ffi : Vec<*mut UserData>,
 }
+
+// TODO : what number should it be ?
+const USER_DATA_MAX_NB : usize = 20;
 
 impl FFIContext {
     fn new(args_len : usize) -> FFIContext {
-        // TODO : calculate what size is allocated with this
         FFIContext {
             u8s: Vec::with_capacity(args_len), // to prevent pointer invalidation, reserve the max size possible, even if bigger than needed
             c_strs: Vec::with_capacity(args_len),
             c_str_ptrs: Vec::with_capacity(args_len),
             closures: Vec::with_capacity(args_len),
             fn_ptrs: Vec::with_capacity(args_len),
+            user_data_ffi: Vec::with_capacity(USER_DATA_MAX_NB), // only USER_DATA_MAX_NB user data can be used, more will do pointer invalidation, so you need to call no more than USER_DATA_MAX_NB times ffi functions during a function call (ex : calling a ffi function, which calls an arg that is a rustaml function that calls a ffi function), make this number not too big because there is an allocation of USER_DATA_MAX_NB * 24 bytes
         }
     }
 }
@@ -246,7 +258,6 @@ fn get_arg(context : &mut InterpretContext, ffi_context : &mut FFIContext, v : &
             let arg_str = s.get_str(&context.rustaml_context.str_interner);
             let cstring = std::ffi::CString::new(arg_str).unwrap();
             
-            // TODO : leak the CString ? add it to a list to free it manually when returning the ffi part
             ffi_context.c_strs.push(cstring);
             let cstring_ptr = ffi_context.c_strs.last().unwrap().as_ptr();
             ffi_context.c_str_ptrs.push(cstring_ptr);
@@ -343,7 +354,10 @@ pub fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFIFunc, a
             }
             _ => unreachable!(),
         };
-        // TODO free leaked box for function args of closure
+        for user_data_ptr in ffi_context.user_data_ffi {
+            let _user_data = Box::from_raw(user_data_ptr); // drop user data here
+        }
+
         val
         
     }
