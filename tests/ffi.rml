@@ -21,3 +21,7 @@ let _ = print a ;;
 extern "C" function func_for_function : (() -> int) -> int "libcpp_ffi.so" ;;
 let a = func_for_function (function _ : (() -> int) -> 2) ;;
 let _ = print a ;;
+
+extern "C" function func_for_function_args : (int -> c_type.int -> int) -> int -> c_type.int -> int "libcpp_ffi.so" ;;
+let a = func_for_function_args (function arg1 arg2 : (int -> c_type.int -> int) -> arg1 + (cast int arg2)) 8 (cast c_type.int 5) ;;
+let _ = print a ;;

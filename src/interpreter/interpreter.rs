@@ -878,7 +878,7 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_bo
     }
 }
 
-fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val> ) -> Val {
+pub fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val> ) -> Val {
     match &func_def.body {
         FunctionBody::Ast(a) => {
             let mut old_vals : Vec<(StringRef, Val)> = Vec::new();

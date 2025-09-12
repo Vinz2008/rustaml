@@ -1,9 +1,9 @@
 use std::{ffi::CString, os::raw::c_void, rc::Rc};
 
-use crate::{ast::{CType, ExternLang, Type}, interpreter::{interpret_node, FunctionBody, FunctionDef, InterpretContext, Val}, mangle::mangle_name_external, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{CType, ExternLang, Type}, interpreter::{call_function, interpret_node, FunctionBody, FunctionDef, InterpretContext, Val}, mangle::mangle_name_external, rustaml::RustamlContext, string_intern::StringRef};
 
 use debug_with_context::DebugWithContext;
-use libffi::{low::CodePtr, middle::{Arg, Cif, Closure, Type as FFIType}, raw::ffi_cif};
+use libffi::{low::CodePtr, middle::{Arg, Cif, Closure, Type as FFIType}, raw::{ffi_cif, ffi_type}};
 use libloading::Library;
 use pathbuf::pathbuf;
 
@@ -125,6 +125,7 @@ fn get_function_closure(context : &mut InterpretContext, ffi_context : &mut FFIC
     let user_data = UserData {
         ctx: context as *mut _ as *mut c_void,
         function_def: func_def as *const FunctionDef,
+        ffi_context: ffi_context as *mut _ as *mut FFIContext,
     };
 
     /*let user_data = Box::new(user_data);
@@ -142,26 +143,60 @@ fn get_function_closure(context : &mut InterpretContext, ffi_context : &mut FFIC
 struct UserData {
     ctx : *mut c_void,
     function_def : *const FunctionDef,
-    // TODO : add arg types
+    ffi_context : *mut FFIContext,
 }
 
+unsafe fn get_val_from_arg(arg : *const c_void, arg_type : &Type) -> Val {
+    unsafe {
+        match arg_type {
+            Type::Integer => Val::Integer(*(arg as *const i64)),
+            Type::CType(c_type) => {
+                match c_type {
+                    CType::I32 => Val::Integer(*(arg as *const i32) as i64),
+                    CType::I64 => get_val_from_arg(arg, &Type::Integer),
+                    CType::F64 => get_val_from_arg(arg, &Type::Float),
+                    _ => todo!()
+                }
+            }
+            _ => todo!()
+        }
+    }
+}
 
-unsafe extern "C" fn function_ptr_trampoline(_cif: &ffi_cif, result : &mut c_void, args: *const *const c_void, user_data : &mut UserData){
+unsafe extern "C" fn function_ptr_trampoline(cif: &ffi_cif, result : &mut c_void, args_ptr: *const *const c_void, user_data : &mut UserData){
     unsafe {
         // TODO : args
         let user_data = &mut *(user_data as *mut UserData);
         let context = &mut *(user_data.ctx as *mut InterpretContext);
         let func_def = &*user_data.function_def;
-        let res_val = match &func_def.body {
-            FunctionBody::Ast(ast) => interpret_node(context, *ast), // TODO : use function call instead to make args work
-            FunctionBody::Ffi(ffi_func) => call_ffi_function(context, ffi_func, &Vec::new()), // TODO : args
+        let ffi_context = &mut *(user_data.ffi_context);
+        let arg_nb = cif.nargs;
+        let mut args = Vec::with_capacity(arg_nb as usize);
+
+        for i in 0..arg_nb {
+            args.push(*args_ptr.wrapping_add(i as usize));
+        }
+        let arg_types = match func_def.function_def_ast.get_type(&context.rustaml_context.ast_pool) {
+            Type::Function(args, _, _) => args.as_ref(),
+            _ => unreachable!(),
         };
+        //dbg!(arg_types);
+
+        let args_val = args.into_iter().zip(arg_types).map(|(i, arg_type)| get_val_from_arg(i, arg_type)).collect::<Vec<_>>();
+        /*let res_val = match &func_def.body {
+            //FunctionBody::Ast(ast) => interpret_node(context, *ast),
+            FunctionBody::Ast(ast) => call_function(context, func_def, ),
+            FunctionBody::Ffi(ffi_func) => call_ffi_function(context, ffi_func, &Vec::new()),
+        };*/
+        let res_val = call_function(context, func_def, args_val);
 
         match res_val {
             Val::Integer(i) => *(result as *mut _ as *mut i64) = i,
             Val::Float(f) => *(result as *mut _ as *mut f64) = f,
             Val::Bool(b) => *(result as *mut _ as *mut u8) = b as u8,
-            Val::Function(f) => todo!(),
+            Val::Function(f) => {
+                *(result as *mut _ as *mut *const c_void) = *get_func_ptr(context, ffi_context, &f);
+            },
             // TODO : add more
             _ => todo!()
         }
@@ -191,6 +226,19 @@ impl FFIContext {
     }
 }
 
+// return a ref to make it work with libffi Arg
+fn get_func_ptr<'a>(context : &mut InterpretContext, ffi_context : &'a mut FFIContext, func_def : &FunctionDef) -> &'a *const c_void {
+    let closure = get_function_closure(context, ffi_context, func_def);
+    ffi_context.closures.push(closure);
+
+    let fn_arg: unsafe extern "C" fn() = *ffi_context.closures.last().unwrap().code_ptr();
+    let arg_ptr = fn_arg as *const () as *const c_void;
+
+    ffi_context.fn_ptrs.push(arg_ptr);
+    ffi_context.fn_ptrs.push(arg_ptr);
+    ffi_context.fn_ptrs.last().unwrap()
+}
+
 fn get_arg(context : &mut InterpretContext, ffi_context : &mut FFIContext, v : &Val) -> Arg {
     match v {
         Val::Integer(i) => Arg::new(i),
@@ -210,7 +258,7 @@ fn get_arg(context : &mut InterpretContext, ffi_context : &mut FFIContext, v : &
             Arg::new(ffi_context.u8s.last().unwrap())
         }
         Val::Function(func_def) => {
-            let closure = get_function_closure(context, ffi_context, func_def);
+            /*let closure = get_function_closure(context, ffi_context, func_def);
             
             ffi_context.closures.push(closure);
 
@@ -218,7 +266,8 @@ fn get_arg(context : &mut InterpretContext, ffi_context : &mut FFIContext, v : &
             let arg_ptr = fn_arg as *const () as *const c_void;
 
             ffi_context.fn_ptrs.push(arg_ptr);
-            Arg::new(ffi_context.fn_ptrs.last().unwrap())
+            Arg::new(ffi_context.fn_ptrs.last().unwrap())*/
+            Arg::new(get_func_ptr(context, ffi_context, func_def))
         },
         _ => unreachable!(),
     }
