@@ -128,9 +128,6 @@ fn get_function_closure(context : &mut InterpretContext, ffi_context : &mut FFIC
         ffi_context: ffi_context as *mut _ as *mut FFIContext,
     };
 
-    /*let user_data = Box::new(user_data);
-
-    ffi_context.user_datas.push(user_data);*/
     let user_data = Box::new(user_data);
 
     let user_data_ptr = Box::leak(user_data); // TODO : make this not leak
@@ -165,7 +162,6 @@ unsafe fn get_val_from_arg(arg : *const c_void, arg_type : &Type) -> Val {
 
 unsafe extern "C" fn function_ptr_trampoline(cif: &ffi_cif, result : &mut c_void, args_ptr: *const *const c_void, user_data : &mut UserData){
     unsafe {
-        // TODO : args
         let user_data = &mut *(user_data as *mut UserData);
         let context = &mut *(user_data.ctx as *mut InterpretContext);
         let func_def = &*user_data.function_def;
@@ -183,11 +179,7 @@ unsafe extern "C" fn function_ptr_trampoline(cif: &ffi_cif, result : &mut c_void
         //dbg!(arg_types);
 
         let args_val = args.into_iter().zip(arg_types).map(|(i, arg_type)| get_val_from_arg(i, arg_type)).collect::<Vec<_>>();
-        /*let res_val = match &func_def.body {
-            //FunctionBody::Ast(ast) => interpret_node(context, *ast),
-            FunctionBody::Ast(ast) => call_function(context, func_def, ),
-            FunctionBody::Ffi(ffi_func) => call_ffi_function(context, ffi_func, &Vec::new()),
-        };*/
+
         let res_val = call_function(context, func_def, args_val);
 
         match res_val {
@@ -258,15 +250,6 @@ fn get_arg(context : &mut InterpretContext, ffi_context : &mut FFIContext, v : &
             Arg::new(ffi_context.u8s.last().unwrap())
         }
         Val::Function(func_def) => {
-            /*let closure = get_function_closure(context, ffi_context, func_def);
-            
-            ffi_context.closures.push(closure);
-
-            let fn_arg: unsafe extern "C" fn() = *ffi_context.closures.last().unwrap().code_ptr();
-            let arg_ptr = fn_arg as *const () as *const c_void;
-
-            ffi_context.fn_ptrs.push(arg_ptr);
-            Arg::new(ffi_context.fn_ptrs.last().unwrap())*/
             Arg::new(get_func_ptr(context, ffi_context, func_def))
         },
         _ => unreachable!(),
