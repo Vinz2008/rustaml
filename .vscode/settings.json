@@ -90,6 +90,8 @@
         "stdexcept": "cpp",
         "typeinfo": "cpp",
         "variant": "cpp",
-        "__verbose_abort": "cpp"
+        "__verbose_abort": "cpp",
+        "stdarg.h": "c",
+        "math.h": "c"
     }
 }

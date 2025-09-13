@@ -10,7 +10,7 @@ use debug_with_context::DebugWrapContext;
 #[cfg(not(feature = "native"))]
 use crate::rustaml::FrontendOutput;
 
-use crate::{rustaml::{frontend, RustamlContext}};
+use crate::{compiler::OptionalArgs, rustaml::{frontend, RustamlContext}};
 use crate::types_debug::dump_typed_ast;
 
 #[cfg(not(feature = "native"))]
@@ -93,6 +93,9 @@ enum Commands {
         #[arg(short = 'L', value_name = "DIR", num_args = 1, action = clap::ArgAction::Append)]
         lib_search_paths: Vec<String>,
 
+        #[arg(long, default_value_t = false)]
+        freestanding : bool,
+
         // TODO : add a flag to build statically libgc
 
         #[arg(long, short = 'd', default_value_t = false)]
@@ -142,7 +145,7 @@ fn main() -> ExitCode {
 
     let debug_print = match args.command {
         Some(Commands::Check { filename: _, dump_types: _, debug_print }) => debug_print,
-        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, disable_gc: _, enable_sanitizer: _, debug_print, enable_debuginfos: _, lib_search_paths: _ }) => {
+        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, disable_gc: _, enable_sanitizer: _, debug_print, enable_debuginfos: _, lib_search_paths: _, freestanding: _ }) => {
             debug_print
         },
         Some(Commands::Interpret { filename: _, debug_print }) => {
@@ -170,7 +173,7 @@ fn main() -> ExitCode {
 
             interpreter::interpret(frontend_output.ast, &mut rustaml_context);
         }
-        Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _, enable_debuginfos, lib_search_paths } => {
+        Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _, enable_debuginfos, lib_search_paths, freestanding } => {
 
             // create a frontend fonction instead of get_ast ?
             let frontend_output = frontend(&filename, &mut rustaml_context);
@@ -181,8 +184,8 @@ fn main() -> ExitCode {
 
             // TODO : proper error printing
             //debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&vars, &rustaml_context));
-
-            compile(frontend_output, &mut rustaml_context,  &filename, filename_out.as_deref(), optimization_level.unwrap_or(0), keep_temp, disable_gc, enable_sanitizer, enable_debuginfos, lib_search_paths);
+            let compile_argument = OptionalArgs::new(optimization_level, keep_temp, disable_gc, enable_sanitizer, enable_debuginfos, freestanding, lib_search_paths);
+            compile(frontend_output, &mut rustaml_context,  &filename, filename_out.as_deref(), compile_argument);
         },
 
         Commands::Check { filename, dump_types, debug_print: _ } => {

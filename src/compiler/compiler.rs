@@ -1289,7 +1289,7 @@ fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : O
 // TODO : instead install file in filesystem ?
 const STD_C_CONTENT: &str = include_str!("../../std.c");
 
-fn link_exe(filename_out : &Path, bitcode_file : &Path, shared_libs : &[String], lib_search_paths : &[String], opt_level : OptimizationLevel, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool){
+fn link_exe(filename_out : &Path, bitcode_file : &Path, shared_libs : &[String], opt_level : OptimizationLevel, optional_args : &OptionalArgs){
     // use cc ?
     // TODO : use lld (https://github.com/mun-lang/lld-rs) for linking instead ?
     // TODO : use libclang ? (clang-rs ? https://github.com/llvm/llvm-project/blob/main/clang/tools/driver/cc1_main.cpp#L85 ?)
@@ -1302,12 +1302,22 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, shared_libs : &[String],
     let mut clang_std = Command::new("clang");
     clang_std.arg("-x").arg("c").arg("-emit-llvm").arg("-O3").arg("-c");
 
-    if !disable_gc {
+    if !optional_args.disable_gc {
         clang_std.arg("-D_GC_");
     }
 
-    if enable_debuginfos {
+    if optional_args.enable_debuginfos {
         clang_std.arg("-g");
+    }
+
+    if optional_args.enable_sanitizer {
+        clang_std.arg("-fsanitize=address");
+    }
+
+
+    // TODO : work on freestanding (add set target to make the os unknown in target triplet, pass linker script or just pass linker arg ?)
+    if optional_args.freestanding {
+        clang_std.arg("-ffreestanding").arg("-nostdlib");
     }
     
     let mut clang_std = clang_std.arg("-").arg("-o").arg(out_std_path_str).stdin(Stdio::piped()).spawn().expect("compiling std failed");
@@ -1322,15 +1332,19 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, shared_libs : &[String],
         link_cmd.arg("-flto");
     }
 
-    if !disable_gc {
+    if !optional_args.disable_gc {
         link_cmd.arg("-lgc");
     }
 
-    if enable_sanitizer {
+    if optional_args.enable_sanitizer {
         link_cmd.arg("-fsanitize=address");
     }
 
-    for search_path in lib_search_paths {
+    if optional_args.freestanding {
+        link_cmd.arg("-ffreestanding").arg("-nostdlib");
+    }
+
+    for search_path in &optional_args.lib_search_paths {
         link_cmd.arg("-L".to_owned() + search_path);
     }
 
@@ -1363,8 +1377,33 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, shared_libs : &[String],
 
 const DEBUGINFO_VERSION: u64 = 3;
 
+pub struct OptionalArgs {
+    optimization_level : u8,
+    keep_temp : bool,
+    disable_gc : bool, 
+    enable_sanitizer : bool, 
+    enable_debuginfos : bool, 
+    freestanding : bool,
+    lib_search_paths : Vec<String>
+}
+
+impl OptionalArgs {
+    // TODO : make this a builder pattern ?
+    pub fn new(optimization_level : Option<u8>, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, freestanding : bool, lib_search_paths : Vec<String>) -> OptionalArgs {
+        OptionalArgs { 
+            optimization_level: optimization_level.unwrap_or(0), 
+            keep_temp, 
+            disable_gc, 
+            enable_sanitizer, 
+            enable_debuginfos,
+            freestanding,
+            lib_search_paths 
+        }
+    }
+}
+
 // TODO : pass all the args after optimization level as a struct named OptionalArgs
-pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optimization_level_nb : u8, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, lib_search_paths : Vec<String>) {
+pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optional_args : OptionalArgs) {
     let context = Context::create();
     let builder = context.create_builder();
     let filename_path = filename.parent().map(|e| e.as_os_str().to_str().unwrap()).unwrap();
@@ -1378,7 +1417,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
 
     let target = Target::from_triple(&target_triple).unwrap();
 
-    let optimization_level = match optimization_level_nb {
+    let optimization_level = match optional_args.optimization_level {
         0 => OptimizationLevel::None,
         1 => OptimizationLevel::Less,
         2 => OptimizationLevel::Default,
@@ -1406,10 +1445,10 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
     module.set_triple(&target_triple);
     module.set_data_layout(&data_layout);
 
-    let is_optimized = optimization_level_nb > 0;
+    let is_optimized = optional_args.optimization_level > 0;
     
     let debug_info = DebugInfo { 
-        inner: if enable_debuginfos {
+        inner: if optional_args.enable_debuginfos {
             let ptr_size = target_data.get_pointer_byte_size(None);
             let ptr_alignement = target_data.get_abi_alignment(&context.ptr_type(AddressSpace::default()));
             let debug_info_version = context.i32_type().const_int(DEBUGINFO_VERSION, false);
@@ -1486,13 +1525,13 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         panic!("LLVM ERROR {}", e.to_string()) 
     }).unwrap();
 
-    let temp_path = if keep_temp {
+    let temp_path = if optional_args.keep_temp {
         Path::new(".").to_owned() 
     } else { 
         std::env::temp_dir()
     };
 
-    let filename_with_hash = if keep_temp {
+    let filename_with_hash = if optional_args.keep_temp {
         filename_without_ext
     } else {
     
@@ -1516,7 +1555,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
     // TODO : readd this for optimizations
     run_passes_on(compile_context.module, &target_machine, optimization_level);
     
-    if keep_temp {
+    if optional_args.keep_temp {
         let temp_path_ir = pathbuf![&temp_path, &format!("{}.ll", &filename_with_hash)];
         compile_context.module.print_to_file(&temp_path_ir).expect("Couldn't write llvm ir file");
     }
@@ -1525,8 +1564,8 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
 
 
     if let Some(f_out) = filename_out {
-        link_exe(f_out,  &temp_path_bitcode, &compile_context.shared_libs, &lib_search_paths, optimization_level, disable_gc, enable_sanitizer, enable_debuginfos);
-        if !keep_temp {
+        link_exe(f_out,  &temp_path_bitcode, &compile_context.shared_libs, optimization_level, &optional_args);
+        if !optional_args.keep_temp {
             std::fs::remove_file(temp_path_bitcode).expect("Couldn't delete bitcode file");
         }
     }
