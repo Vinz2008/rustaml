@@ -131,7 +131,7 @@ fn get_function_closure(context : &mut InterpretContext, ffi_context : &mut FFIC
     let user_data = UserData {
         ctx: context as *mut _ as *mut c_void,
         function_def: func_def as *const FunctionDef,
-        ffi_context: ffi_context as *mut _ as *mut FFIContext,
+        ffi_context: ffi_context as *mut FFIContext,
     };
 
     let user_data = Box::new(user_data);

@@ -913,7 +913,7 @@ pub fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, ar
     }    
 }
 
-fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args : Box<[ASTRef]>) -> Val {
+fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args : &[ASTRef]) -> Val {
 
     let args_val = args.iter().map(|e| interpret_node(context, *e)).collect::<Vec<_>>();
 
@@ -1171,7 +1171,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::VarUse { name } => context.vars.get(&name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", name.get_str(&context.rustaml_context.str_interner))).clone(),
         ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, op, lhs, rhs),
         ASTNode::UnaryOp { op, expr } => interpret_unop(context, op, expr),
-        ASTNode::FunctionCall { callee, args } => interpret_function_call(context, callee, args),
+        ASTNode::FunctionCall { callee, args } => interpret_function_call(context, callee, &args),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, cond_expr, then_body, else_body),
         ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr, patterns.as_ref()),
         ASTNode::String { str } => Val::String(str),

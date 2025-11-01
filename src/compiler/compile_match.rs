@@ -1,6 +1,6 @@
 use inkwell::{basic_block::BasicBlock, types::{AnyTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue}, AddressSpace, FloatPredicate, IntPredicate};
 
-use crate::{ast::{ASTRef, Pattern, PatternRef, Type}, check::{match_fallback_match_nb, match_is_all_range}, compiler::{CompileContext, compile_expr, compiler_utils::{codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_string, create_var, get_current_function, get_llvm_type, get_void_val, load_list_tail, load_list_val, move_bb_after_current}, debuginfo::get_debug_loc}, rustaml::RustamlContext};
+use crate::{ast::{ASTRef, Pattern, PatternRef, Type}, check::{match_fallback_match_nb, match_is_all_range}, compiler::{CompileContext, compile_expr, compiler_utils::{codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_string, create_var, get_current_function, get_llvm_type, get_void_val, load_list_tail, load_list_val, move_bb_after_current}, debuginfo::get_debug_loc}};
 
 // TODO : when will be added or patterns (TODO) (for ex : match a with | [1, 2, 3] | [2, 3, 4]) I can create a more optimized version when matching multiple lists by creating a decision tree in the compiled program
 fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list_val : PointerValue<'llvm_ctx>, pattern_list : &[PatternRef], elem_type : &Type) -> IntValue<'llvm_ctx>{
@@ -152,8 +152,8 @@ fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
 }
 
 fn match_has_enough_fallback_switch(compile_context: &CompileContext<'_, '_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
-    match_is_all_range(&compile_context.rustaml_context, matched_val_type, patterns) 
-        || match_fallback_match_nb(&compile_context.rustaml_context, patterns) == 1
+    match_is_all_range(compile_context.rustaml_context, matched_val_type, patterns) 
+        || match_fallback_match_nb(compile_context.rustaml_context, patterns) == 1
 }
 
 fn match_can_use_switch(compile_context: &CompileContext<'_, '_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {

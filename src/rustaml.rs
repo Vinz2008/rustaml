@@ -126,7 +126,7 @@ pub fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Resu
         }
     };
 
-    if let Err(check_error) = check_ast(rustaml_context, &type_infos, filename, &content, ast) {
+    if let Err(check_error) = check_ast(rustaml_context, filename, &content, ast) {
         print_check_error(check_error, filename, &content);
         return Err(());
     }
