@@ -1,13 +1,15 @@
 use std::{ops::Range, path::Path};
 
-use crate::{ast::{ParserErr, ParserErrData, Type}, lexer::{LexerErr, NbTypeError, Operator, TokenData, TokenDataTag}, rustaml::nearest_string, types::{TypesErr, TypesErrData}};
+use crate::{ast::{ParserErr, ParserErrData, Type}, check::{CheckError, CheckErrorData}, lexer::{LexerErr, NbTypeError, Operator, TokenData, TokenDataTag}, rustaml::nearest_string, types::{TypesErr, TypesErrData}};
 use crate::lexer::LexerErrData;
 
 use ariadne::{Color, ColorGenerator, Label, Report, ReportKind, Source};
+use const_format::formatc;
 use enum_tags::TaggedEnum;
 
 const PARSER_ERROR_OFFSET : u32 = 100;
 const TYPE_ERROR_OFFSET : u32 = 200;
+const CHECK_ERROR_OFFSET : u32 = 300;
 
 #[derive(Default, Clone)]
 struct ErrorBasicInfos<'a> {
@@ -289,6 +291,40 @@ pub fn print_type_error(type_error : TypesErr, filename : &Path, content : &str)
         TypesErrData::WrongArgType { function_name, expected_type, got_type } => print_wrong_arg_type(error_basic_infos, &function_name, expected_type, got_type),
         TypesErrData::WrongRetType { function_name, expected_type, got_type } => todo!(), // TODO (can you create this error, have not been able to do it)
         TypesErrData::WrongType { expected_type, got_type } => print_wrong_type_error(error_basic_infos, expected_type, got_type),
+    };
+
+    print_error(error_print);
+}
+
+fn print_integer_out_of_range_check_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, nb : i128) -> ErrorPrint<'a> {
+    ErrorPrint {
+        error_basic_infos,
+        message: format!("Integer literal out of range {}", nb),
+        label: Some(formatc!("The literal should be in the range [{}, {}] ", CheckError::INT_LITERAL_RANGE.start, CheckError::INT_LITERAL_RANGE.end)),
+        ..Default::default()
+    }
+}
+
+pub fn print_check_error(check_error : CheckError, filename : &Path, content : &str){
+
+    let error_nb =  CHECK_ERROR_OFFSET + check_error.err_data.tag() as u32;
+    let range = check_error.range;
+    let filename_str = filename.to_str().unwrap();
+
+    let mut colors = ColorGenerator::new();
+    let color = colors.next();
+
+    let error_basic_infos = ErrorBasicInfos {
+        error_nb,
+        range,
+        filename: filename_str,
+        content,
+        color
+    };
+
+
+    let error_print = match check_error.err_data {
+        CheckErrorData::IntegerOutOfRange { nb } => print_integer_out_of_range_check_error(error_basic_infos, nb),
     };
 
     print_error(error_print);

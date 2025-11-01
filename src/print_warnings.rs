@@ -10,7 +10,7 @@ pub enum WarningData {
     MatchNotExhaustive {
         matched_type : Type,
         // TODO : add some Range struct to track what is the current range and what is missing (this range can be strings or numbers or etc)
-    }
+    },
 }
 
 pub struct Warning {
@@ -57,9 +57,6 @@ fn print_any_warning(warn : WarningPrint){
     
     report.finish().print((warn.warning_basic_infos.filename, Source::from(warn.warning_basic_infos.content))).unwrap();
 }
-
-// TODO : check for number not in i64 (except abs(INT_MIN))
-// TODO : check for number not in f64
 
 fn print_match_not_exhaustive_warning(warning_basic_infos : WarningBasicInfos, matched_type : Type) -> WarningPrint {
     WarningPrint {

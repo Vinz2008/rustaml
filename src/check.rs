@@ -1,6 +1,8 @@
-use std::{cmp::max, ops::RangeInclusive, path::Path};
+use std::{cmp::max, i64, ops::{Range, RangeInclusive}, path::Path};
 
-use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, print_warnings::{Warning, WarningData, print_warning}, rustaml::RustamlContext, types::TypeInfos};
+use enum_tags::Tag;
+
+use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, print_error::print_check_error, print_warnings::{Warning, WarningData, print_warning}, rustaml::RustamlContext, types::TypeInfos};
 
 // need this for some checks that needs types (ex : match exhaustiveness)
 // so there are here also some other checks that could be in parsing, but are here for more clean code
@@ -58,6 +60,34 @@ pub fn match_is_all_range(rustaml_context : &RustamlContext, matched_val_type : 
     }
 }
 
+#[derive(Tag)]
+pub enum CheckErrorData {
+    IntegerOutOfRange {
+        nb : i128,
+    }
+}
+
+
+pub struct CheckError {
+    pub err_data : CheckErrorData,
+    pub range: Range<usize>,
+}
+
+impl CheckError {
+    pub const INT_LITERAL_RANGE : Range<i128> = {
+        let min_nb = i64::MIN as i128; // can technically never be negative because the - is an unary op that is applied after on the integer literal, but you can never be too careful
+        let max = -(i64::MIN as i128);
+        min_nb..max
+    };
+
+    pub fn new(err_data : CheckErrorData, range: Range<usize>) -> CheckError {
+        CheckError { 
+            err_data, 
+            range 
+        }
+    }
+}
+
 // TODO : if needs for more complex things with this function (which is used at multiple places), return the iter directly instead ?
 pub fn match_fallback_match_nb(rustaml_context : &RustamlContext, patterns : &[(PatternRef, ASTRef)]) -> usize {
     patterns.iter().filter(|(p, _)| matches!(p.get(&rustaml_context.pattern_pool), Pattern::VarName(_) | Pattern::Underscore)).count()
@@ -67,6 +97,8 @@ fn is_exhaustive_match(rustaml_context : &RustamlContext, matched_val_type : &Ty
     match_is_all_range(rustaml_context, matched_val_type, patterns) || match_fallback_match_nb(rustaml_context, patterns) > 0
 }
 
+
+
 struct CheckContext<'a> {
     rustaml_context : &'a RustamlContext,
     typeinfos : &'a TypeInfos,
@@ -74,34 +106,34 @@ struct CheckContext<'a> {
     content : &'a String
 }
 
-fn check<'a>(check_context : &CheckContext<'a>, ast : ASTRef){
+fn check<'a>(check_context : &CheckContext<'a>, ast : ASTRef) -> Result<(), CheckError> {
     match ast.get(&check_context.rustaml_context.ast_pool){
         ASTNode::TopLevel { nodes } => {
             for e in nodes {
-                check(check_context, *e);
+                check(check_context, *e)?;
             }
         }
         ASTNode::FunctionDefinition { name, args, body, type_annotation } => {
-            check(check_context, *body);
+            check(check_context, *body)?;
         }
         ASTNode::AnonFunc { args, body, type_annotation } => {
-            check(check_context, *body);
+            check(check_context, *body)?;
         }
         ASTNode::VarDecl { name, val, body, var_type } => {
-            check(check_context, *val);
+            check(check_context, *val)?;
             if let Some(b) = body {
-                check(check_context, *b);
+                check(check_context, *b)?;
             }
         }
         ASTNode::IfExpr { cond_expr, then_body, else_body } => {
-            check(check_context, *cond_expr);
-            check(check_context, *then_body);
-            check(check_context, *else_body);
+            check(check_context, *cond_expr)?;
+            check(check_context, *then_body)?;
+            check(check_context, *else_body)?;
         }
         ASTNode::MatchExpr { matched_expr, patterns } => {
-            check(check_context, *matched_expr);
+            check(check_context, *matched_expr)?;
             for (_, e) in patterns {
-                check(check_context, *e);
+                check(check_context, *e)?;
             }
 
             let matched_val_type = matched_expr.get_type(&check_context.rustaml_context.ast_pool);
@@ -110,34 +142,42 @@ fn check<'a>(check_context : &CheckContext<'a>, ast : ASTRef){
                 print_warning(Warning::new(WarningData::MatchNotExhaustive { matched_type: matched_val_type.clone() }, ast.get_range(&check_context.rustaml_context.ast_pool)), check_context.filename, check_context.content);
             }
         }
-        ASTNode::Integer { nb } => {}, // TODO : check for number not in i64 (except abs(INT_MIN))
+        ASTNode::Integer { nb } => {
+            if *nb > CheckError::INT_LITERAL_RANGE.end || *nb < CheckError::INT_LITERAL_RANGE.start {
+                // TODO : do an error
+                return Err(CheckError::new(CheckErrorData::IntegerOutOfRange { nb: *nb }, ast.get_range(&check_context.rustaml_context.ast_pool)));
+            }
+        }, // TODO : check for number not in i64 (except abs(INT_MIN))
         ASTNode::Float { nb } => {}, // TODO : check for number not in f64
         ASTNode::List { list } => {
             for e in list {
-                check(check_context, *e);
+                check(check_context, *e)?;
             }
         }
         ASTNode::BinaryOp { op, lhs, rhs } => {
-            check(check_context, *lhs);
-            check(check_context, *rhs);
+            check(check_context, *lhs)?;
+            check(check_context, *rhs)?;
         }
-        ASTNode::UnaryOp { op, expr } => check(check_context, *expr),
+        ASTNode::UnaryOp { op, expr } => check(check_context, *expr)?,
         ASTNode::FunctionCall { callee, args } => {
-            check(check_context, *callee);
-            args.iter().for_each(|e| check(check_context, *e));
+            check(check_context, *callee)?;
+            for e in args {
+                check(check_context, *e)?;
+            }
         }
-        ASTNode::Cast { to_type, expr } => check(check_context, *expr),        
+        ASTNode::Cast { to_type, expr } => check(check_context, *expr)?,        
         
         ASTNode::Unit | ASTNode::Boolean { .. } | ASTNode::String { .. } | ASTNode::VarUse { .. } | ASTNode::ExternFunc { .. } => {},
     }
+    Ok(())
 }
 
-pub fn check_ast(rustaml_context : &RustamlContext, typeinfos : &TypeInfos, filename : &Path, content : &String, ast : ASTRef){
+pub fn check_ast(rustaml_context : &RustamlContext, typeinfos : &TypeInfos, filename : &Path, content : &String, ast : ASTRef) -> Result<(), CheckError> {
     let check_context = CheckContext {
         rustaml_context,
         typeinfos,
         filename,
         content,
     };
-    check(&check_context, ast);
+    return check(&check_context, ast);
 }

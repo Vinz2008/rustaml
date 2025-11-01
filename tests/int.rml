@@ -19,3 +19,6 @@ let rem a b = a % b ;;
 let _ = print(rem 9 4) ;;
 // let _ = print (rem 8 0) ;;
 // let _ = print (rem (-9223372036854775808) (-1))
+
+// too big number, should have error
+// let a = 9223372036854775809 ;;
