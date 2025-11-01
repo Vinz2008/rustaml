@@ -1,3 +1,6 @@
+let match_non_exhautive a = match a with
+  | true -> 1 ;;
+
 let match_switch1 a = match a with
   | 1 -> "hello"
   | 2 -> "world"

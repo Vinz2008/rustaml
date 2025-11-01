@@ -18,10 +18,12 @@ pub mod interpreter;
 pub mod lexer;
 pub mod string_intern;
 pub mod print_error;
+pub mod print_warnings;
 pub mod debug;
 pub mod types;
 pub mod types_debug;
 pub mod mangle;
+pub mod check;
 
 cfg_if! {
     if #[cfg(feature = "native")] {

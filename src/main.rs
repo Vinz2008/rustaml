@@ -41,11 +41,13 @@ mod interpreter;
 mod lexer;
 mod string_intern;
 mod print_error;
+mod print_warnings;
 mod rustaml;
 mod debug;
 mod types;
 mod types_debug;
 mod mangle;
+mod check;
 
 use cfg_if::cfg_if;
 

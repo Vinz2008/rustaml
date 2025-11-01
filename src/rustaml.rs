@@ -2,7 +2,7 @@ use cfg_if::cfg_if;
 use levenshtein::levenshtein;
 use rustc_hash::FxHashSet;
 
-use crate::{ast::{self, ASTPool, ASTRef, PatternPool}, interpreter::ListPool, lexer, print_error, string_intern::StrInterner, types::{resolve_and_typecheck, TypeInfos}};
+use crate::{ast::{self, ASTPool, ASTRef, PatternPool}, check::check_ast, interpreter::ListPool, lexer, print_error, string_intern::StrInterner, types::{TypeInfos, resolve_and_typecheck}};
 use std::{fs, path::{Path, PathBuf}};
 
 cfg_if! {
@@ -125,6 +125,8 @@ pub fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Resu
             return Err(());
         }
     };
+
+    check_ast(rustaml_context, &type_infos, filename, &content, ast);
 
     Ok(FrontendOutput {
         ast,

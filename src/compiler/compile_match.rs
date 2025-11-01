@@ -2,7 +2,7 @@ use std::{cmp::max, ops::RangeInclusive};
 
 use inkwell::{basic_block::BasicBlock, types::{AnyTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue}, AddressSpace, FloatPredicate, IntPredicate};
 
-use crate::{ast::{ASTRef, Pattern, PatternRef, Type}, compiler::{compile_expr, compiler_utils::{codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_string, create_var, get_current_function, get_llvm_type, get_void_val, load_list_tail, load_list_val, move_bb_after_current}, debuginfo::get_debug_loc, CompileContext}};
+use crate::{ast::{ASTRef, Pattern, PatternRef, Type}, check::{match_fallback_match_nb, match_is_all_range}, compiler::{CompileContext, compile_expr, compiler_utils::{codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_string, create_var, get_current_function, get_llvm_type, get_void_val, load_list_tail, load_list_val, move_bb_after_current}, debuginfo::get_debug_loc}, rustaml::RustamlContext};
 
 // TODO : when will be added or patterns (TODO) (for ex : match a with | [1, 2, 3] | [2, 3, 4]) I can create a more optimized version when matching multiple lists by creating a decision tree in the compiled program
 fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list_val : PointerValue<'llvm_ctx>, pattern_list : &[PatternRef], elem_type : &Type) -> IntValue<'llvm_ctx>{
@@ -153,62 +153,9 @@ fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
     create_br_conditional(compile_context, bool_val, bb, else_bb);
 }
 
-// for analyzing the ranges of match (make it smarter ?)
-// TODO : use this function to check in the AST to have a warning for non exhaustive match
-fn match_is_all_range(compile_context: &CompileContext<'_, '_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
-    match matched_val_type {
-        Type::Bool => {
-            let has_true = patterns.iter().any(|e| matches!(e.0.get(&compile_context.rustaml_context.pattern_pool), Pattern::Bool(true)));
-            let has_false = patterns.iter().any(|e| matches!(e.0.get(&compile_context.rustaml_context.pattern_pool), Pattern::Bool(false)));
-            has_true && has_false
-        },
-        Type::Integer => {
-            let mut ranges : Vec<RangeInclusive<i64>> = Vec::new();
-
-            for (p, _) in patterns {
-                match p.get(&compile_context.rustaml_context.pattern_pool) {
-                    Pattern::Integer(nb) => ranges.push(*nb..=*nb),
-                    Pattern::Range(start, end, inclusivity) => {
-                        dbg!((start, end, inclusivity));
-                        if *inclusivity {
-                            ranges.push(*start..=*end);
-                        } else {
-                            let end_exclusive = max(end-1, *start);
-                            ranges.push(*start..=end_exclusive);
-                        }
-                    },
-                    _ => {}
-                }
-            }
-
-            let mut merged_range = ranges.first().cloned();
-
-            ranges.sort_by_key(|e| *e.start());
-
-            for range in ranges.into_iter().skip(1){
-
-                if let Some(merged_range) = &mut merged_range {
-                    if range.start() < merged_range.start(){
-                        *merged_range = *range.start()..=*merged_range.end();
-                    }
-
-                    if range.end() > merged_range.end(){
-                        *merged_range = *merged_range.start()..=*range.end();
-                    }
-                } else {
-                    merged_range = Some(range);
-                }
-            }
-
-            merged_range == Some(i64::MIN..=i64::MAX)
-        }
-        _ => false, // TODO
-    }
-}
-
 fn match_has_enough_fallback_switch(compile_context: &CompileContext<'_, '_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
-    match_is_all_range(compile_context, matched_val_type, patterns) 
-        ||  patterns.iter().filter(|(p, _)| matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::VarName(_) | Pattern::Underscore)).count() == 1
+    match_is_all_range(&compile_context.rustaml_context, matched_val_type, patterns) 
+        || match_fallback_match_nb(&compile_context.rustaml_context, patterns) == 1
 }
 
 fn match_can_use_switch(compile_context: &CompileContext<'_, '_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
