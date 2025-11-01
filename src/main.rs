@@ -7,10 +7,26 @@ use std::{path::PathBuf, process::ExitCode};
 use clap::{Parser, Subcommand};
 use debug_with_context::DebugWrapContext;
 
-#[cfg(not(feature = "native"))]
-use crate::rustaml::FrontendOutput;
 
-use crate::{compiler::OptionalArgs, rustaml::{frontend, RustamlContext}};
+
+cfg_if! {
+    if #[cfg(feature = "native")] {
+        use crate::compiler::OptionalArgs;
+    } else {
+        use crate::rustaml::FrontendOutput;
+        struct OptionalArgs;
+        impl OptionalArgs {
+            pub fn new(_optimization_level : Option<u8>, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer : bool, _enable_debuginfos : bool, _freestanding : bool, _lib_search_paths : Vec<String>) -> OptionalArgs {
+                OptionalArgs
+            }
+        }
+    }
+
+}
+
+use crate::rustaml::{frontend, RustamlContext};
+
+
 use crate::types_debug::dump_typed_ast;
 
 #[cfg(not(feature = "native"))]
@@ -126,7 +142,7 @@ struct Args {
 }
 
 #[cfg(not(feature = "native"))]
-pub fn compile(_frontend_output : FrontendOutput, _rustaml_context: &mut RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optimization_level : u8, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer : bool, _enable_debuginfos : bool, _lib_search_paths : Vec<String>) {
+pub fn compile(_frontend_output : FrontendOutput, _rustaml_context: &mut RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optional_args : OptionalArgs){
     panic!("the compiler feature was not enabled");
 }
 
