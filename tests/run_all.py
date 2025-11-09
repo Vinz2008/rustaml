@@ -8,7 +8,9 @@ from yaspin.spinners import Spinners
 from difflib import unified_diff
 
 
-scripts_dir = os.path.dirname(os.path.realpath(__file__))
+scripts_dir = os.path.basename(os.path.dirname(__file__))
+scripts_dir = os.path.relpath(scripts_dir, start=os.getcwd()) # get relative path from cwd, not use realpath to not leak user infos in tests outputs
+
 root_project_dir = os.getcwd()
 
 if "Cargo.toml" not in os.listdir(root_project_dir):
@@ -172,14 +174,13 @@ def test_file(filename : str, command : COMMAND, is_release_mode : bool, is_debu
             env = os.environ.copy()
             env["LD_LIBRARY_PATH"] = scripts_dir + ":" + env.get("LD_LIBRARY_PATH", "")
             pipe = subprocess.Popen(cmd_run, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
-            out_run, _ = pipe.communicate()
+            out_run, _ = pipe.communicate() # TODO : should it also use the output of the compiling ?
             return_code_run = pipe.returncode
             is_err_run = is_error(return_code_run)
 
             if is_err_run:
                 return TestFileOutput("❌", out_run, "Error when running the compiled output", WHEN_ERROR.COMPILER_RUN)
-
-            # TODO
+            
         case COMMAND.INTERPRET | COMMAND.CHECK:
             out_run = out
     

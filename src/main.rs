@@ -193,7 +193,6 @@ fn main() -> ExitCode {
         }
         Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _, enable_debuginfos, lib_search_paths, freestanding } => {
 
-            // create a frontend fonction instead of get_ast ?
             let frontend_output = frontend(&filename, &mut rustaml_context);
             let frontend_output = match frontend_output {
                 Ok(f) => f,
