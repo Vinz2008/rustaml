@@ -1289,13 +1289,16 @@ fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : O
 // TODO : instead install file in filesystem ?
 const STD_C_CONTENT: &str = include_str!("../../std.c");
 
-fn link_exe(filename_out : &Path, bitcode_file : &Path, shared_libs : &[String], opt_level : OptimizationLevel, optional_args : &OptionalArgs){
+fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_file : &Path, shared_libs : &[String], opt_level : OptimizationLevel, optional_args : &OptionalArgs){
     // use cc ?
     // TODO : use lld (https://github.com/mun-lang/lld-rs) for linking instead ?
     // TODO : use libclang ? (clang-rs ? https://github.com/llvm/llvm-project/blob/main/clang/tools/driver/cc1_main.cpp#L85 ?)
 
+    
     let out_std_path = pathbuf![&std::env::temp_dir(), "std.bc"];
     let out_std_path_str = out_std_path.as_os_str();
+
+    rustaml_context.start_section("std");
 
     // TODO : pass optimization level to this function
 
@@ -1324,7 +1327,9 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, shared_libs : &[String],
     clang_std.stdin.as_mut().unwrap().write_all(STD_C_CONTENT.as_bytes()).unwrap();
     clang_std.wait().unwrap();
 
-    
+    rustaml_context.end_section("std");
+
+    rustaml_context.start_section("linker");
 
     let mut link_cmd = Command::new("clang");
 
@@ -1372,6 +1377,9 @@ fn link_exe(filename_out : &Path, bitcode_file : &Path, shared_libs : &[String],
     if !final_args.spawn().expect("linker failed").wait().unwrap().success() {
         return;
     }
+
+    rustaml_context.end_section("linker");
+
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
 }
 
@@ -1406,6 +1414,7 @@ impl OptionalArgs {
 
 // TODO : pass all the args after optimization level as a struct named OptionalArgs
 pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optional_args : OptionalArgs) {
+    rustaml_context.start_section("llvm-codegen");
     let context = Context::create();
     let builder = context.create_builder();
     let filename_path = filename.parent().map(|e| e.as_os_str().to_str().unwrap()).unwrap();
@@ -1519,6 +1528,8 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
 
     compile_context.debug_info.finalize(&mut compile_context.main_function);
     
+    compile_context.rustaml_context.end_section("llvm-codegen");
+    
     let filename_without_ext = filename.file_stem().unwrap().to_str().expect("not UTF-8 filename").to_owned();
 
     #[cfg(feature = "debug-llvm")]{}
@@ -1554,9 +1565,10 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
     
     let temp_path_bitcode = pathbuf![&temp_path, &format!("{}.bc", &filename_with_hash)];
     
-    // TODO : readd this for optimizations
+    compile_context.rustaml_context.start_section("llvm-opt");
     run_passes_on(compile_context.module, &target_machine, optimization_level);
-    
+    compile_context.rustaml_context.end_section("llvm-opt");
+
     if optional_args.keep_temp {
         let temp_path_ir = pathbuf![&temp_path, &format!("{}.ll", &filename_with_hash)];
         compile_context.module.print_to_file(&temp_path_ir).expect("Couldn't write llvm ir file");
@@ -1566,7 +1578,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
 
 
     if let Some(f_out) = filename_out {
-        link_exe(f_out,  &temp_path_bitcode, &compile_context.shared_libs, optimization_level, &optional_args);
+        link_exe(compile_context.rustaml_context, f_out,  &temp_path_bitcode, &compile_context.shared_libs, optimization_level, &optional_args);
         if !optional_args.keep_temp {
             std::fs::remove_file(temp_path_bitcode).expect("Couldn't delete bitcode file");
         }

@@ -9,3 +9,4 @@ perf.data*
 .env
 *.o
 *.so
+profiling.txt

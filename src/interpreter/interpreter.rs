@@ -1201,5 +1201,7 @@ pub fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlContext) -> 
 }
 
 pub fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext){
+    rustaml_context.start_section("interpreter");
     interpret_with_val(ast, rustaml_context);
+    rustaml_context.end_section("interpreter");
 }

@@ -2,7 +2,7 @@ use cfg_if::cfg_if;
 use levenshtein::levenshtein;
 use rustc_hash::FxHashSet;
 
-use crate::{ast::{self, ASTPool, ASTRef, PatternPool}, check::check_ast, interpreter::ListPool, lexer, print_error::{self, print_check_error}, string_intern::StrInterner, types::{TypeInfos, resolve_and_typecheck}};
+use crate::{ast::{self, ASTPool, ASTRef, PatternPool}, check::check_ast, interpreter::ListPool, lexer, print_error::{self, print_check_error}, string_intern::StrInterner, types::{TypeInfos, resolve_and_typecheck}, profiler::Profiler};
 use std::{fs, path::{Path, PathBuf}};
 
 cfg_if! {
@@ -18,6 +18,8 @@ cfg_if! {
     }
 }
 
+
+
 // TODO : remove the clone and recursively in every types in it after removing the clone it types_debug
 #[derive(Clone)]
 pub struct RustamlContext {
@@ -27,23 +29,49 @@ pub struct RustamlContext {
     pub list_node_pool : ListPool,
 
     pub is_debug_print : bool,
+    pub self_profiler : Option<Profiler>,
     pub content : Option<ContentLoc>,
 }
 
 impl RustamlContext {
-    pub fn new(is_debug_print : bool) -> RustamlContext {
+    pub fn new(is_debug_print : bool, self_profile : bool) -> RustamlContext {
         RustamlContext { 
             str_interner: StrInterner::new(), 
             ast_pool: ASTPool::new(),
             pattern_pool: PatternPool::new(),
             list_node_pool: ListPool::new(),
             is_debug_print,
+            self_profiler: if self_profile {
+                Some(Profiler::new())
+            } else {
+                None
+            },
             content: None,
         }
     }
 
     pub fn set_content_chars(&mut self, content_chars : &[char]){
-        self.content = Some(ContentLoc::new(content_chars));
+       self.content = Some(ContentLoc::new(content_chars));
+    }
+
+    pub fn start_section(&mut self, name : &'static str){
+        if let Some(self_profiler) = &mut self.self_profiler {
+            self_profiler.start_section(name.to_string());
+        }
+    }
+
+    // the str is unused, it is only to make the code clearer
+    pub fn end_section(&mut self, _str : &'static str){
+        if let Some(self_profiler) = &mut self.self_profiler {
+            self_profiler.end_section();
+        }
+    }
+
+    
+    pub fn dump(&mut self){
+        if let Some(self_profiler) = self.self_profiler.take() {
+            self_profiler.dump();
+        }
     }
 }
 
@@ -69,6 +97,7 @@ pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<
         None => &content.iter().collect::<String>(),
     };
 
+    rustaml_context.start_section("lexer");
     let tokens = lexer::lex(content, rustaml_context.is_debug_print);
     let tokens = match tokens {
         Ok(t) => t,
@@ -77,6 +106,9 @@ pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<
             return Err(())
         },
     };
+    rustaml_context.end_section("lexer");
+
+    rustaml_context.start_section("ast");
 
     let ast = ast::parse(tokens, rustaml_context, filename.to_path_buf(), already_added_filenames);
 
@@ -87,6 +119,8 @@ pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<
             return Err(());
         }
     };
+     
+    rustaml_context.end_section("ast");
 
     Ok(ast)
 }
@@ -118,6 +152,9 @@ pub fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Resu
     
     let ast = get_ast_from_string(rustaml_context, content_chars, Some(&content), filename, None)?;
 
+
+    rustaml_context.start_section("typechecker");
+
     let type_infos = match resolve_and_typecheck(rustaml_context, ast) {
         Ok(t) => t,
         Err(e) => { 
@@ -126,10 +163,17 @@ pub fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Resu
         }
     };
 
+    rustaml_context.end_section("typechecker");
+
+
+    rustaml_context.start_section("ast-checker");
+
     if let Err(check_error) = check_ast(rustaml_context, filename, &content, ast) {
         print_check_error(check_error, filename, &content);
         return Err(());
     }
+
+    rustaml_context.end_section("ast-checker");
 
     Ok(FrontendOutput {
         ast,

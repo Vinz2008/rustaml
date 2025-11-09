@@ -24,6 +24,7 @@ pub mod types;
 pub mod types_debug;
 pub mod mangle;
 pub mod check;
+pub mod profiler;
 
 cfg_if! {
     if #[cfg(feature = "native")] {
@@ -33,9 +34,10 @@ cfg_if! {
 
 
 // make it not return ExitCode, just a empty error ?
+// TODO : add self profiling ?
 pub fn interpret_code(code : &str, filename : &Path, is_debug_print  : bool) -> Result<(), ()> {
     let content = code.chars().collect::<Vec<_>>();
-    let mut rustaml_context = RustamlContext::new(is_debug_print);
+    let mut rustaml_context = RustamlContext::new(is_debug_print, false);
     let tokens = lexer::lex(content, is_debug_print);
     let tokens = match tokens {
         Ok(t) => t,
