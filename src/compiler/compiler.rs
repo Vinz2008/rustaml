@@ -2,11 +2,14 @@ use core::panic;
 use std::{hash::{Hash, Hasher}, io::Write, ops::Range, path::{Path, MAIN_SEPARATOR}, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{get_debug_loc, DebugInfo, DebugInfosInner, TargetInfos}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
-use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, support::LLVMString, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
+use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
 // TODO : add generic enums to have results for error handling
+
+#[cfg(feature = "debug-llvm")]
+use inkwell::support::LLVMString;
 
 pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     pub rustaml_context : &'context mut RustamlContext,
@@ -902,7 +905,7 @@ fn compile_short_circuiting_or<'llvm_ctx>(compile_context: &mut CompileContext<'
     }
 
     phi_and.add_incoming(&incoming);
-    //phi_and.add_incoming(&[(&const_true, start_bb), (&const_true, b1_false_bb_last), (&const_false, b2_false_bb_last)]);
+
     phi_and.as_basic_value().into_int_value()
 }
 

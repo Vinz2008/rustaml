@@ -82,7 +82,7 @@ impl Profiler {
                     "traceEvents": events_val,
                     //"displayTimeUnit": "ms",
                 });
-                write!(f, "{}", chrome_trace_val.to_string()).unwrap();
+                write!(f, "{}", chrome_trace_val).unwrap();
             }
         }
         
