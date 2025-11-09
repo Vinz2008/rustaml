@@ -1402,6 +1402,8 @@ impl OptionalArgs {
     }
 }
 
+// TODO : add self profiling (dump in file the time of lexer, ast, compilation, compiling std, linking, etc)
+
 // TODO : pass all the args after optimization level as a struct named OptionalArgs
 pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optional_args : OptionalArgs) {
     let context = Context::create();

@@ -244,6 +244,11 @@ __attribute__((weak)) int printf(const char* format, ...){
 
 #endif
 
+#define ALLOC_ERROR(...) ({ \
+        fprintf(stderr, "ALLOC ERROR : " __VA_ARGS__); \
+        exit(1); \
+    }) 
+
 enum TypeTag {
     INT_TYPE = 0,
     FLOAT_TYPE = 1,
@@ -292,8 +297,11 @@ char* __str_append(const char* s1, const char* s2){
     return ret;
 }
 
-static struct ListNode* list_node_init(uint8_t type_tag, Val val){
+static struct ListNode* list_node_init(uint8_t type_tag, Val val) {
     struct ListNode* l = MALLOC(sizeof(struct ListNode));
+    if (!l){
+        ALLOC_ERROR("ListNode");
+    }
     l->type_tag = type_tag;
     l->val = val;
     l->next = NULL;
