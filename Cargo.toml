@@ -23,6 +23,7 @@ libloading = "0.8.8"
 libffi = "4.1.2"
 mangler = "0.2.0"
 const_format = { version = "0.2.35", features = ["fmt"] }
+serde_json = "1.0.145"
 
 
 [profile.release]

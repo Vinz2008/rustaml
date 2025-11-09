@@ -24,6 +24,7 @@ cfg_if! {
 
 }
 
+use crate::profiler::ProfilerFormat;
 use crate::rustaml::{frontend, RustamlContext};
 
 
@@ -87,6 +88,9 @@ enum Commands {
 
         #[arg(long, default_value_t = false)]
         self_profile : bool,
+
+        #[arg(long, value_enum, default_value_t = ProfilerFormat::Txt)]
+        profile_format : ProfilerFormat,
     },
     /// compile file
     Compile {
@@ -125,6 +129,9 @@ enum Commands {
 
         #[arg(long, default_value_t = false)]
         self_profile : bool,
+
+        #[arg(long, value_enum, default_value_t = ProfilerFormat::Txt)]
+        profile_format : ProfilerFormat,
     },
     Check {
         #[arg(value_name = "FILE")]
@@ -139,6 +146,9 @@ enum Commands {
         
         #[arg(long, default_value_t = false)]
         self_profile : bool,
+
+        #[arg(long, value_enum, default_value_t = ProfilerFormat::Txt)]
+        profile_format : ProfilerFormat,
     },
     Repl {
         #[arg(long, short = 'd', default_value_t = false)]
@@ -146,6 +156,9 @@ enum Commands {
 
         #[arg(long, default_value_t = false)]
         self_profile : bool,
+
+        #[arg(long, value_enum, default_value_t = ProfilerFormat::Txt)]
+        profile_format : ProfilerFormat,
     },
 }
 
@@ -174,24 +187,24 @@ fn main() -> ExitCode {
 
     let args = Args::parse();
 
-    let (debug_print, self_profile) = match args.command {
-        Some(Commands::Check { filename: _, dump_types: _, debug_print, self_profile }) => (debug_print, self_profile),
-        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, disable_gc: _, enable_sanitizer: _, debug_print, self_profile, enable_debuginfos: _, lib_search_paths: _, freestanding: _ }) => {
-            (debug_print, self_profile)
+    let (debug_print, self_profile, profiler_format) = match args.command {
+        Some(Commands::Check { filename: _, dump_types: _, debug_print, self_profile, profile_format }) => (debug_print, self_profile, profile_format),
+        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, disable_gc: _, enable_sanitizer: _, debug_print, self_profile, profile_format, enable_debuginfos: _, lib_search_paths: _, freestanding: _ }) => {
+            (debug_print, self_profile, profile_format)
         },
-        Some(Commands::Interpret { filename: _, debug_print, self_profile }) => {
-            (debug_print, self_profile)
+        Some(Commands::Interpret { filename: _, debug_print, self_profile, profile_format }) => {
+            (debug_print, self_profile, profile_format)
         },
-        Some(Commands::Repl { debug_print, self_profile }) => {
-            (debug_print, self_profile)
+        Some(Commands::Repl { debug_print, self_profile, profile_format }) => {
+            (debug_print, self_profile, profile_format)
         },
-        _ => (false, false),
+        _ => (false, false, ProfilerFormat::Txt),
     };
 
     let mut rustaml_context = RustamlContext::new(debug_print, self_profile);
 
     match args.command.expect("No subcommand specified!") {
-        Commands::Interpret { filename, debug_print: _, self_profile: _ } => {
+        Commands::Interpret { filename, debug_print: _, self_profile: _, profile_format: _ } => {
 
             let frontend_output = frontend(&filename, &mut rustaml_context);
             let frontend_output = match frontend_output {
@@ -204,7 +217,7 @@ fn main() -> ExitCode {
 
             interpreter::interpret(frontend_output.ast, &mut rustaml_context);
         }
-        Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _, self_profile: _, enable_debuginfos, lib_search_paths, freestanding } => {
+        Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _, self_profile: _, profile_format: _, enable_debuginfos, lib_search_paths, freestanding } => {
 
             let frontend_output = frontend(&filename, &mut rustaml_context);
             let frontend_output = match frontend_output {
@@ -218,7 +231,7 @@ fn main() -> ExitCode {
             compile(frontend_output, &mut rustaml_context,  &filename, filename_out.as_deref(), compile_argument);
         },
 
-        Commands::Check { filename, dump_types, debug_print: _, self_profile: _ } => {
+        Commands::Check { filename, dump_types, debug_print: _, self_profile: _, profile_format: _ } => {
             let frontend_output = frontend(&filename, &mut rustaml_context);
             let frontend_output = match frontend_output {
                 Ok(f) => f,
@@ -231,12 +244,12 @@ fn main() -> ExitCode {
 
             
         },
-        Commands::Repl { debug_print: _, self_profile: _ } => {
+        Commands::Repl { debug_print: _, self_profile: _, profile_format: _ } => {
             repl(&mut rustaml_context);
         }
     }
 
-    rustaml_context.dump();
+    rustaml_context.dump(profiler_format);
 
     ExitCode::SUCCESS
 }

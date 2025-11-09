@@ -2,7 +2,7 @@ use cfg_if::cfg_if;
 use levenshtein::levenshtein;
 use rustc_hash::FxHashSet;
 
-use crate::{ast::{self, ASTPool, ASTRef, PatternPool}, check::check_ast, interpreter::ListPool, lexer, print_error::{self, print_check_error}, string_intern::StrInterner, types::{TypeInfos, resolve_and_typecheck}, profiler::Profiler};
+use crate::{ast::{self, ASTPool, ASTRef, PatternPool}, check::check_ast, interpreter::ListPool, lexer, print_error::{self, print_check_error}, profiler::{Profiler, ProfilerFormat}, string_intern::StrInterner, types::{TypeInfos, resolve_and_typecheck}};
 use std::{fs, path::{Path, PathBuf}};
 
 cfg_if! {
@@ -68,9 +68,9 @@ impl RustamlContext {
     }
 
     
-    pub fn dump(&mut self){
+    pub fn dump(&mut self, format : ProfilerFormat){
         if let Some(self_profiler) = self.self_profiler.take() {
-            self_profiler.dump();
+            self_profiler.dump(format);
         }
     }
 }

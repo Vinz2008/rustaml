@@ -1528,11 +1528,10 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
 
     compile_context.debug_info.finalize(&mut compile_context.main_function);
     
-    compile_context.rustaml_context.end_section("llvm-codegen");
     
     let filename_without_ext = filename.file_stem().unwrap().to_str().expect("not UTF-8 filename").to_owned();
 
-    #[cfg(feature = "debug-llvm")]{}
+    #[cfg(feature = "debug-llvm")]
     compile_context.module.verify().or_else(|e| -> Result<_, LLVMString> { 
         compile_context.module.print_to_file(filename_without_ext.clone() + "_error.ll").unwrap();
         panic!("LLVM ERROR {}", e.to_string()) 
@@ -1565,6 +1564,8 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
     
     let temp_path_bitcode = pathbuf![&temp_path, &format!("{}.bc", &filename_with_hash)];
     
+    compile_context.rustaml_context.end_section("llvm-codegen");
+
     compile_context.rustaml_context.start_section("llvm-opt");
     run_passes_on(compile_context.module, &target_machine, optimization_level);
     compile_context.rustaml_context.end_section("llvm-opt");

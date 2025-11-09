@@ -10,3 +10,4 @@ perf.data*
 *.o
 *.so
 profiling.txt
+profiling.json
