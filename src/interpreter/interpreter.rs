@@ -889,15 +889,16 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_bo
     }
 }
 
-pub fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val> ) -> Val {
+pub fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val>) -> Val {
     match &func_def.body {
         FunctionBody::Ast(a) => {
             let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
-            for (arg_name, arg_val) in func_def.args.iter().zip(&args_val) {
-                if let Some(old_val) = context.vars.get(arg_name) {
-                    old_vals.push((*arg_name, old_val.clone()));
+            context.vars.reserve(func_def.args.len());
+            for (arg_name, arg_val) in func_def.args.iter().zip(args_val) {
+                let old_val = context.vars.insert(*arg_name, arg_val);
+                if let Some(old_val) = old_val {
+                    old_vals.push((*arg_name, old_val));
                 }
-                context.vars.insert(*arg_name, arg_val.clone());
             }
             let res_val = ensure_stack(|| interpret_node(context, *a));
             for arg_name in &func_def.args {
