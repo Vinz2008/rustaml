@@ -1194,10 +1194,9 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
 }
 
 pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext, filename : PathBuf, already_added_filenames : Option<&mut FxHashSet<PathBuf>>) -> Result<ASTRef, ParserErr> {
-    //let mut imported_files = FxHashSet::from_iter([filename.clone()]);
+
     let filename_complete_path = filename.canonicalize().unwrap_or_default().clone();
     let imported_files = if let Some(already_added_filenames) = already_added_filenames {
-        //imported_files.extend(already_added_filenames);
         already_added_filenames.insert(filename_complete_path);
         already_added_filenames
     } else {

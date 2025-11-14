@@ -461,7 +461,7 @@ fn mangle_name<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx
 
 // TODO : add support for return type generic
 
-fn monomophize_function<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, args_call_types : &[Type], args_def_types : &[Type], ret_type : &Type) -> FunctionValue<'llvm_ctx> {
+fn monomophize_function<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, args_call_types : Vec<Type>, args_def_types : Box<[Type]>, ret_type : &Type) -> FunctionValue<'llvm_ctx> {
     let ast_node = *compile_context.generic_func_def_ast_node.get(&name).unwrap();
     let (args, body) = match ast_node.get(&compile_context.rustaml_context.ast_pool){
         ASTNode::FunctionDefinition { name: _, args, body, type_annotation: _ } => {
@@ -472,11 +472,11 @@ fn monomophize_function<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
 
     let mut arg_types_without_generics = Vec::new();
 
-    for (arg_call, args_def_type) in args_call_types.iter().zip(args_def_types) {
+    for (arg_call, args_def_type) in args_call_types.into_iter().zip(args_def_types) {
         match args_def_type {
             Type::Generic(gen_idx) => {
-                compile_context.generic_map.insert(*gen_idx, arg_call.clone());
-                arg_types_without_generics.push(arg_call.clone());
+                compile_context.generic_map.insert(gen_idx, arg_call.clone());
+                arg_types_without_generics.push(arg_call);
             }
             a => arg_types_without_generics.push(a.clone()),
         }
@@ -557,7 +557,7 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
         if let Some(func) = compile_context.generic_functions.get(&(name, arg_call_types.clone(), ret_call_type)) {
             *func
         } else {
-            monomophize_function(compile_context, name, &arg_call_types, &arg_types, &ret_type)
+            monomophize_function(compile_context, name, arg_call_types, arg_types, &ret_type)
         }.as_any_value_enum()
     } else {
         compile_expr(compile_context, callee)

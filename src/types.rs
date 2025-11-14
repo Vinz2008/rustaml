@@ -143,7 +143,7 @@ impl<'a> TypeContext<'a> {
     fn remove_current_local_vars(&mut self) -> FxHashMap<StringRef, Vec<Var>> {
         let ret = self.current_vars.clone();
 
-        let mut emptied_var_name = Vec::new();
+        /*let mut emptied_var_name = Vec::new();
 
         for (name, vars) in self.current_vars.iter_mut() {
             let mut elements_to_remove = Vec::new();
@@ -167,7 +167,12 @@ impl<'a> TypeContext<'a> {
 
         for name in emptied_var_name {
             self.current_vars.remove(&name);
-        }
+        }*/
+
+        self.current_vars.retain(|_name, vars| {
+            vars.retain(|var| var.is_global_function);
+            !vars.is_empty()
+        });
 
         ret
     }
@@ -544,9 +549,9 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 let arg_type_var = context.table.new_type_var();
                 arg_vars.push(arg_type_var);
                 if let Some(arg_type_annotations) = &arg_type_annotations {
-                    let arg_type = arg_type_annotations[arg_idx].clone();
+                    let arg_type = &arg_type_annotations[arg_idx];
                     if !matches!(arg_type, Type::Any){
-                        context.push_constraint(Constraint::IsType(arg_type_var, arg_type), range.clone());
+                        context.push_constraint(Constraint::IsType(arg_type_var, arg_type.clone()), range.clone());
                     }
                 }
 
@@ -949,9 +954,9 @@ fn std_function_constraint(context : &mut TypeContext, name : &'static str, args
     let function_name = context.rustaml_context.str_interner.intern_compiler(name);
     create_function(context, function_name, fun_type_var);
 
-    let args_type_vars = args.iter().map(|e|{
+    let args_type_vars = args.into_iter().map(|e|{
         let arg_type_var = context.table.new_type_var();
-        context.push_constraint(Constraint::IsType(arg_type_var, e.clone()), 0..0); // Can't have ranges, TODO ? (use an option ?)
+        context.push_constraint(Constraint::IsType(arg_type_var, e), 0..0); // Can't have ranges, TODO ? (use an option ?)
         arg_type_var
     }).collect::<Vec<_>>();
 

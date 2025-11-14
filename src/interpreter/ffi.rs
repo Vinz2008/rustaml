@@ -136,7 +136,6 @@ fn get_function_closure(context : &mut InterpretContext, ffi_context : &mut FFIC
 
     let user_data = Box::new(user_data);
 
-    //let user_data_ptr = Box::leak(user_data);
     let user_data_ref = unsafe {
         let user_ptr = Box::into_raw(user_data);
         if ffi_context.user_data_ffi.len() == USER_DATA_MAX_NB {
