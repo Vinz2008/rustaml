@@ -147,7 +147,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             name: "exit",
             args: Box::new([llvm_context.i32_type().into()]),
             ret: Some(llvm_context.void_type().into()),
-            attributes: vec![attr("noreturn"), attr_args("noundef", 1)],
+            attributes: vec![attr("noreturn"), attr_args("noundef", 0)],
             ..Default::default()
         },
     ]
