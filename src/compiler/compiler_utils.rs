@@ -14,7 +14,7 @@ pub fn get_type_tag(t : &Type) -> u8 {
         Type::Function(_, _, _) => 3,
         Type::Str => 4,
         Type::List(_) => 5,
-        // TODO : add a type tag for Unit ?
+        // TODO : add a type tag for Unit ? Never ?
         Type::Any | Type::Unit | Type::Never | Type::CType(_) | Type::Generic(_) => panic!("no type tag for this type {:?} !!", t),
     }
 }
@@ -62,7 +62,9 @@ pub fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, '_, 'llvm_
         // }
         Type::List(_t) => compile_context.context.ptr_type(AddressSpace::default()).into(), // TODO ?
         Type::Str => compile_context.context.ptr_type(AddressSpace::default()).into(),
-        Type::Unit | Type::Never => compile_context.context.void_type().into(),
+        //Type::Unit | Type::Never => compile_context.context.void_type().into(),
+        Type::Unit => compile_context.context.struct_type(&[], false).into(),
+        Type::Never => compile_context.context.void_type().into(),
         Type::Any => encountered_any_type(),
         Type::CType(c_type) => get_llvm_type_ctype(compile_context.context, c_type),
         Type::Generic(gen_num) => get_llvm_type(compile_context, compile_context.generic_map.get(gen_num).unwrap()),
@@ -143,9 +145,9 @@ pub fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext
 }
 
 pub fn create_var<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : AnyValueEnum<'llvm_ctx>, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
-    if alloca_type.is_void_type(){
+    /*if alloca_type.is_void_type(){
         return compile_context.context.ptr_type(AddressSpace::default()).const_null(); // to represent a var containing a void, if it is written to, it is a bug
-    }
+    }*/
     let var_alloca = create_entry_block_alloca(compile_context, &name.get_str(&compile_context.rustaml_context.str_interner).to_owned(), alloca_type);
     compile_context.builder.build_store(var_alloca, TryInto::<BasicValueEnum>::try_into(val).unwrap()).unwrap();
     compile_context.var_vals.insert(name, var_alloca);
@@ -245,7 +247,8 @@ pub fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
         Type::Float => compile_context.builder.build_bit_cast(any_val_to_basic(val), i64_type, "bitcast_float_to_val").unwrap().into_int_value(),
         Type::Bool => compile_context.builder.build_int_z_extend(val.into_int_value(), i64_type, "zextend_bool_to_val").unwrap(),
         Type::Str | Type::List(_) | Type::Function(_, _, _) => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_to_val").unwrap(),
-        Type::Never | Type::Unit => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_nothing_to_val").unwrap(),
+        //Type::Never | Type::Unit => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_nothing_to_val").unwrap(),
+        Type::Never | Type::Unit => i64_type.const_int(0, false),
         Type::Any => encountered_any_type(),
         Type::Generic(_) | Type::CType(_) => unreachable!(),
     }
@@ -260,5 +263,7 @@ pub fn promote_val_var_arg<'llvm_ctx>(compile_context: &CompileContext<'_, '_, '
 
 // dummy val for void, if it is used as a real value, it is a bug
 pub fn get_void_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> AnyValueEnum<'llvm_ctx> {
-    llvm_context.ptr_type(AddressSpace::default()).get_undef().into()
+    //llvm_context.ptr_type(AddressSpace::default()).get_undef().into()
+    llvm_context.struct_type(&[], false).const_zero().into()
+    
 }

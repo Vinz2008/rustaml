@@ -9,6 +9,7 @@ fn get_type_symbol(t : &Type) -> Symbol {
         Type::Integer => "long",
         Type::Float => "double",
         Type::Bool => "bool",
+        Type::Str => "char*", // TODO : check this
         Type::CType(_) => todo!(),
         _ => unreachable!(),
     }.to_owned();
