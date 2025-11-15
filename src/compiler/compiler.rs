@@ -1317,7 +1317,7 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
     }
 
     if optional_args.enable_sanitizer {
-        clang_std.arg("-fsanitize=address");
+        clang_std.arg("-fsanitize=address,undefined");
     }
 
 
@@ -1345,7 +1345,7 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
     }
 
     if optional_args.enable_sanitizer {
-        link_cmd.arg("-fsanitize=address");
+        link_cmd.arg("-fsanitize=address,undefined");
     }
 
     if optional_args.freestanding {
