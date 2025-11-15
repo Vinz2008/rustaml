@@ -58,23 +58,29 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
     let ptr_type_ret = llvm_context.ptr_type(AddressSpace::default()).into();
 
     let attr = |n| (AttributeLoc::Function, new_attribute(llvm_context, n));
+    let attr_return = |n| (AttributeLoc::Return, new_attribute(llvm_context, n));
+    let attr_args = |n, idx| (AttributeLoc::Param(idx), new_attribute(llvm_context, n));
+    
     vec![
         BuiltinFunction {
             name: "__str_cmp",
             args: Box::new([ptr_type, ptr_type]),
             ret: Some(llvm_context.bool_type().into()),
+            attributes: vec![attr_args("noundef", 0), attr_args("noundef", 1)],
             ..Default::default()
         },
         BuiltinFunction {
             name: "__str_append",
             args: Box::new([ptr_type, ptr_type]),
             ret: Some(ptr_type_ret),
+            attributes: vec![attr_return("noalias")],
             ..Default::default()
         },
         BuiltinFunction {
             name: "__list_node_append",
             args: Box::new([ptr_type, llvm_context.i8_type().into(), llvm_context.i64_type().into()]),
             ret: Some(ptr_type_ret),
+            attributes: vec![attr_return("noalias")],
             ..Default::default()
         },
         BuiltinFunction {
@@ -93,6 +99,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             name: "__list_len",
             args: Box::new([ptr_type]),
             ret: Some(llvm_context.i64_type().into()),
+            attributes: vec![attr_args("noundef", 1)],
             ..Default::default()
         },
         BuiltinFunction {
@@ -105,6 +112,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             name: "__bool_to_str",
             args: Box::new([llvm_context.bool_type().into()]),
             ret: Some(ptr_type_ret),
+            attributes: vec![attr_return("noundef"), attr_return("nonnull")],
             ..Default::default()
         },
         BuiltinFunction {
@@ -118,6 +126,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             is_variadic: true,
             args: Box::new([ptr_type]),
             ret: Some(ptr_type_ret),
+            attributes: vec![attr_return("noalias"), attr_args("noundef", 0)],
             ..Default::default()
         },
         BuiltinFunction {
@@ -125,20 +134,20 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             is_variadic: true,
             args: Box::new([ptr_type, ptr_type]),
             ret: Some(llvm_context.i32_type().into()),
-            ..Default::default()
+            attributes: vec![attr_args("noundef", 0), attr_args("noundef", 1)],
         },
         BuiltinFunction {
             name: "printf",
             is_variadic: true,
             args: Box::new([ptr_type]),
             ret: Some(llvm_context.i32_type().into()),
-            ..Default::default()
+            attributes: vec![attr_args("noundef", 0)],
         },
         BuiltinFunction {
             name: "exit",
             args: Box::new([llvm_context.i32_type().into()]),
             ret: Some(llvm_context.void_type().into()),
-            attributes: vec![attr("noreturn")],
+            attributes: vec![attr("noreturn"), attr_args("noundef", 1)],
             ..Default::default()
         },
     ]
@@ -636,10 +645,10 @@ fn compile_div_or_rem_checked<'llvm_ctx>(compile_context: &mut CompileContext<'_
     let after_checks = compile_context.context.append_basic_block(this_function, &format!("after_checks_{}", name));
 
     compile_context.builder.position_at_end(check_overflow_bb);
-    let const_minus_one = compile_context.context.i64_type().const_int((-1i64) as u64, false);
+    let const_minus_one = compile_context.context.i64_type().const_int((-1i64) as u64, true);
     let is_rhs_minus_one = compile_context.builder.build_int_compare(IntPredicate::EQ, i2, const_minus_one, "cmp_lhs_-1").unwrap();
     
-    let const_i64_min = compile_context.context.i64_type().const_int(i64::MIN as u64, false);
+    let const_i64_min = compile_context.context.i64_type().const_int(i64::MIN as u64, true);
     let is_lhs_i64_min = compile_context.builder.build_int_compare(IntPredicate::EQ, i, const_i64_min, "cmp_rhs_i64_min").unwrap();
     
     let is_overflow = compile_context.builder.build_and(is_rhs_minus_one, is_lhs_i64_min, &format!("and_overflow_check_{}", name)).unwrap();
@@ -1155,6 +1164,20 @@ fn get_var_type<'context>(compile_context: &'context CompileContext<'context, '_
     }
 }
 
+fn default_attributes_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, t : &Type, attribute_loc : AttributeLoc, function : FunctionValue<'llvm_ctx>){
+    match t {
+        Type::Integer | Type::Bool | Type::Float => function.add_attribute(attribute_loc, new_attribute(llvm_context, "noundef")), // make ints, bools, noundef to help optimizations
+        Type::Str => {
+            function.add_attribute(attribute_loc, new_attribute(llvm_context, "noundef"));
+            function.add_attribute(attribute_loc, new_attribute(llvm_context, "nonnull"));
+        }
+        Type::List(_) => {
+            function.add_attribute(attribute_loc, new_attribute(llvm_context, "noundef"));
+        }
+        _ => {}
+    }
+}
+
 fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, args : &[StringRef], body : ASTRef, ast_node : ASTRef, arg_types : &[Type], return_type : &Type) -> FunctionValue<'llvm_ctx> {
     //println!("typeinfos function_env : {:?}", DebugWrapContext::new(&compile_context.typeinfos.functions_env, compile_context.rustaml_context));
             
@@ -1165,7 +1188,7 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
     let param_types_metadata = param_types_llvm.iter().map(|t| any_type_to_metadata(compile_context.context, *t)).collect::<Vec<_>>();
     let function_type = get_fn_type(compile_context.context, return_type_llvm, &param_types_metadata, false);
     let function = compile_context.module.add_function(name.get_str(&compile_context.rustaml_context.str_interner), function_type, Some(inkwell::module::Linkage::Internal));
-            
+
     let function_range = ast_node.get_range(&compile_context.rustaml_context.ast_pool);
     let di_subprogram = compile_context.debug_info.add_function(name.get_str(&compile_context.rustaml_context.str_interner), param_types, return_type, compile_context.rustaml_context.content.as_ref().unwrap(), function_range, compile_context.is_optimized);
     if let Some(di_subprogram) = di_subprogram {
@@ -1189,10 +1212,13 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
 
             //let mut old_arg_name_type = Vec::new(); // to save the types that have the same of the args in the global vars 
 
-    for (((arg_name, arg_val), arg_type_llvm), arg_type) in args.iter().zip(function.get_param_iter()).zip(param_types_llvm).zip(param_types) {
+    for ((((arg_idx, arg_name), arg_val), arg_type_llvm), arg_type) in args.iter().enumerate().zip(function.get_param_iter()).zip(param_types_llvm).zip(param_types) {
+        default_attributes_type(compile_context.context, arg_type, AttributeLoc::Param(arg_idx.try_into().unwrap()), function);
         let var_ptr = create_var(compile_context, *arg_name, arg_val.as_any_value_enum(), arg_type_llvm);
         compile_context.debug_info.declare_var(arg_name.get_str(&compile_context.rustaml_context.str_interner), arg_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), range.clone());
     }
+
+    default_attributes_type(compile_context.context, return_type, AttributeLoc::Return, function);
 
     let ret = compile_expr(compile_context, body);
 

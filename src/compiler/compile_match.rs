@@ -91,8 +91,8 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
                 (IntPredicate::SLE, IntPredicate::SGT)
             };
             // TODO : replace with compile function like below ?
-            let lower_cmp = compile_context.builder.build_int_compare(lower_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(upper as u64, false), "match_int_cmp_range_lower").unwrap();
-            let upper_cmp = compile_context.builder.build_int_compare(upper_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(lower as u64, false), "match_int_cmp_range_upper").unwrap();
+            let lower_cmp = compile_context.builder.build_int_compare(lower_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(upper as u64, true), "match_int_cmp_range_lower").unwrap();
+            let upper_cmp = compile_context.builder.build_int_compare(upper_predicate, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(lower as u64, true), "match_int_cmp_range_upper").unwrap();
             
             // TODO : instead of creating a and, short circuit this with multiple branches ? (return a vec with the branches that need to be made ?)
             let combined_bool_val = compile_context.builder.build_and(lower_cmp, upper_cmp, "match_range_and").unwrap();
@@ -195,7 +195,7 @@ fn compile_match_switch<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
     for ((p, _a), bb) in normal_patterns.iter().zip(&match_bbs) {
         match p.get(&compile_context.rustaml_context.pattern_pool){
             Pattern::Integer(i) => {
-                let int_val = compile_context.context.i64_type().const_int(*i as u64 , false);
+                let int_val = compile_context.context.i64_type().const_int(*i as u64 , true);
                 cases.push((int_val, *bb))
             },
             Pattern::Bool(b) => {
