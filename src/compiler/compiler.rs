@@ -6,6 +6,7 @@ use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, bu
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
+// TODO : do only one alloc when init a static list then put all the nodes in it (faster + better cache locality)
 // TODO : add generic enums to have results for error handling
 
 #[cfg(feature = "debug-llvm")]
