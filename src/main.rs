@@ -72,8 +72,10 @@ cfg_if! {
         mod ast_dot;
         use crate::ast_dot::generate_ast_dot;
     } else {
-        pub fn generate_ast_dot(_rustaml_context : &RustamlContext, _ast : ASTRef){
-
+        use crate::ast::ASTRef;
+        use std::io;
+        pub fn generate_ast_dot(_rustaml_context : &RustamlContext, _ast : ASTRef) -> io::Result<()>{
+            Ok(())
         }
     }
 }

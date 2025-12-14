@@ -2,8 +2,7 @@
 
 use std::{fs::File, io::{self, Write}};
 
-use debug_with_context::DebugWrapContext;
-use petgraph::{Graph, dot::{Config, Dot}, graph::NodeIndex};
+use petgraph::{Graph, dot::Dot, graph::NodeIndex};
 
 use crate::{ast::{ASTNode, ASTRef}, rustaml::RustamlContext};
 
@@ -42,7 +41,7 @@ pub fn _generate_ast_dot(graph : &mut Graph<String, String>, rustaml_context : &
         }
         ASTNode::VarDecl { name, val, body, var_type } => {
             let let_node = graph.add_node("let".to_string());
-            let var_name = graph.add_node("var_name".to_string());
+            let var_name = graph.add_node(name.get_str(&rustaml_context.str_interner).to_string());
             graph.add_edge(let_node, var_name, "var_name".to_string());
             let val_node = _generate_ast_dot(graph, rustaml_context, *val);
             graph.add_edge(let_node, val_node, "val".to_string());
