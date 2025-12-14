@@ -58,7 +58,7 @@ __attribute__((weak)) void* memcpy(void* dest, const void* src, size_t size){
     size_t idx = 0;
     while (idx < size){
         *dest_c++ = *src_c++;
-        size++;
+        idx++;
     }
     return dest;
 }
@@ -78,8 +78,9 @@ __attribute__((weak)) void* malloc(size_t size){
     static size_t pos = 0;
 
     size_t alloc_size = sizeof(struct Metadata) + size;
-    // TODO : add alignement
-    //void* ptr = (buf + pos) & ~(alignement - 1);
+
+    size_t align = _Alignof(max_align_t);
+    pos = (pos + align - 1) & ~(align - 1);
     void* ptr = buf + pos;
     struct Metadata* metadata = (struct Metadata*) ptr;
     metadata->size = size;
@@ -91,7 +92,7 @@ __attribute__((weak)) void* realloc(void* ptr, size_t size){
     void* new_buf = malloc(size);
     struct Metadata* metadata = (struct Metadata*)(ptr - sizeof(struct Metadata));
     size_t old_size = metadata->size;
-    memcpy(new_buf, ptr, old_size);
+    memcpy(new_buf, ptr, old_size < size ? old_size : size);
     return new_buf;
 }
 
@@ -105,111 +106,6 @@ __attribute__((weak)) size_t strlen(const char* s){
 }
 
 #define INFINITY __builtin_inff()
-
-#if defined(__FLT_EVAL_METHOD__) && __FLT_EVAL_METHOD__ == 2
-typedef long double double_t;
-#else
-typedef double double_t;
-#endif
-
-/* origin: FreeBSD /usr/src/lib/msun/src/e_log10.c */
-/*
- * ====================================================
- * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
- *
- * Developed at SunSoft, a Sun Microsystems, Inc. business.
- * Permission to use, copy, modify, and distribute this
- * software is freely granted, provided that this notice
- * is preserved.
- * ====================================================
- */
-/*
- * Return the base 10 logarithm of x.  See log.c for most comments.
- *
- * Reduce x to 2^k (1+f) and calculate r = log(1+f) - f + f*f/2
- * as in log.c, then combine and scale in extra precision:
- *    log10(x) = (f - f*f/2 + r)/log(10) + k*log10(2)
- */
-
-static const double
-ivln10hi  = 4.34294481878168880939e-01, /* 0x3fdbcb7b, 0x15200000 */
-ivln10lo  = 2.50829467116452752298e-11, /* 0x3dbb9438, 0xca9aadd5 */
-log10_2hi = 3.01029995663611771306e-01, /* 0x3FD34413, 0x509F6000 */
-log10_2lo = 3.69423907715893078616e-13, /* 0x3D59FEF3, 0x11F12B36 */
-Lg1 = 6.666666666666735130e-01,  /* 3FE55555 55555593 */
-Lg2 = 3.999999999940941908e-01,  /* 3FD99999 9997FA04 */
-Lg3 = 2.857142874366239149e-01,  /* 3FD24924 94229359 */
-Lg4 = 2.222219843214978396e-01,  /* 3FCC71C5 1D8E78AF */
-Lg5 = 1.818357216161805012e-01,  /* 3FC74664 96CB03DE */
-Lg6 = 1.531383769920937332e-01,  /* 3FC39A09 D078C69F */
-Lg7 = 1.479819860511658591e-01;  /* 3FC2F112 DF3E5244 */
-
-__attribute__((weak)) double log10(double x)
-{
-	union {double f; uint64_t i;} u = {x};
-	double_t hfsq,f,s,z,R,w,t1,t2,dk,y,hi,lo,val_hi,val_lo;
-	uint32_t hx;
-	int k;
-
-	hx = u.i>>32;
-	k = 0;
-	if (hx < 0x00100000 || hx>>31) {
-		if (u.i<<1 == 0)
-			return -1/(x*x);  /* log(+-0)=-inf */
-		if (hx>>31)
-			return (x-x)/0.0; /* log(-#) = NaN */
-		/* subnormal number, scale x up */
-		k -= 54;
-		x *= 0x1p54;
-		u.f = x;
-		hx = u.i>>32;
-	} else if (hx >= 0x7ff00000) {
-		return x;
-	} else if (hx == 0x3ff00000 && u.i<<32 == 0)
-		return 0;
-
-	/* reduce x into [sqrt(2)/2, sqrt(2)] */
-	hx += 0x3ff00000 - 0x3fe6a09e;
-	k += (int)(hx>>20) - 0x3ff;
-	hx = (hx&0x000fffff) + 0x3fe6a09e;
-	u.i = (uint64_t)hx<<32 | (u.i&0xffffffff);
-	x = u.f;
-
-	f = x - 1.0;
-	hfsq = 0.5*f*f;
-	s = f/(2.0+f);
-	z = s*s;
-	w = z*z;
-	t1 = w*(Lg2+w*(Lg4+w*Lg6));
-	t2 = z*(Lg1+w*(Lg3+w*(Lg5+w*Lg7)));
-	R = t2 + t1;
-
-	/* See log2.c for details. */
-	/* hi+lo = f - hfsq + s*(hfsq+R) ~ log(1+f) */
-	hi = f - hfsq;
-	u.f = hi;
-	u.i &= (uint64_t)-1<<32;
-	hi = u.f;
-	lo = f - hi - hfsq + s*(hfsq+R);
-
-	/* val_hi+val_lo ~ log10(1+f) + k*log10(2) */
-	val_hi = hi*ivln10hi;
-	dk = k;
-	y = dk*log10_2hi;
-	val_lo = dk*log10_2lo + (lo+hi)*ivln10lo + lo*ivln10hi;
-
-	/*
-	 * Extra precision in for adding y is not strictly needed
-	 * since there is no very large cancellation near x = sqrt(2) or
-	 * x = 1/sqrt(2), but we do it anyway since it costs little on CPUs
-	 * with some parallelism and it reduces the error for many args.
-	 */
-	w = y + val_hi;
-	val_lo += (y - w) + val_hi;
-	val_hi = w;
-
-	return val_lo + val_hi;
-}
 
 typedef struct {} FILE;
 static FILE stderr_impl;
@@ -675,7 +571,7 @@ struct str {
 
 static void str_append_with_realloc(struct str* str, char c){
     if (str->len + 1 >= str->capacity){
-        str->capacity = str->capacity * 1.5;
+        str->capacity = str->capacity + str->capacity/2; // str->capacity * 1.5
         str->buf = REALLOC(str->buf, str->capacity);
     }
     //printf("current_len : %d, current_capacity : %d\n", str->len, str->capacity);
@@ -692,19 +588,67 @@ static uint64_t absolute(int64_t i){
     }
 }
 
+static const uint64_t powers_10[] = {
+    1ULL,
+    10ULL,
+    100ULL,
+    1000ULL,
+    10000ULL,
+    100000ULL,
+    1000000ULL,
+    10000000ULL,
+    100000000ULL,
+    1000000000ULL,
+    10000000000ULL,
+    100000000000ULL,
+    1000000000000ULL,
+    10000000000000ULL,
+    100000000000000ULL,
+    1000000000000000ULL,
+    10000000000000000ULL,
+    100000000000000000ULL,
+    1000000000000000000ULL,
+    10000000000000000000ULL
+};
+
+static inline int clz64(uint64_t x) {
+#if defined(_MSC_VER)
+    unsigned long index;
+    _BitScanReverse64(&index, x);
+    return 63 - index;
+#else
+    return __builtin_clzll(x);
+#endif
+}
+
 static int digit_nb_unsigned(uint64_t u){
     if (u == 0){
         return 1;
     }
-    int d_nb = (int)log10((double)u);
-    if (d_nb < 0) d_nb = 0; // clamp value to help LLVM optimizations (wrong range from LLVM in not inlined function) 
-    return d_nb + 1;
+
+    int leading_zeros_count = 64 - clz64(u); // log2(u) + 1
+    int t = (leading_zeros_count) * 1233 >> 12; // * log10(2) to change base to base 10 (optimized here : log10(2) around 0.30103 which is around 1233 / 4096 = 1233 >> 12) 
+    
+    return t + (u >= powers_10[t]); // use the power10 table to correct the approximation (could be off by 1)
 }
 
 static int digit_nb(int64_t i){
     uint64_t u = absolute(i);
     return digit_nb_unsigned(u);
 }
+
+static const char digit_pairs[] = {
+    '0', '0', '0', '1', '0', '2', '0', '3', '0', '4', '0', '5', '0', '6', '0', '7', '0', '8', '0', '9', 
+    '1', '0', '1', '1', '1', '2', '1', '3', '1', '4', '1', '5', '1', '6', '1', '7', '1', '8', '1', '9', 
+    '2', '0', '2', '1', '2', '2', '2', '3', '2', '4', '2', '5', '2', '6', '2', '7', '2', '8', '2', '9', 
+    '3', '0', '3', '1', '3', '2', '3', '3', '3', '4', '3', '5', '3', '6', '3', '7', '3', '8', '3', '9', 
+    '4', '0', '4', '1', '4', '2', '4', '3', '4', '4', '4', '5', '4', '6', '4', '7', '4', '8', '4', '9', 
+    '5', '0', '5', '1', '5', '2', '5', '3', '5', '4', '5', '5', '5', '6', '5', '7', '5', '8', '5', '9', 
+    '6', '0', '6', '1', '6', '2', '6', '3', '6', '4', '6', '5', '6', '6', '6', '7', '6', '8', '6', '9', 
+    '7', '0', '7', '1', '7', '2', '7', '3', '7', '4', '7', '5', '7', '6', '7', '7', '7', '8', '7', '9', 
+    '8', '0', '8', '1', '8', '2', '8', '3', '8', '4', '8', '5', '8', '6', '8', '7', '8', '8', '8', '9', 
+    '9', '0', '9', '1', '9', '2', '9', '3', '9', '4', '9', '5', '9', '6', '9', '7', '9', '8', '9', '9',
+};
 
 static void int_to_string_impl(char* buf, int64_t integer, int digit_number){
     int start = 0;
@@ -713,10 +657,14 @@ static void int_to_string_impl(char* buf, int64_t integer, int digit_number){
         start = 1;
     }
     uint64_t u = absolute(integer);
-    for (int i = 0; i < digit_number; i++){
-        int digit = u % 10;
-        buf[start + digit_number - i - 1] = digit + '0';
-        u = u/10;
+    int i;
+    for (i = 0; i < digit_number - 1; i += 2){
+        int two_digits = u % 100;
+        memcpy(buf + start  + digit_number - i - 2, digit_pairs + two_digits * 2, 2);
+        u /= 100;
+    }
+    if (u != 0){
+        buf[start + digit_number - i - 1] = (char)u + '0';
     }
 }
 
@@ -857,7 +805,9 @@ static void list_format(struct str* str, struct ListNode* list){
 
 static void ensure_size_string(struct str* s, size_t size){
     if (size >= s->capacity){
-        s->capacity = size * 1.5; // do I need this factor here (TODO ?)
+        while (size >= s->capacity){
+            s->capacity *= 2;
+        }
         s->buf = REALLOC(s->buf, s->capacity);
     }
 }
