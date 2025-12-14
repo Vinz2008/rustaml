@@ -13,8 +13,6 @@ use debug_with_context::{DebugWithContext, DebugWrapContext};
 
 // TODO : add a guard clauses (create struct with an enum and guard clauses)
 
-// TODO : add dot format printing for the AST tree
-
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 #[debug_context(PrintTypedContext)]

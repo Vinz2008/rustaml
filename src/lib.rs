@@ -13,25 +13,24 @@ use cfg_if::cfg_if;
 use crate::rustaml::RustamlContext;
 
 pub mod rustaml;
-pub mod ast;
-pub mod interpreter;
-pub mod lexer;
-pub mod string_intern;
-pub mod print_error;
-pub mod print_warnings;
-pub mod debug;
-pub mod types;
-pub mod types_debug;
-pub mod mangle;
-pub mod check;
-pub mod profiler;
+mod ast;
+mod interpreter;
+mod lexer;
+mod string_intern;
+mod print_error;
+mod print_warnings;
+mod debug;
+mod types;
+mod types_debug;
+mod mangle;
+mod check;
+mod profiler;
 
 cfg_if! {
     if #[cfg(feature = "native")] {
-        pub mod compiler;
+        mod compiler;
     }
 }
-
 
 // make it not return ExitCode, just a empty error ?
 // TODO : add self profiling ?

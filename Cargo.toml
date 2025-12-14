@@ -24,6 +24,7 @@ libffi = "4.1.2"
 mangler = "0.2.0"
 const_format = { version = "0.2.35", features = ["fmt"] }
 serde_json = "1.0.145"
+petgraph = { version = "0.8.3", optional = true }
 
 
 [profile.release]
@@ -41,3 +42,4 @@ gc-test-print = []
 gc-test-collect = []
 stack-expand = ["dep:stacker"]
 stack-expand-test-print = ["stack-expand"]
+dot-format = ["dep:petgraph"]

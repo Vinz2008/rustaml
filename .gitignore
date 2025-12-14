@@ -11,3 +11,4 @@ perf.data*
 *.so
 profiling.txt
 profiling.json
+ast.dot

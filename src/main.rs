@@ -64,8 +64,17 @@ cfg_if! {
     if #[cfg(feature = "repl")]{
         mod repl;
         use crate::repl::repl;
-    } else {
+    }
+}
 
+cfg_if! {
+    if #[cfg(feature = "dot-format")]{
+        mod ast_dot;
+        use crate::ast_dot::generate_ast_dot;
+    } else {
+        pub fn generate_ast_dot(_rustaml_context : &RustamlContext, _ast : ASTRef){
+
+        }
     }
 }
 
@@ -140,6 +149,9 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         dump_types : bool,
 
+        #[arg(long, default_value_t = false)]
+        dump_dot : bool,
+
 
         #[arg(long, short = 'd', default_value_t = false)]
         debug_print : bool,
@@ -188,7 +200,7 @@ fn main() -> ExitCode {
     let args = Args::parse();
 
     let (debug_print, self_profile, profiler_format) = match args.command {
-        Some(Commands::Check { filename: _, dump_types: _, debug_print, self_profile, profile_format }) => (debug_print, self_profile, profile_format),
+        Some(Commands::Check { filename: _, dump_types: _, dump_dot: _, debug_print, self_profile, profile_format }) => (debug_print, self_profile, profile_format),
         Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, disable_gc: _, enable_sanitizer: _, debug_print, self_profile, profile_format, enable_debuginfos: _, lib_search_paths: _, freestanding: _ }) => {
             (debug_print, self_profile, profile_format)
         },
@@ -231,7 +243,7 @@ fn main() -> ExitCode {
             compile(frontend_output, &mut rustaml_context,  &filename, filename_out.as_deref(), compile_argument);
         },
 
-        Commands::Check { filename, dump_types, debug_print: _, self_profile: _, profile_format: _ } => {
+        Commands::Check { filename, dump_types, dump_dot, debug_print: _, self_profile: _, profile_format: _ } => {
             let frontend_output = frontend(&filename, &mut rustaml_context);
             let frontend_output = match frontend_output {
                 Ok(f) => f,
@@ -240,6 +252,10 @@ fn main() -> ExitCode {
 
             if dump_types {
                 dump_typed_ast(&rustaml_context, frontend_output.ast).unwrap();
+            }
+
+            if dump_dot {
+                generate_ast_dot(&rustaml_context, frontend_output.ast).unwrap();
             }
 
             

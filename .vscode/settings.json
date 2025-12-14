@@ -6,7 +6,8 @@
         "gc-test-print",
         "repl",
         "stack-expand",
-        "debug-llvm"
+        "debug-llvm",
+        "dot-format",
     ],
     "files.associations": {
         "io": "llvm",
