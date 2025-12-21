@@ -22,7 +22,7 @@ pub fn init_monomorphized_internal_fun<'llvm_ctx>() -> FxHashMap<&'static str, F
 //     struct ListNode* ret = NULL;
 //     struct ListNode* current = l;
 //     while (current != NULL){
-//         ret = __list_node_append(ret, T2_tag, f((int64_t)current->val));
+//         ret = __list_node_append_back(ret, T2_tag, f((int64_t)current->val));
 //         current = current->next;
 //     }
 
@@ -80,7 +80,7 @@ pub fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut CompileContext
 
     compile_context.builder.build_conditional_branch(is_not_null, body_bb, after_bb).unwrap();
 
-    // while loop body starts (TODO)
+    // while loop body starts
     compile_context.builder.position_at_end(body_bb);
     
     let list_node_append_fun = compile_context.get_internal_function("__list_node_append_back");
@@ -138,7 +138,7 @@ pub fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut CompileContext
 //     struct ListNode* current = l;
 //     while (current != NULL){
 //         if (f(current->val)){
-//             ret = __list_node_append(ret, T1_tag, current->val);
+//             ret = __list_node_append_back(ret, T1_tag, current->val);
 //         }
 //         current = current->next;
 //     }
