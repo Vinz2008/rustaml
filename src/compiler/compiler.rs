@@ -1355,7 +1355,11 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
     // TODO : pass optimization level to this function
 
     let mut clang_std = Command::new("clang");
-    clang_std.arg("-x").arg("c").arg("-emit-llvm").arg("-O3").arg("-c");
+    clang_std.arg("-x").arg("c").arg("-emit-llvm").arg(format!("-O{}", opt_level as u32)).arg("-c");
+
+    if !matches!(opt_level, OptimizationLevel::None){
+        clang_std.arg("-DNDEBUG");
+    }
 
     if !optional_args.disable_gc {
         clang_std.arg("-D_GC_");

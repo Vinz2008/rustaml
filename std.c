@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <limits.h>
 
 #if defined __has_include
 #if __has_include(<inttypes.h>)
@@ -32,7 +33,7 @@
 #define SYSTEM_UNIX
 #endif
 
-// TODO
+
 #ifdef _GC_
 #include <gc.h>
 #define MALLOC(size) GC_malloc(size)
@@ -71,16 +72,21 @@ struct Metadata {
     size_t size;
 };
 
+#define MALLOC_SIZE_WEAK (1024 * 1024) // 1Mib
+
 // weak symbol, can be overriden in freestanding
 __attribute__((weak)) void* malloc(size_t size){
-    // TODO : add oom error
-    static char buf[1024 * 1024] = {}; // 1Mib
+    static char buf[MALLOC_SIZE_WEAK] = {};
     static size_t pos = 0;
 
     size_t alloc_size = sizeof(struct Metadata) + size;
 
     size_t align = _Alignof(max_align_t);
     pos = (pos + align - 1) & ~(align - 1);
+    if (pos >= MALLOC_SIZE_WEAK){
+        __builtin_trap();
+        while (1){}
+    }
     void* ptr = buf + pos;
     struct Metadata* metadata = (struct Metadata*) ptr;
     metadata->size = size;
@@ -96,14 +102,39 @@ __attribute__((weak)) void* realloc(void* ptr, size_t size){
     return new_buf;
 }
 
-// TODO : add free (noop)
-
-// TODO : optimize strlen ? (like https://git.musl-libc.org/cgit/musl/tree/src/string/strlen.c https://www.reddit.com/r/C_Programming/comments/8fdkf2/strlen_in_musl_like_a_dark_magic/ ?)
-__attribute__((weak)) size_t strlen(const char* s){
-    size_t len = 0;
-    while (*s++) len++;
-    return len;
+__attribute__((weak)) void free(void* ptr){
+    (void)ptr;
 }
+
+// https://git.musl-libc.org/cgit/musl/tree/src/string/strlen.c
+#define ONES ((size_t)-1/UCHAR_MAX)
+#define HIGHS (ONES * (UCHAR_MAX/2+1))
+#define HASZERO(x) ((x)-ONES & ~(x) & HIGHS)
+
+__attribute__((weak)) size_t strlen(const char* s){
+    const char *a = s;
+#ifdef __GNUC__
+	typedef size_t __attribute__((__may_alias__)) word;
+    while (((uintptr_t)s % sizeof(size_t)) != 0){
+        if (!*s){
+            return s-a;
+        }
+        s++;
+    }
+    const word* w = (const void*)s;
+    while (!HASZERO(*w)){
+        w++;
+    }
+
+	s = (const void *)w;
+#endif
+    while (*s){
+        s++;
+    }
+
+	return s-a;
+}
+
 
 #define INFINITY __builtin_inff()
 
@@ -138,12 +169,27 @@ __attribute__((weak)) int printf(const char* format, ...){
     return 0;
 }
 
+#ifndef assert
+#ifdef	NDEBUG
+#define assert(e) ((void)0)
+#else
+static void assert_fail(){
+    __builtin_trap();
+    while (1){}
+}
+#define assert(e) ((e) ? ((void)0) : assert_fail ())
+#endif
+#endif
+
 #endif
 
 #define ALLOC_ERROR(...) ({ \
         fprintf(stderr, "ALLOC ERROR : " __VA_ARGS__); \
         exit(1); \
     }) 
+
+#define ASSERT_BOOL(id_bool) assert(id_bool < 2 && #id_bool " should be true or false")
+#define ASSERT_NOT_NULL(not_null) assert(not_null && #not_null " should not be NULL")
 
 enum TypeTag {
     INT_TYPE = 0,
@@ -172,9 +218,9 @@ struct ListNode {
     struct ListNode* next; // if empty null 
 };
 
-// TODO : add a (weak ?) memcpy for freestanding ?
-
 uint8_t __str_cmp(const char* s1, const char* s2){
+    ASSERT_NOT_NULL(s1 && s2);
+
     while (*s1 != '\0' && *s1 == *s2){
         s1++;
         s2++;
@@ -184,6 +230,8 @@ uint8_t __str_cmp(const char* s1, const char* s2){
 }
 
 char* __str_append(const char* s1, const char* s2){
+    ASSERT_NOT_NULL(s1 && s2);
+
     size_t len_s1 = strlen(s1);
     size_t len_s2 = strlen(s2);
     char* ret = MALLOC(len_s1 + len_s2 + 1);
@@ -206,7 +254,9 @@ static struct ListNode* list_node_init(uint8_t type_tag, Val val) {
 
 // appends at the front
 struct ListNode* __list_node_append(struct ListNode* list, uint8_t type_tag, Val val){
-    struct ListNode* ret = list_node_init(type_tag, val);;
+    struct ListNode* ret = list_node_init(type_tag, val);
+    ASSERT_NOT_NULL(ret);
+
     ret->next = list;
     return ret;
 }
@@ -216,7 +266,6 @@ struct ListNode* __list_node_append_back(struct ListNode* list, uint8_t type_tag
         return list_node_init(type_tag, val);
     }
     
-    // TODO : add asserts
     struct ListNode* current = list;
     while (current != NULL && current->next != NULL){
         current = current->next;
@@ -227,31 +276,42 @@ struct ListNode* __list_node_append_back(struct ListNode* list, uint8_t type_tag
     
 }
 
-
-static Val deep_clone_val(uint8_t tag, Val val);
-
-static struct ListNode* deep_clone_list(struct ListNode* list){
+/*static struct ListNode* deep_clone_list(struct ListNode* list){
     struct ListNode* new_list = NULL;
     
     struct ListNode* current = list;
 
+    // TODO : optimize this by keeping the last instead of going through the whole list
     while (current != NULL){
         new_list = __list_node_append_back(new_list, current->type_tag, deep_clone_val(current->type_tag, current->val));
         current = current->next;
     }
 
     return new_list;
+}*/
+
+// clone the list nodes, but doesn't clone the list vals
+static struct ListNode* clone_list(struct ListNode* list){
+    struct ListNode* new_list = NULL;
+    struct ListNode* current = list;
+    
+    // TODO : optimize this by keeping the last instead of going through the whole list
+    while (current != NULL){
+        new_list = __list_node_append_back(new_list, current->type_tag, current->val);
+        current = current->next;
+    }
+    return new_list;
 }
 
-static char* clone_str(const char* s){
+/*static char* clone_str(const char* s){
     size_t s_len = strlen(s);
     char* new_s = MALLOC((s_len + 1) * sizeof(char));
     memcpy(new_s, s, s_len);
     new_s[s_len] = '\0';
     return new_s;
-}
+}*/
 
-static Val deep_clone_val(uint8_t tag, Val val){
+/*static Val deep_clone_val(uint8_t tag, Val val){
     Val ret;
 
     char* val_str;
@@ -281,40 +341,25 @@ static Val deep_clone_val(uint8_t tag, Val val){
     }
 
     return ret;
-
-}
+}*/
 
 struct ListNode* __list_node_merge(struct ListNode* list1, struct ListNode* list2){
-    struct ListNode* list1_cloned = deep_clone_list(list1); // TODO : do I really need to deep clone, not just clone the list ?
-    struct ListNode* list2_cloned = deep_clone_list(list2);
+    struct ListNode* list1_cloned = clone_list(list1);
 
     struct ListNode* list1_last = list1_cloned;
 
-    while (list1_last != NULL){
+    while (list1_last != NULL && list1_last->next != NULL){
         list1_last = list1_last->next;
-        if (list1_last != NULL && list1_last->next == NULL){
-            break;
-        }
     }
 
 
     if (list1_last == NULL) {
-        list1_cloned = list2_cloned;
+        list1_cloned = list2;
     } else {
-        list1_last->next = list2_cloned;
+        list1_last->next = list2;
     }
 
     return list1_cloned;
-}
-
-
-static Val list_node_val(struct ListNode* list){
-    return list->val;
-}
-
-
-static struct ListNode* list_node_tail(struct ListNode* list){
-    return list->next;
 }
 
 static bool list_node_cmp(uint8_t tag1, Val val1, uint8_t tag2, Val val2){
@@ -329,15 +374,21 @@ static bool list_node_cmp(uint8_t tag1, Val val1, uint8_t tag2, Val val2){
         return val1 == val2;
     } else if (tag1 == BOOL_TYPE && tag2 == BOOL_TYPE){
         uint8_t bool1 = INTO_TYPE(uint8_t, val1);
+        ASSERT_BOOL(bool1);
         uint8_t bool2 = INTO_TYPE(uint8_t, val2);
+        ASSERT_BOOL(bool2);
         return bool1 == bool2;
     } else if (tag1 == STR_TYPE && tag2 == STR_TYPE){
         char* str1 = INTO_TYPE(char*, val1);
+        ASSERT_NOT_NULL(str1);
         char* str2 = INTO_TYPE(char*, val2);
+        ASSERT_NOT_NULL(str2);
         return __str_cmp(str1, str2);
     } else if (tag1 == LIST_TYPE && tag2 == LIST_TYPE){
         struct ListNode* list1 = INTO_TYPE(struct ListNode*, val1);
+        ASSERT_NOT_NULL(list1);
         struct ListNode* list2 = INTO_TYPE(struct ListNode*, val2);
+        ASSERT_NOT_NULL(list2);
         return list_node_cmp(list1->type_tag, list1->val, list2->type_tag, list2->val);
     }
 
@@ -436,6 +487,7 @@ void fallback_seed() {
 
 static void seed_random(){
     int fd = open("/dev/urandom", O_RDONLY);
+
     if (fd >= 0) {
         read(fd, &rand_state.state, sizeof(sizeof(uint64_t) * 2));
         close(fd);
@@ -533,9 +585,13 @@ static void list_node_print(uint8_t tag, Val val){
     } else if (tag == FLOAT_TYPE){
         printf("%f", INTO_TYPE(double, val));
     } else if (tag == BOOL_TYPE){
-        printf("%s", __bool_to_str(INTO_TYPE(bool, val)));
+        uint8_t b = INTO_TYPE(uint8_t, val);
+        ASSERT_BOOL(b);
+        printf("%s", __bool_to_str((bool)b));
     } else if (tag == STR_TYPE){
-        printf("%s", INTO_TYPE(char*, val));
+        const char* s = INTO_TYPE(char*, val);
+        ASSERT_NOT_NULL(s);
+        printf("%s", s);
     } else if (tag == LIST_TYPE){
         list_print_no_new_line(INTO_TYPE(struct ListNode*, val));
     } else {
@@ -570,6 +626,7 @@ struct str {
 };
 
 static void str_append_with_realloc(struct str* str, char c){
+    ASSERT_NOT_NULL(str);
     if (str->len + 1 >= str->capacity){
         str->capacity = str->capacity + str->capacity/2; // str->capacity * 1.5
         str->buf = REALLOC(str->buf, str->capacity);
