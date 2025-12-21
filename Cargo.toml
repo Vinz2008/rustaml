@@ -25,6 +25,9 @@ mangler = "0.2.0"
 const_format = { version = "0.2.35", features = ["fmt"] }
 serde_json = "1.0.145"
 petgraph = { version = "0.8.3", optional = true }
+dirs = { version = "6.0.0", optional = true }
+serde = { version = "1.0.228", features = ["derive"] }
+blake3 = { version = "1.8.2", optional = true }
 
 
 [profile.release]
@@ -35,6 +38,7 @@ strip = "debuginfo"
 
 [features]
 native = ["dep:inkwell"]
+cache = ["native", "dep:dirs", "dep:blake3"]
 debug-llvm = ["native"]
 repl = ["dep:rustyline"]
 human-panic = ["dep:human-panic"]

@@ -26,9 +26,16 @@ mod mangle;
 mod check;
 mod profiler;
 
+
 cfg_if! {
     if #[cfg(feature = "native")] {
         mod compiler;
+    }
+}
+
+cfg_if! {
+    if #[cfg(feature = "cache")]{
+        mod cache;
     }
 }
 

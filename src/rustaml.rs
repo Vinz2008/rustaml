@@ -129,6 +129,7 @@ pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<
 pub struct FrontendOutput {
     pub ast : ASTRef,
     pub type_infos : TypeInfos,
+    pub content : String,
 }
 
 pub fn read_file(filename : &Path) -> String {
@@ -178,6 +179,7 @@ pub fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Resu
     Ok(FrontendOutput {
         ast,
         type_infos,
+        content,
     })
 }
 

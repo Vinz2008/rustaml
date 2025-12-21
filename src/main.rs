@@ -80,6 +80,13 @@ cfg_if! {
     }
 }
 
+cfg_if! {
+    if #[cfg(feature = "cache")] {
+        mod cache;
+    } else {
+    }
+}
+
 
 // TODO : replace dbg calls for println (buffered print and use of stdout)
 

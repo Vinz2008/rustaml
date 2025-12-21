@@ -8,6 +8,7 @@
         "stack-expand",
         "debug-llvm",
         "dot-format",
+        "cache",
     ],
     "files.associations": {
         "io": "llvm",

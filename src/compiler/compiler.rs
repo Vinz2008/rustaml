@@ -1,16 +1,39 @@
 use core::panic;
-use std::{hash::{Hash, Hasher}, io::Write, ops::Range, path::{Path, MAIN_SEPARATOR}, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
+use std::{fs, hash::{Hash, Hasher}, io::Write, ops::Range, path::{MAIN_SEPARATOR, Path, PathBuf}, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{get_debug_loc, DebugInfo, DebugInfosInner, TargetInfos}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
+use cfg_if::cfg_if;
 
 // TODO : do only one alloc when init a static list then put all the nodes in it (faster + better cache locality)
 // TODO : add generic enums to have results for error handling
 
 #[cfg(feature = "debug-llvm")]
 use inkwell::support::LLVMString;
+
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct CachedCompMeta {
+    pub shared_libs : Vec<String>,
+}
+
+pub struct CachedCompilation {
+    pub bitcode_path : PathBuf,
+    pub metadata : CachedCompMeta,
+}
+
+cfg_if! {
+    if #[cfg(feature = "cache")]{
+        use crate::cache::{write_cached_llvm_ir, get_cached_llvm_ir};
+    } else {
+        fn write_cached_llvm_ir(_bitcode_path : &Path, _opt_level : OptimizationLevel, _content : &str, _shared_libs : &[String]){}
+        fn get_cached_llvm_ir(content : &str, opt_level : OptimizationLevel) -> Option<CachedCompilation>{
+            None
+        }
+    }
+}
 
 pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     pub rustaml_context : &'context mut RustamlContext,
@@ -128,7 +151,6 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             args: Box::new([ptr_type]),
             ret: Some(ptr_type_ret),
             attributes: vec![attr_return("noalias"), attr_args("noundef", 0)],
-            ..Default::default()
         },
         BuiltinFunction {
             name: "fprintf",
@@ -1444,20 +1466,6 @@ impl OptionalArgs {
 
 // TODO : pass all the args after optimization level as a struct named OptionalArgs
 pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optional_args : OptionalArgs) {
-    rustaml_context.start_section("llvm-codegen");
-    let context = Context::create();
-    let builder = context.create_builder();
-    let filename_path = filename.parent().map(|e| e.as_os_str().to_str().unwrap()).unwrap();
-    let filename_end = filename.file_name().unwrap().to_str().unwrap();
-
-    let filename_str = filename.as_os_str().to_str().expect("not UTF-8 filename");
-    let module = context.create_module(filename_str);
-
-    Target::initialize_all(&InitializationConfig::default());
-    let target_triple = TargetMachine::get_default_triple();
-
-    let target = Target::from_triple(&target_triple).unwrap();
-
     let optimization_level = match optional_args.optimization_level {
         0 => OptimizationLevel::None,
         1 => OptimizationLevel::Less,
@@ -1465,116 +1473,17 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         3 => OptimizationLevel::Aggressive,
         _ => OptimizationLevel::Default,
     };
-
-    let target_machine = target
-        .create_target_machine(
-            &target_triple,
-            "generic",
-            "",
-            optimization_level,
-            RelocMode::PIC,
-            CodeModel::Default,
-        )
-        .unwrap();
-
-    let target_data = target_machine.get_target_data();
-
     
-    
-    let data_layout = target_data.get_data_layout();
-
-    module.set_triple(&target_triple);
-    module.set_data_layout(&data_layout);
-
-    let is_optimized = optional_args.optimization_level > 0;
-    
-    let debug_info = DebugInfo { 
-        inner: if optional_args.enable_debuginfos {
-            let ptr_size = target_data.get_pointer_byte_size(None);
-            let ptr_alignement = target_data.get_abi_alignment(&context.ptr_type(AddressSpace::default()));
-            let debug_info_version = context.i32_type().const_int(DEBUGINFO_VERSION, false);
-            let list_type = get_list_type(&context);
-            let list_size = target_data.get_bit_size(&list_type)/8;
-            let list_alignement = target_data.get_abi_alignment(&list_type);
-
-            let target_infos = TargetInfos::new(ptr_size, ptr_alignement, list_size, list_alignement);
-            
-            module.add_basic_value_flag("Debug Info Version", FlagBehavior::Warning, debug_info_version);
-            
-            let (debug_builder, debug_compile_unit) = module.create_debug_info_builder(true, DWARFSourceLanguage::C, filename_end, filename_path, "rustaml compiler", is_optimized, "", 0, "", DWARFEmissionKind::Full, 0, false, false, "", "");
-            Some(DebugInfosInner::new(target_infos, is_optimized, debug_builder, debug_compile_unit))
-        } else {
-            None
-        }
-     };
-
-    let main_function = get_main_function(&context, &module);
-
-    let internal_functions = get_internal_functions(&context);
-
-    let mut compile_context = CompileContext {
-        rustaml_context,
-        context : &context,
-        module: &module,
-        builder: &builder,
-        debug_info,
-        is_optimized,
-        typeinfos: frontend_output.type_infos,
-        functions: FxHashMap::default(),
-        main_function,
-        var_vals: FxHashMap::default(),
-        internal_functions,
-        external_symbols_declared: FxHashSet::default(),
-        global_strs: FxHashMap::default(),
-        shared_libs: Vec::new(),
-        generic_map: FxHashMap::default(),
-        generic_functions: FxHashMap::default(),
-        generic_func_def_ast_node: FxHashMap::default(),
-        monomorphized_internal_fun: init_monomorphized_internal_fun(),
-    };
-
-    let top_level_nodes = match frontend_output.ast.get(&compile_context.rustaml_context.ast_pool) {
-        ASTNode::TopLevel { nodes } => nodes.clone(),
-        _ => unreachable!(),
-    };
-
-    for n in top_level_nodes {
-        compile_top_level_node(&mut compile_context, n);
-    }
-
-    let last_main_bb = compile_context.main_function.get_last_basic_block().unwrap();
-    compile_context.builder.position_at_end(last_main_bb);
-
-    let should_return = match last_main_bb.get_last_instruction(){
-        Some(instr) => {
-            !instr.is_terminator()
-        }
-        None => true,
-    };
-
-    if should_return {
-        compile_context.builder.build_return(Some(&compile_context.context.i32_type().const_int(0, false))).unwrap();
-    }
-
-    compile_context.debug_info.finalize(&mut compile_context.main_function);
-    
-    
-    let filename_without_ext = filename.file_stem().unwrap().to_str().expect("not UTF-8 filename").to_owned();
-
-    #[cfg(feature = "debug-llvm")]
-    compile_context.module.verify().or_else(|e| -> Result<_, LLVMString> { 
-        compile_context.module.print_to_file(filename_without_ext.clone() + "_error.ll").unwrap();
-        panic!("LLVM ERROR {}", e.to_string()) 
-    }).unwrap();
-
     let temp_path = if optional_args.keep_temp {
         Path::new(".").to_owned() 
     } else { 
         std::env::temp_dir()
     };
 
+    let filename_without_ext = filename.file_stem().unwrap().to_str().expect("not UTF-8 filename").to_owned();
+
     let filename_with_hash = if optional_args.keep_temp {
-        filename_without_ext
+        filename_without_ext.clone()
     } else {
     
         let mut hasher = FxHasher::default();
@@ -1590,26 +1499,151 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         
         format!("{}-{}", &filename_without_ext, &hash)
     };
-
     
     let temp_path_bitcode = pathbuf![&temp_path, &format!("{}.bc", &filename_with_hash)];
     
-    compile_context.rustaml_context.end_section("llvm-codegen");
+    let shared_libs = if !optional_args.keep_temp && let Some(bitcode_cached_path) = get_cached_llvm_ir(&frontend_output.content, optimization_level) {
+        // TODO : do ln instead of copying then suppressing it ?
+        fs::copy(bitcode_cached_path.bitcode_path, &temp_path_bitcode).unwrap();
+        bitcode_cached_path.metadata.shared_libs
+    } else {
+        rustaml_context.start_section("llvm-codegen");
+        let context = Context::create();
+        let builder = context.create_builder();
+        let filename_path = filename.parent().map(|e| e.as_os_str().to_str().unwrap()).unwrap();
+        let filename_end = filename.file_name().unwrap().to_str().unwrap();
 
-    compile_context.rustaml_context.start_section("llvm-opt");
-    run_passes_on(compile_context.module, &target_machine, optimization_level);
-    compile_context.rustaml_context.end_section("llvm-opt");
+        let filename_str = filename.as_os_str().to_str().expect("not UTF-8 filename");
+        let module = context.create_module(filename_str);
 
-    if optional_args.keep_temp {
-        let temp_path_ir = pathbuf![&temp_path, &format!("{}.ll", &filename_with_hash)];
-        compile_context.module.print_to_file(&temp_path_ir).expect("Couldn't write llvm ir file");
-    }
-    
-    compile_context.module.write_bitcode_to_path(&temp_path_bitcode);
+        Target::initialize_all(&InitializationConfig::default());
+        let target_triple = TargetMachine::get_default_triple();
 
+        let target = Target::from_triple(&target_triple).unwrap();
+
+        let target_machine = target
+            .create_target_machine(
+                &target_triple,
+                "generic",
+                "",
+                optimization_level,
+                RelocMode::PIC,
+                CodeModel::Default,
+            )
+            .unwrap();
+
+        let target_data = target_machine.get_target_data();
+
+        
+        
+        let data_layout = target_data.get_data_layout();
+
+        module.set_triple(&target_triple);
+        module.set_data_layout(&data_layout);
+
+        let is_optimized = optional_args.optimization_level > 0;
+        
+        let debug_info = DebugInfo { 
+            inner: if optional_args.enable_debuginfos {
+                let ptr_size = target_data.get_pointer_byte_size(None);
+                let ptr_alignement = target_data.get_abi_alignment(&context.ptr_type(AddressSpace::default()));
+                let debug_info_version = context.i32_type().const_int(DEBUGINFO_VERSION, false);
+                let list_type = get_list_type(&context);
+                let list_size = target_data.get_bit_size(&list_type)/8;
+                let list_alignement = target_data.get_abi_alignment(&list_type);
+
+                let target_infos = TargetInfos::new(ptr_size, ptr_alignement, list_size, list_alignement);
+                
+                module.add_basic_value_flag("Debug Info Version", FlagBehavior::Warning, debug_info_version);
+                
+                let (debug_builder, debug_compile_unit) = module.create_debug_info_builder(true, DWARFSourceLanguage::C, filename_end, filename_path, "rustaml compiler", is_optimized, "", 0, "", DWARFEmissionKind::Full, 0, false, false, "", "");
+                Some(DebugInfosInner::new(target_infos, is_optimized, debug_builder, debug_compile_unit))
+            } else {
+                None
+            }
+        };
+
+        let main_function = get_main_function(&context, &module);
+
+        let internal_functions = get_internal_functions(&context);
+
+        let mut compile_context = CompileContext {
+            rustaml_context,
+            context : &context,
+            module: &module,
+            builder: &builder,
+            debug_info,
+            is_optimized,
+            typeinfos: frontend_output.type_infos,
+            functions: FxHashMap::default(),
+            main_function,
+            var_vals: FxHashMap::default(),
+            internal_functions,
+            external_symbols_declared: FxHashSet::default(),
+            global_strs: FxHashMap::default(),
+            shared_libs: Vec::new(),
+            generic_map: FxHashMap::default(),
+            generic_functions: FxHashMap::default(),
+            generic_func_def_ast_node: FxHashMap::default(),
+            monomorphized_internal_fun: init_monomorphized_internal_fun(),
+        };
+
+        let top_level_nodes = match frontend_output.ast.get(&compile_context.rustaml_context.ast_pool) {
+            ASTNode::TopLevel { nodes } => nodes.clone(),
+            _ => unreachable!(),
+        };
+
+        for n in top_level_nodes {
+            compile_top_level_node(&mut compile_context, n);
+        }
+
+        let last_main_bb = compile_context.main_function.get_last_basic_block().unwrap();
+        compile_context.builder.position_at_end(last_main_bb);
+
+        let should_return = match last_main_bb.get_last_instruction(){
+            Some(instr) => {
+                !instr.is_terminator()
+            }
+            None => true,
+        };
+
+        if should_return {
+            compile_context.builder.build_return(Some(&compile_context.context.i32_type().const_int(0, false))).unwrap();
+        }
+
+        compile_context.debug_info.finalize(&mut compile_context.main_function);
+        
+
+
+        #[cfg(feature = "debug-llvm")]
+        compile_context.module.verify().or_else(|e| -> Result<_, LLVMString> { 
+            compile_context.module.print_to_file(filename_without_ext.clone() + "_error.ll").unwrap();
+            panic!("LLVM ERROR {}", e.to_string()) 
+        }).unwrap();
+
+
+        
+        compile_context.rustaml_context.end_section("llvm-codegen");
+
+        compile_context.rustaml_context.start_section("llvm-opt");
+        run_passes_on(compile_context.module, &target_machine, optimization_level);
+        compile_context.rustaml_context.end_section("llvm-opt");
+
+        if optional_args.keep_temp {
+            let temp_path_ir = pathbuf![&temp_path, &format!("{}.ll", &filename_with_hash)];
+            compile_context.module.print_to_file(&temp_path_ir).expect("Couldn't write llvm ir file");
+        }
+        
+        compile_context.module.write_bitcode_to_path(&temp_path_bitcode);
+
+        compile_context.rustaml_context.start_section("write-cached-bitcode");
+        write_cached_llvm_ir(&temp_path_bitcode, optimization_level, &frontend_output.content, &compile_context.shared_libs);
+        compile_context.rustaml_context.end_section("write-cached-bitcode");
+        compile_context.shared_libs
+    };
 
     if let Some(f_out) = filename_out {
-        link_exe(compile_context.rustaml_context, f_out,  &temp_path_bitcode, &compile_context.shared_libs, optimization_level, &optional_args);
+        link_exe(rustaml_context, f_out,  &temp_path_bitcode, &shared_libs, optimization_level, &optional_args);
         if !optional_args.keep_temp {
             std::fs::remove_file(temp_path_bitcode).expect("Couldn't delete bitcode file");
         }
