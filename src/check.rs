@@ -165,7 +165,7 @@ fn check<'a>(check_context : &CheckContext<'a>, ast : ASTRef) -> Result<(), Chec
         }
         ASTNode::Cast { to_type: _, expr } => check(check_context, *expr)?,        
         
-        ASTNode::Unit | ASTNode::Float { .. } | ASTNode::Boolean { .. } | ASTNode::String { .. } | ASTNode::VarUse { .. } | ASTNode::ExternFunc { .. } => {},
+        ASTNode::Unit | ASTNode::Float { .. } | ASTNode::Boolean { .. } | ASTNode::String { .. } | ASTNode::VarUse { .. } | ASTNode::ExternFunc { .. } | ASTNode::TypeAlias { .. } => {},
     }
     Ok(())
 }

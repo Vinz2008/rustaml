@@ -1,8 +1,8 @@
 use cfg_if::cfg_if;
 use levenshtein::levenshtein;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::{ast::{self, ASTPool, ASTRef, PatternPool}, check::check_ast, interpreter::ListPool, lexer, print_error::{self, print_check_error}, profiler::{Profiler, ProfilerFormat}, string_intern::StrInterner, types::{TypeInfos, resolve_and_typecheck}};
+use crate::{ast::{self, ASTPool, ASTRef, PatternPool, Type}, check::check_ast, interpreter::ListPool, lexer, print_error::{self, print_check_error}, profiler::{Profiler, ProfilerFormat}, string_intern::{StrInterner, StringRef}, types::{TypeInfos, resolve_and_typecheck}};
 use std::{fs, path::{Path, PathBuf}};
 
 cfg_if! {
@@ -27,9 +27,10 @@ pub struct RustamlContext {
     pub ast_pool : ASTPool,
     pub pattern_pool : PatternPool,
     pub list_node_pool : ListPool,
+    pub type_aliases : FxHashMap<StringRef, Type>,
 
     pub is_debug_print : bool,
-    pub self_profiler : Option<Profiler>,
+    pub self_profiler : Option<Profiler>, // TODO : box this to lower the size of the struct ?
     pub content : Option<ContentLoc>,
 }
 
@@ -40,6 +41,7 @@ impl RustamlContext {
             ast_pool: ASTPool::new(),
             pattern_pool: PatternPool::new(),
             list_node_pool: ListPool::new(),
+            type_aliases: FxHashMap::default(),
             is_debug_print,
             self_profiler: if self_profile {
                 Some(Profiler::new())

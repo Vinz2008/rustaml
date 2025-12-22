@@ -14,8 +14,8 @@ pub fn get_type_tag(t : &Type) -> u8 {
         Type::Function(_, _, _) => 3,
         Type::Str => 4,
         Type::List(_) => 5,
-        // TODO : add a type tag for Unit ? Never ?
-        Type::Any | Type::Unit | Type::Never | Type::CType(_) | Type::Generic(_) => panic!("no type tag for this type {:?} !!", t),
+        // TODO : add a type tag for Unit ? Never ? SumType ?
+        Type::Any | Type::Unit | Type::Never | Type::CType(_) | Type::Generic(_) | Type::SumType(_) => panic!("no type tag for this type {:?} !!", t),
     }
 }
 
@@ -65,9 +65,10 @@ pub fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, '_, 'llvm_
         //Type::Unit | Type::Never => compile_context.context.void_type().into(),
         Type::Unit => compile_context.context.struct_type(&[], false).into(),
         Type::Never => compile_context.context.void_type().into(),
-        Type::Any => encountered_any_type(),
         Type::CType(c_type) => get_llvm_type_ctype(compile_context.context, c_type),
         Type::Generic(gen_num) => get_llvm_type(compile_context, compile_context.generic_map.get(gen_num).unwrap()),
+        Type::SumType(sumtype) => todo!(), // TODO
+        Type::Any => encountered_any_type(),
     }
 }
 
@@ -249,6 +250,7 @@ pub fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
         Type::Str | Type::List(_) | Type::Function(_, _, _) => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_to_val").unwrap(),
         //Type::Never | Type::Unit => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_nothing_to_val").unwrap(),
         Type::Never | Type::Unit => i64_type.const_int(0, false),
+        Type::SumType(sumtype) => todo!(),
         Type::Any => encountered_any_type(),
         Type::Generic(_) | Type::CType(_) => unreachable!(),
     }

@@ -315,6 +315,7 @@ fn get_format_string(print_type : &Type) -> &'static str {
         Type::Never => "", // can't print it, normally if the function is really a never type, it should be never return, so the print should never be called 
         Type::CType(c_type) => get_format_ctype(c_type),
         Type::Any => encountered_any_type(),
+        Type::SumType(_) => unreachable!(), // TODO ?
         Type::Generic(_) => unreachable!(),
     }
 }
@@ -481,6 +482,7 @@ fn should_monomorphize_function(arg_types : &[Type], ret_type : &Type) -> bool {
 fn mangle_name<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, arg_types : &[Type], ret_type : &Type) -> StringRef {
     let mut name_str = name.get_str(&compile_context.rustaml_context.str_interner).to_owned();
     name_str.push(' ');
+    // TODO : only have args that are generics in the mangling ?
     for (idx, arg_type) in arg_types.iter().enumerate() {
         if idx != 0 {
             name_str.push_str(", ");
@@ -507,7 +509,7 @@ fn monomophize_function<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
     for (arg_call, args_def_type) in args_call_types.into_iter().zip(args_def_types) {
         match args_def_type {
             Type::Generic(gen_idx) => {
-                compile_context.generic_map.insert(gen_idx, arg_call.clone());
+                compile_context.generic_map.insert(gen_idx, arg_call.clone()); // TODO : handle if the gen_idx was already set to something ? (is it even possible ?)
                 arg_types_without_generics.push(arg_call);
             }
             a => arg_types_without_generics.push(a.clone()),
@@ -1310,8 +1312,8 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             if let Some(so_str) = so_str {
                 compile_context.shared_libs.push(so_str.get_str(&compile_context.rustaml_context.str_interner).to_owned());
             }
-            
         }
+        ASTNode::TypeAlias { name, type_alias } => {}
         ASTNode::TopLevel { nodes } => {
             // placeholder for imports (TODO ?)
             for n in nodes {

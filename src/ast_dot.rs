@@ -29,6 +29,13 @@ pub fn _generate_ast_dot(graph : &mut Graph<String, String>, rustaml_context : &
             graph.add_edge(extern_func, func_name, "name".to_string());
             extern_func
         }
+        ASTNode::TypeAlias { name, type_alias } => {
+            let type_alias = graph.add_node("type_alias".to_string());
+            let type_name = graph.add_node(name.get_str(&rustaml_context.str_interner).to_string());
+            graph.add_edge(type_alias, type_name, "name".to_string());
+            // TODO : add the type that is aliased
+            type_alias
+        }
         ASTNode::FunctionCall { callee, args } => {
             let func_call = graph.add_node("call".to_string());
             let callee_node = _generate_ast_dot(graph, rustaml_context, *callee);

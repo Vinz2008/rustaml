@@ -394,7 +394,6 @@ pub struct InterpretContext<'context> {
     pub rustaml_context : &'context mut RustamlContext,
     pub gc_context : GcContext,
     rng : ThreadRng
-
 }
 
 
@@ -1177,7 +1176,10 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr, patterns.as_ref()),
         ASTNode::String { str } => Val::String(str),
         ASTNode::List { list } => Val::List(List::new_from(context, &list)),
-        ASTNode::Cast { to_type, expr } => interpret_cast(context, to_type, expr), // TODO
+        ASTNode::Cast { to_type, expr } => interpret_cast(context, to_type, expr),
+        ASTNode::TypeAlias { name: _, type_alias: _ } => {
+            Val::Unit
+        },
         ASTNode::Unit => Val::Unit,
         //n => panic!("unexpected ast node when interpreting : {:?}", n),
     }

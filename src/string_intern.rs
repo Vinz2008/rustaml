@@ -144,6 +144,10 @@ impl StrInterner {
         }
     }
 
+    pub fn is_str_present(&self, s : &str) -> bool {
+        self.map.contains_key(s)
+    }
+
     pub fn is_str_compiler(&self, idx : StringRef) -> bool {
         matches!(self.lookup_interned(idx), StrInterned::Compiler(_))
     }

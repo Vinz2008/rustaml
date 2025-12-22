@@ -186,6 +186,10 @@ pub enum ASTNode {
         body : ASTRef,
         type_annotation : Option<Type>,
     },
+    TypeAlias {
+        name : StringRef,
+        type_alias : Type,
+    },
     ExternFunc {
         name : StringRef,
         type_annotation : Type,
@@ -261,6 +265,17 @@ pub enum CType {
     F64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Variant {
+    name: Box<str>, // TODO : should it be this (probably not StringRef to not need context to print types ? or should it ?)
+    associated_type : Option<Type>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SumType {
+    variants : Box<[Variant]>
+}
+
 // TODO : add a type pool to remove boxes (test performance ? normally should be useful for lowering the type size, it would become only 64 bit and we could make it Copy, but we wouldn't use it everywhere there is Type like for other types, just in refence in the type to other types to lower the size while only indexing in the vector when it is really needed)
 // THE PROBLEM : would need to make the type system only have functions with only one args, but could do it by returning type of function types, which could even help for currying
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Tag)]
@@ -274,6 +289,8 @@ pub enum Type {
     Any, // not already resolved type during type checking
     Generic(u32),
     CType(CType),
+    SumType(SumType),
+    // TODO : record/product type
     Unit,
     Never,
 }
@@ -297,6 +314,7 @@ impl Display for Type {
             },
             Type::Unit => f.write_str("()"),
             Type::Never => f.write_char('!'),
+            Type::SumType(sum_type) => todo!(), // TODO
             Type::Any => f.write_str("Any"), // TODO
             Type::Generic(_g_idx) => panic!("Can't print generic type"), // TODO ?
             Type::CType(_) => todo!(), // TODO
@@ -491,7 +509,15 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
 
                     return Ok((Type::CType(c_type) , c_type_name_tok.range.end))
                 }
-                s => return Err(ParserErr::new(ParserErrData::UnknownTypeAnnotation { type_str: s.to_owned() }, tok.range.clone())),
+                s => {
+                    if parser.rustaml_context.str_interner.is_str_present(s){ 
+                        let s = parser.rustaml_context.str_interner.intern_compiler(s);
+                        if let Some(t) = parser.rustaml_context.type_aliases.get(&s) {
+                            return Ok((t.clone(), tok.range.end));
+                        }
+                    }
+                    return Err(ParserErr::new(ParserErrData::UnknownTypeAnnotation { type_str: s.to_owned() }, tok.range.clone()));
+                }
             };
             Ok((type_annot, tok.range.end))
         },
@@ -554,6 +580,31 @@ fn parse_type_annotation(parser: &mut Parser) -> Result<(Type, usize), ParserErr
     };
     
     Ok((type_parsed, type_end_range))
+}
+
+fn parse_type_alias(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
+    let name_tok = parser.eat_tok(Some(TokenDataTag::Identifier))?;
+    let name = match name_tok.tok_data {
+        TokenData::Identifier(s) => parser.rustaml_context.str_interner.intern_compiler(&s.iter().collect::<String>()),
+        _ => unreachable!(),
+    };
+
+    parser.eat_tok(Some(TokenDataTag::Equal))?;
+
+    let (t, type_end_range) = parse_type_annotation(parser)?;
+    let mut type_end_range = type_end_range;
+
+    if let Some(TokenData::EndOfExpr) = parser.current_tok_data() {
+        let eof_tok = parser.eat_tok(Some(TokenDataTag::EndOfExpr)).unwrap();
+        type_end_range = eof_tok.range.end;
+    }
+
+    parser.rustaml_context.type_aliases.insert(name, t.clone());
+    
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::TypeAlias { 
+        name, 
+        type_alias: t, 
+    }, name_tok.range.start..type_end_range))
 }
 
 fn parse_let(parser: &mut Parser, let_range_start : usize) -> Result<ASTRef, ParserErr> {
@@ -1042,6 +1093,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         TokenData::ArrayOpen => parse_static_list(parser, tok_range.start),
         TokenData::Op(op) => parse_unary_op(parser, op, tok_range.start),
         TokenData::Extern => parse_extern_func(parser, tok_range.start),
+        TokenData::Type => parse_type_alias(parser),
         TokenData::Cast => parse_cast(parser, tok_range.start),
         //t => panic!("t: {:?}", t),
         t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))

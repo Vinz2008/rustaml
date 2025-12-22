@@ -6,7 +6,6 @@ use std::ops::Range;
 
 use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, debug_println, lexer::Operator, rustaml::{nearest_string, RustamlContext}, string_intern::StringRef};
 
-
 // TODO : make this part generic for every err (something like Ranged<TypesErr>)
 #[derive(Debug)]
 pub struct TypesErr {
@@ -693,6 +692,9 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 context.push_constraint(Constraint::SameType(new_type_var, f), range);
             }
 
+        }
+        ASTNode::TypeAlias { name, type_alias } => {
+            // TODO : what should it even do ?
         }
         //t => panic!("Unknown ast node : {:?}", DebugWrapContext::new(&t, context.rustaml_context)),
     }

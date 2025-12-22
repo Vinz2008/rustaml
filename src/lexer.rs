@@ -99,6 +99,7 @@ pub enum TokenData {
     Function,
     Extern,
     Cast,
+    Type, // TODO : create type aliases
     True,
     False,
     Equal,
@@ -293,6 +294,7 @@ fn lex_alphabetic(lexer: &mut Lexer) -> Token {
         "function" => TokenData::Function,
         "extern" => TokenData::Extern,
         "cast" => TokenData::Cast,
+        "type" => TokenData::Type,
         "true" => TokenData::True,
         "false" => TokenData::False,
         _ => TokenData::Identifier(buf.to_vec().into_boxed_slice()),

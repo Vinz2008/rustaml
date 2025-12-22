@@ -1,0 +1,6 @@
+type t = int ;;
+
+// TODO
+// type t2 = | Test1 | Test2 | Test3
+
+let f a : t -> t = a + 3 ;;
