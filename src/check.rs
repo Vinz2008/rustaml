@@ -7,8 +7,10 @@ use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, print_warnings::{
 // need this for some checks that needs types (ex : match exhaustiveness)
 // so there are here also some other checks that could be in parsing, but are here for more clean code
 
+// TODO : add a warning if a Sum type variant has the same name as a variable / a var with the same name as a sum type variant
+// TODO : add an error (here ? in the parsing ?) when there is two sum type variant with the same name
+
 // for analyzing the ranges of match (make it smarter ?)
-// TODO : use this function to check in the AST to have a warning for non exhaustive match
 pub fn match_is_all_range(rustaml_context : &RustamlContext, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
     match matched_val_type {
         Type::Bool => {
@@ -165,7 +167,7 @@ fn check<'a>(check_context : &CheckContext<'a>, ast : ASTRef) -> Result<(), Chec
         }
         ASTNode::Cast { to_type: _, expr } => check(check_context, *expr)?,        
         
-        ASTNode::Unit | ASTNode::Float { .. } | ASTNode::Boolean { .. } | ASTNode::String { .. } | ASTNode::VarUse { .. } | ASTNode::ExternFunc { .. } | ASTNode::TypeAlias { .. } => {},
+        ASTNode::Unit | ASTNode::Float { .. } | ASTNode::Boolean { .. } | ASTNode::String { .. } | ASTNode::Variant { .. } | ASTNode::VarUse { .. } | ASTNode::ExternFunc { .. } | ASTNode::TypeAlias { .. } => {},
     }
     Ok(())
 }

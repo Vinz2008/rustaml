@@ -205,6 +205,10 @@ pub enum ASTNode {
     VarUse {
         name : StringRef,
     },
+    Variant {
+        name : StringRef,
+        arg : Option<ASTRef>,
+    },
     IfExpr {
         cond_expr : ASTRef,
         then_body : ASTRef,
@@ -267,13 +271,13 @@ pub enum CType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Variant {
-    name: Box<str>, // TODO : should it be this (probably not StringRef to not need context to print types ? or should it ?)
+    pub name: Box<str>, // TODO : should it be this (probably not StringRef to not need context to print types ? or should it ?)
     associated_type : Option<Type>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SumType {
-    variants : Box<[Variant]>
+    pub variants : Box<[Variant]>
 }
 
 // TODO : add a type pool to remove boxes (test performance ? normally should be useful for lowering the type size, it would become only 64 bit and we could make it Copy, but we wouldn't use it everywhere there is Type like for other types, just in refence in the type to other types to lower the size while only indexing in the vector when it is really needed)
@@ -548,8 +552,34 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
     }
 }
 
+fn parse_sum_type(parser: &mut Parser) -> Result<(Type, usize), ParserErr> {
+    let mut variants = Vec::new();
+    let mut end_range = parser.pos;
+    while parser.current_tok_data().is_some() && matches!(parser.current_tok_data().unwrap(), TokenData::Pipe){
+        parser.eat_tok(Some(TokenDataTag::Pipe))?;
+        let variant_tok = parser.eat_tok(Some(TokenDataTag::Identifier))?;
+        end_range = variant_tok.range.end;
+        let variant_name = match variant_tok.tok_data {
+            TokenData::Identifier(s) => s.iter().collect::<Box<str>>(),
+            _ => unreachable!(),
+        };
+
+        variants.push(Variant { 
+            name: variant_name, 
+            associated_type: None // TODO 
+        });
+    }
+
+    let sum_type = SumType { variants: variants.into_boxed_slice() };
+    Ok((Type::SumType(sum_type), end_range))
+}
+
 fn parse_type_annotation(parser: &mut Parser) -> Result<(Type, usize), ParserErr> {
-    
+    // TODO : should it be annotation simple ? (is it a good idea to declare a sum type in a annotation type for ex as a return or arg type ?)
+    if let Some(current_tok) = parser.current_tok_data() && matches!(current_tok, TokenData::Pipe) {
+        return parse_sum_type(parser);
+    }
+
     let (simple_type, simple_end_range) = parse_annotation_simple(parser)?;
 
     let (type_parsed, type_end_range) = match parser.current_tok_data() {
@@ -720,12 +750,6 @@ fn is_function_arg_start(tok_data : Option<&TokenData>) -> bool {
     }
 }
 
-fn parse_var_use_in_function(parser : &mut Parser, identifier_buf : &[char], tok_range : Range<usize>) -> Result<ASTRef, ParserErr> {
-    let identifier = parser.rustaml_context.str_interner.intern_compiler(&identifier_buf.iter().collect::<String>());
-    Ok(parser.rustaml_context.ast_pool.push(ASTNode::VarUse { name: identifier }, tok_range))
-
-}
-
 fn parse_function_arg(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
     let tok = parser.eat_tok(None).unwrap();
     let tok_range = tok.range;
@@ -733,7 +757,7 @@ fn parse_function_arg(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
         TokenData::Integer(nb) => Ok(parse_integer(parser, nb, tok_range)),
         TokenData::Float(nb) => Ok(parse_float(parser, nb, tok_range)),
         TokenData::String(buf) => Ok(parse_string(parser, &buf, tok_range)),
-        TokenData::Identifier(buf) => parse_var_use_in_function(parser, &buf, tok_range),
+        TokenData::Identifier(buf) => parse_identifier_expr(parser, &buf, tok_range),
         TokenData::True => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: true }, tok_range)),
         TokenData::False => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: false }, tok_range)),
         TokenData::ParenOpen => parse_parenthesis(parser, tok_range.start), // TODO : move this to the start of parse_node and make it unreachable! ? (because each time there are parenthesis, parse_node -> parse_primary -> parse_node is added to the call stack) 
@@ -774,7 +798,26 @@ fn parse_function_call(parser: &mut Parser, mut callee : ASTRef) -> Result<ASTRe
 }
 
 fn parse_identifier_expr(parser: &mut Parser, identifier_buf : &[char], identifier_range : Range<usize>) -> Result<ASTRef, ParserErr> {
-    let identifier = parser.rustaml_context.str_interner.intern_compiler(&identifier_buf.iter().collect::<String>());
+    let s = identifier_buf.iter().collect::<String>();
+    let identifier = parser.rustaml_context.str_interner.intern_compiler(&s);
+    for (_name, t) in &parser.rustaml_context.type_aliases {
+        match t {
+            Type::SumType(sum_type) => {
+                for v in &sum_type.variants {
+                    // accelerate this ? TODO : make it use StringRef instead ?
+                    if v.name.as_ref() == s.as_str() {
+                        let variant_ast = ASTNode::Variant { 
+                            name: identifier, 
+                            arg: None, // TODO
+                        };
+                        return Ok(parser.rustaml_context.ast_pool.push(variant_ast, identifier_range))
+                    }
+                }
+            }
+            _ => {},
+        }
+    }
+
 
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::VarUse { name: identifier }, identifier_range))
     

@@ -67,7 +67,10 @@ pub fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, '_, 'llvm_
         Type::Never => compile_context.context.void_type().into(),
         Type::CType(c_type) => get_llvm_type_ctype(compile_context.context, c_type),
         Type::Generic(gen_num) => get_llvm_type(compile_context, compile_context.generic_map.get(gen_num).unwrap()),
-        Type::SumType(sumtype) => todo!(), // TODO
+        Type::SumType(sumtype) => {
+            // for now only an int for the tag, will need to support the type of variants, TODO
+            get_llvm_type(compile_context, &Type::Integer)
+        }, // TODO
         Type::Any => encountered_any_type(),
     }
 }

@@ -1144,6 +1144,23 @@ fn compile_cast<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
     }
 }
 
+fn compile_variant<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, _arg : Option<ASTRef>) -> AnyValueEnum<'llvm_ctx> {
+    let variant_nb = compile_context.rustaml_context.type_aliases.iter().position(|(_k, t)|{
+        match t {
+            Type::SumType(sum_type) => {
+                for v in &sum_type.variants {
+                    if v.name.as_ref() == name.get_str(&compile_context.rustaml_context.str_interner) {
+                        return true;
+                    }
+                }
+                false
+            }
+            _ => false
+        }
+    }).unwrap();
+    create_int(compile_context, variant_nb as i128).into()
+}
+
 // TODO : replace AnyValueEnum with BasicMetadataValueEnum in compile_expr and other functions ?
 pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef) -> AnyValueEnum<'llvm_ctx> {
     let range = ast_node.get_range(&compile_context.rustaml_context.ast_pool);
@@ -1165,6 +1182,7 @@ pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
         ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, matched_expr, &patterns),
         ASTNode::AnonFunc { args, body, type_annotation: _ } => compile_anon_func(compile_context, ast_node, &args, body).as_any_value_enum(),
         ASTNode::Cast { to_type, expr } => compile_cast(compile_context, &to_type, expr),
+        ASTNode::Variant { name, arg } => compile_variant(compile_context, name, arg),
         ASTNode::Unit => get_void_val(compile_context.context),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(&t, compile_context.rustaml_context)), 
     }

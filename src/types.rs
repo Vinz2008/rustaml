@@ -362,6 +362,23 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         ASTNode::Float { .. } => context.push_constraint(Constraint::IsType(new_type_var, Type::Float), range),
         ASTNode::String { .. } => context.push_constraint(Constraint::IsType(new_type_var, Type::Str), range),
         ASTNode::Boolean { .. } => context.push_constraint(Constraint::IsType(new_type_var, Type::Bool), range),
+        ASTNode::Variant { name, arg: _ } => {
+            let sum_type = context.rustaml_context.type_aliases.iter().find(|(k, t)| {
+                match t {
+                    Type::SumType(sum_type) => {
+                        for v in &sum_type.variants {
+                            if v.name.as_ref() == name.get_str(&context.rustaml_context.str_interner){
+                                return true;
+                            } 
+                        }
+                        false
+                    },
+                    _ => false,
+                }
+            });
+            let sum_type = sum_type.unwrap().1.clone(); // TODO : do an error if it is None, so if the variant doesn't exist ? is it even possible because it is checked when parsing ?
+            context.push_constraint(Constraint::IsType(new_type_var, sum_type), range)
+        },
         ASTNode::List { list } => {
             context.push_constraint(Constraint::ListType(new_type_var), range.clone());
 

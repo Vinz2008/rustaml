@@ -1177,6 +1177,9 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::String { str } => Val::String(str),
         ASTNode::List { list } => Val::List(List::new_from(context, &list)),
         ASTNode::Cast { to_type, expr } => interpret_cast(context, to_type, expr),
+        ASTNode::Variant { name, arg } => {
+            todo!() // TODO
+        }
         ASTNode::TypeAlias { name: _, type_alias: _ } => {
             Val::Unit
         },
