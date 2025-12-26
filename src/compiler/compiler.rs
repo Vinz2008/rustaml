@@ -1145,19 +1145,19 @@ fn compile_cast<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
 }
 
 fn compile_variant<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, _arg : Option<ASTRef>) -> AnyValueEnum<'llvm_ctx> {
-    let variant_nb = compile_context.rustaml_context.type_aliases.iter().position(|(_k, t)|{
+    let mut variant_nb = None;
+    for (_k, t) in &compile_context.rustaml_context.type_aliases {
         match t {
             Type::SumType(sum_type) => {
-                for v in &sum_type.variants {
-                    if v.name.as_ref() == name.get_str(&compile_context.rustaml_context.str_interner) {
-                        return true;
-                    }
+                if let Some(pos) = sum_type.variants.iter().position(|v| v.name.as_ref() == name.get_str(&compile_context.rustaml_context.str_interner)) {
+                    variant_nb = Some(pos);
+                    break;
                 }
-                false
             }
-            _ => false
+            _ => {}
         }
-    }).unwrap();
+    }
+    let variant_nb = variant_nb.unwrap();
     create_int(compile_context, variant_nb as i128).into()
 }
 

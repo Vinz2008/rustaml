@@ -7,4 +7,5 @@ type t2 =
     | Test3 ;;
 
 let f a : t -> t = a + 3 ;;
-let f a : () -> t2 = Test1 ;;
+let f2 a : () -> t2 = Test1 ;;
+let _ = f2 () ;;

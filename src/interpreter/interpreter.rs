@@ -279,6 +279,14 @@ impl DebugWithContext<RustamlContext> for List {
 
 }
 
+#[derive(Clone, PartialEq, DebugWithContext)]
+#[debug_context(RustamlContext)]
+struct SumTypeVal {
+    // TODO : are there other ways to represent this ?
+    sum_type_name : StringRef,
+    variant_nb : usize,
+    // TODO : add val
+}
 
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
@@ -289,6 +297,7 @@ pub enum Val {
     String(StringRef),
     List(ListRef),
     Function(FunctionDef),
+    SumType(SumTypeVal),
     Unit,
 }
 
@@ -347,6 +356,7 @@ impl Display for ValWrapDisplay<'_> {
             Val::String(s) => write!(f, "{}", s.get_str(&self.rustaml_context.str_interner)),
             Val::List(l) => display_list(*l, self.rustaml_context, f),
             Val::Function(_) => write!(f, "function"), // TODO ?
+            Val::SumType(s) => todo!(), // TODO
             Val::Unit => write!(f, "()"),
         }
     }
@@ -1097,6 +1107,25 @@ fn interpret_cast(context : &mut InterpretContext, to_type : Type, expr : ASTRef
     val
 }
 
+fn interpret_variant(context : &mut InterpretContext, name : StringRef, _arg : Option<ASTRef>) -> Val {
+    let mut sum_type_name_variant_nb = None;
+    for (k, t) in &context.rustaml_context.type_aliases {
+        match t {
+            Type::SumType(sum_type) => {
+                for (idx, v) in sum_type.variants.iter().enumerate() {
+                    if v.name.as_ref() == name.get_str(&context.rustaml_context.str_interner){
+                        sum_type_name_variant_nb = Some((*k, idx));
+                    }
+                }
+            },
+            _ => {},
+        }
+    }
+    let (sum_type_name, variant_nb) = sum_type_name_variant_nb.unwrap();
+    let sum_type_val = SumTypeVal { sum_type_name, variant_nb };
+    Val::SumType(sum_type_val)
+}
+
 // TODO: add a real call to collect_gc
 
 pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
@@ -1177,9 +1206,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::String { str } => Val::String(str),
         ASTNode::List { list } => Val::List(List::new_from(context, &list)),
         ASTNode::Cast { to_type, expr } => interpret_cast(context, to_type, expr),
-        ASTNode::Variant { name, arg } => {
-            todo!() // TODO
-        }
+        ASTNode::Variant { name, arg } => interpret_variant(context, name, arg),
         ASTNode::TypeAlias { name: _, type_alias: _ } => {
             Val::Unit
         },
