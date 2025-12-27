@@ -1354,6 +1354,7 @@ fn get_main_function<'llvm_ctx>(llvm_context : &'llvm_ctx Context, module : &Mod
 fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : OptimizationLevel) {
     // TODO : test with "function(mem2reg)," at the start (like https://github.com/inko-lang/inko/blob/main/compiler/src/llvm/passes.rs#L553)
     // to remove allocas even with no optimizations enabled ?
+    // TODO : Add support for asan and ubsan in the passes_str, ex : "asan,default<O2>"
     let passes_str = format!("default<O{}>", opt_level as u8);
     module.run_passes(&passes_str, target_machine, PassBuilderOptions::create()).unwrap();
 }
