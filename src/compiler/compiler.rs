@@ -1351,11 +1351,11 @@ fn get_main_function<'llvm_ctx>(llvm_context : &'llvm_ctx Context, module : &Mod
     main
 }
 
-fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : OptimizationLevel) {
+fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : OptimizationLevel, sanitizer : bool) {
     // TODO : test with "function(mem2reg)," at the start (like https://github.com/inko-lang/inko/blob/main/compiler/src/llvm/passes.rs#L553)
     // to remove allocas even with no optimizations enabled ?
-    // TODO : Add support for asan and ubsan in the passes_str, ex : "asan,default<O2>"
     let passes_str = format!("default<O{}>", opt_level as u8);
+    
     module.run_passes(&passes_str, target_machine, PassBuilderOptions::create()).unwrap();
 }
 
@@ -1390,10 +1390,6 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
         clang_std.arg("-g");
     }
 
-    if optional_args.enable_sanitizer {
-        clang_std.arg("-fsanitize=address,undefined");
-    }
-
 
     // TODO : work on freestanding (add set target to make the os unknown in target triplet, pass linker script or just pass linker arg ?)
     if optional_args.freestanding {
@@ -1416,10 +1412,6 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
 
     if !optional_args.disable_gc {
         link_cmd.arg("-lgc");
-    }
-
-    if optional_args.enable_sanitizer {
-        link_cmd.arg("-fsanitize=address,undefined");
     }
 
     if optional_args.freestanding {
@@ -1449,9 +1441,14 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
         }
     }
 
-    let final_args = link_cmd.arg("-lm").arg("-o").arg(filename_out).arg(out_std_path_str).arg(bitcode_file);
+    link_cmd.arg("-lm").arg("-o").arg(filename_out).arg(out_std_path_str).arg(bitcode_file);
+    if optional_args.enable_sanitizer {
+        // TODO : need undefined sanitizer ? or just reimplement the checks (some are already implemented like overflow, but need a flag to deactivate them, and need one to replace the errors with a trap instruction)
+        link_cmd.arg("-fsanitize=address");
+        //link_cmd.arg("-Wl,--no-gc-sections");
+    }
 
-    if !final_args.spawn().expect("linker failed").wait().unwrap().success() {
+    if !link_cmd.spawn().expect("linker failed").wait().unwrap().success() {
         return;
     }
 
@@ -1651,7 +1648,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         compile_context.rustaml_context.end_section("llvm-codegen");
 
         compile_context.rustaml_context.start_section("llvm-opt");
-        run_passes_on(compile_context.module, &target_machine, optimization_level);
+        run_passes_on(compile_context.module, &target_machine, optimization_level, optional_args.enable_sanitizer);
         compile_context.rustaml_context.end_section("llvm-opt");
 
         if optional_args.keep_temp {
