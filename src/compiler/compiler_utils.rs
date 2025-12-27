@@ -148,6 +148,19 @@ pub fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext
     builder.build_alloca(any_type_to_basic(compile_context.context, alloca_type), name).unwrap()
 }
 
+pub fn create_entry_block_array_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : &str, alloca_type : AnyTypeEnum<'llvm_ctx>, size : IntValue<'llvm_ctx>) -> PointerValue<'llvm_ctx> 
+{
+    let builder = compile_context.context.create_builder();
+    let entry = get_current_function(compile_context.builder).get_first_basic_block().unwrap();
+    match entry.get_first_instruction() {
+        Some(first_instr) => builder.position_before(&first_instr),
+        None => builder.position_at_end(entry),
+    }
+
+    //dbg!(alloca_type);
+    builder.build_array_alloca(any_type_to_basic(compile_context.context, alloca_type), size, name).unwrap()
+}
+
 pub fn create_var<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : AnyValueEnum<'llvm_ctx>, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
     /*if alloca_type.is_void_type(){
         return compile_context.context.ptr_type(AddressSpace::default()).const_null(); // to represent a var containing a void, if it is written to, it is a bug

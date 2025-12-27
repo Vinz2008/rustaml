@@ -252,6 +252,25 @@ static struct ListNode* list_node_init(uint8_t type_tag, Val val) {
     return l;
 }
 
+// optimization, improve cache locality
+struct ListNode* __list_node_init_static(uint8_t type_tag, Val* vals_static, int64_t len){
+    ASSERT_NOT_NULL(vals_static);
+    assert(len > 0 && "len should be greater than 0");
+
+    struct ListNode* list_nodes = MALLOC(len * sizeof(struct ListNode));
+    for (int64_t i = 0; i < len; i++){
+        list_nodes[i] = (struct ListNode){
+            .type_tag = type_tag,
+            .val = vals_static[i],
+            .next = NULL,
+        };
+        if (i < len-1){
+            list_nodes[i].next = list_nodes + i + 1;
+        }
+    }
+    return list_nodes;
+}
+
 // appends at the front
 struct ListNode* __list_node_append(struct ListNode* list, uint8_t type_tag, Val val){
     struct ListNode* ret = list_node_init(type_tag, val);

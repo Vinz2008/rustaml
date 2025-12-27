@@ -1,8 +1,8 @@
 use core::panic;
 use std::{fs, hash::{Hash, Hasher}, io::Write, ops::Range, path::{MAIN_SEPARATOR, Path, PathBuf}, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
-use inkwell::{attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}, AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel};
+use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_basic, any_val_to_metadata, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use inkwell::{AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use cfg_if::cfg_if;
@@ -51,6 +51,8 @@ pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
     pub is_optimized : bool,
     shared_libs : Vec<String>,
 
+    pub target_data : TargetData,
+
     // TODO : put these in a separate struct
     generic_functions : FxHashMap<(StringRef, Vec<Type>, Type), FunctionValue<'llvm_ctx>>,
     pub generic_map : FxHashMap<u32, Type>,
@@ -96,6 +98,13 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
         BuiltinFunction {
             name: "__str_append",
             args: Box::new([ptr_type, ptr_type]),
+            ret: Some(ptr_type_ret),
+            attributes: vec![attr_return("noalias")],
+            ..Default::default()
+        },
+        BuiltinFunction {
+            name: "__list_node_init_static",
+            args: Box::new([llvm_context.i8_type().into(), ptr_type, llvm_context.i64_type().into()]),
             ret: Some(ptr_type_ret),
             attributes: vec![attr_return("noalias")],
             ..Default::default()
@@ -809,7 +818,8 @@ fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
             //dbg!(lhs_val, rhs_val);
            // dbg!(elem_type);
             let type_tag_val = get_type_tag_val(compile_context.context, elem_type);
-            create_list_append_call(compile_context, rhs_val.into_pointer_value(), type_tag_val, lhs_val).into()
+            let std_lhs_val = to_std_c_val(compile_context, lhs_val, elem_type);
+            create_list_append_call(compile_context, rhs_val.into_pointer_value(), type_tag_val, std_lhs_val).into()
         },
         Operator::ListMerge => {
             create_list_merge(compile_context, lhs_val.into_pointer_value(), rhs_val.into_pointer_value()).into()
@@ -1025,10 +1035,19 @@ fn compile_var_use<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm
     }
 }
 
-fn create_list_append_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : PointerValue<'llvm_ctx>, type_tag_val : IntValue<'llvm_ctx>, val : AnyValueEnum<'llvm_ctx> ) -> PointerValue<'llvm_ctx> {
+// TODO : move these in an instrisics.rs
+
+fn create_list_init_static_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, type_tag_val : IntValue<'llvm_ctx>, vals : PointerValue<'llvm_ctx>, len_val : IntValue<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
+    let function = compile_context.get_internal_function("__list_node_init_static");
+    //dbg!(function);
+    let args = &[type_tag_val.into(), vals.into(), len_val.into()];
+    compile_context.builder.build_call(function, args, "list_init_static").unwrap().as_any_value_enum().into_pointer_value()
+}
+
+fn create_list_append_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : PointerValue<'llvm_ctx>, type_tag_val : IntValue<'llvm_ctx>, val : IntValue<'llvm_ctx> ) -> PointerValue<'llvm_ctx> {
     let function = compile_context.get_internal_function("__list_node_append");
     //dbg!(function);
-    let args = &[list.into(), type_tag_val.into(), val.try_into().unwrap()];
+    let args = &[list.into(), type_tag_val.into(), val.into()];
     compile_context.builder.build_call(function, args, "list_append").unwrap().as_any_value_enum().into_pointer_value()
 }
 
@@ -1039,18 +1058,26 @@ fn create_list_merge<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     compile_context.builder.build_call(function, args, "list_append").unwrap().as_any_value_enum().into_pointer_value()
 }
 
-fn to_std_c_val<'llvm_ctx>(compile_context: &CompileContext<'_, '_, 'llvm_ctx>, val: AnyValueEnum<'llvm_ctx>, val_type : &Type) -> AnyValueEnum<'llvm_ctx> {
+fn to_std_c_val<'llvm_ctx>(compile_context: &CompileContext<'_, '_, 'llvm_ctx>, val: AnyValueEnum<'llvm_ctx>, val_type : &Type) -> IntValue<'llvm_ctx> {
     match val_type {
-        Type::Float | Type::Bool | Type::List(_) | Type::Str | Type::Never => compile_context.builder.build_bit_cast(TryInto::<BasicValueEnum>::try_into(val).unwrap(), compile_context.context.i64_type(), "bitcast_to_uint64_t").unwrap().as_any_value_enum(),
-        _ => val,  
+        Type::Float | Type::Bool | Type::List(_) | Type::Str | Type::Never => compile_context.builder.build_bit_cast(TryInto::<BasicValueEnum>::try_into(val).unwrap(), compile_context.context.i64_type(), "bitcast_to_uint64_t").unwrap().into_int_value(),
+        Type::Integer => val.into_int_value(),
+        Type::Unit => {
+            let void_val = get_void_val(compile_context.context);
+            compile_context.builder.build_bit_cast(TryInto::<BasicValueEnum>::try_into(void_val).unwrap(), compile_context.context.i64_type(), "bitcast_to_uint64_t").unwrap().into_int_value()
+        },
+        Type::Any => encountered_any_type(),
+        Type::CType(_) => todo!(),
+        Type::SumType(_) => todo!(),
+        Type::Function(_, _, _) | Type::Generic(_) => unreachable!(),
     }
 }
 
 fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : &[ASTRef], list_type : &Type) -> AnyValueEnum<'llvm_ctx> {
-    let mut current_node = compile_context.context.ptr_type(AddressSpace::default()).const_null();
-    
-    // TODO : optimize this by keeping the last node and just appending to it to not have to go through the list each time by doing append ?
-    // with a function like __append_with_tail that would return a struct with the head and the tail ?
+
+    if list.is_empty(){
+        return compile_context.context.ptr_type(AddressSpace::default()).const_null().as_any_value_enum();
+    }
 
     let list_element_type = match list_type {
         Type::List(e) => e.as_ref(),
@@ -1058,17 +1085,43 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
     };
 
     let type_tag_val = get_type_tag_val(compile_context.context, list_element_type);
+    // TODO : optimize these iterations ?
+    let vals = list.iter().map(|e| compile_expr(compile_context, *e)).collect::<Vec<_>>();
+    let std_vals = vals.iter().map(|e| to_std_c_val(compile_context, *e, list_element_type)).collect::<Vec<_>>();
 
+    let llvm_element_type = get_llvm_type(compile_context, list_element_type);
+    let size = create_int(compile_context, list.len() as i128);
+    let static_array = create_entry_block_array_alloca(compile_context, "temp_static_list", llvm_element_type, size);
+    
 
-    for &e in list.iter().rev() { // reverse because list append append at the front
-        let val = compile_expr(compile_context, e);
-        let val = to_std_c_val(compile_context, val, list_element_type);
-        let node_val = create_list_append_call(compile_context, current_node, type_tag_val, val);
-
-        current_node = node_val;
+    if std_vals.iter().all(|e| e.is_const()){
+        // optimization if all vals are constants
+        let array_type = compile_context.context.i64_type().array_type(list.len().try_into().unwrap());
+        let const_array = compile_context.context.i64_type().const_array(&std_vals);
+        let global_const_array = compile_context.module.add_global(array_type.as_basic_type_enum(), None, "const_array");
+        global_const_array.set_initializer(&const_array);
+        global_const_array.set_constant(true);
+        global_const_array.set_linkage(Linkage::Internal);
+        let size_t_type = compile_context.context.ptr_sized_int_type(&compile_context.target_data, None);
+        let val_size = 8; // a val is 8 bytes
+        let size_size_t = size_t_type.const_int((list.len() * val_size) as u64, false);
+        let unknown_align = 1; // unknown alignement so put 1
+        compile_context.builder.build_memcpy(static_array, unknown_align, global_const_array.as_pointer_value(), unknown_align, size_size_t).unwrap();
+    } else {
+        let basic_element_type = any_type_to_basic(compile_context.context, llvm_element_type);
+        for (idx, v) in std_vals.iter().enumerate() {
+            let ordered_indexes = &[create_int(compile_context, idx as i128)];
+            // very likely to sefgfaults, that's why it is unsafe
+            let gep_ptr = unsafe {
+                compile_context.builder.build_in_bounds_gep(basic_element_type, static_array, ordered_indexes, "gep_build_static_array").unwrap()
+            };
+            let basic_val = v.as_basic_value_enum();
+            compile_context.builder.build_store(gep_ptr, basic_val).unwrap();
+        }
     }
 
-    current_node.into()
+    create_list_init_static_call(compile_context, type_tag_val, static_array, size).as_any_value_enum()
+
 }
 
 
@@ -1604,6 +1657,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
             external_symbols_declared: FxHashSet::default(),
             global_strs: FxHashMap::default(),
             shared_libs: Vec::new(),
+            target_data,
             generic_map: FxHashMap::default(),
             generic_functions: FxHashMap::default(),
             generic_func_def_ast_node: FxHashMap::default(),
