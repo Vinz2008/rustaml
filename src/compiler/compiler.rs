@@ -1,7 +1,7 @@
 use core::panic;
 use std::{fs, hash::{Hash, Hasher}, io::Write, ops::Range, path::{MAIN_SEPARATOR, Path, PathBuf}, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_basic, any_val_to_metadata, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_basic, any_val_to_metadata, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_variant_tag, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -1198,19 +1198,7 @@ fn compile_cast<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ct
 }
 
 fn compile_variant<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, _arg : Option<ASTRef>) -> AnyValueEnum<'llvm_ctx> {
-    let mut variant_nb = None;
-    for (_k, t) in &compile_context.rustaml_context.type_aliases {
-        match t {
-            Type::SumType(sum_type) => {
-                if let Some(pos) = sum_type.variants.iter().position(|v| v.name.as_ref() == name.get_str(&compile_context.rustaml_context.str_interner)) {
-                    variant_nb = Some(pos);
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    let variant_nb = variant_nb.unwrap();
+    let variant_nb = get_variant_tag(compile_context.rustaml_context, name);
     create_int(compile_context, variant_nb as i128).into()
 }
 

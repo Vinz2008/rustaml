@@ -1,6 +1,6 @@
 use inkwell::{basic_block::BasicBlock, types::{AnyTypeEnum, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue}, AddressSpace, FloatPredicate, IntPredicate};
 
-use crate::{ast::{ASTRef, Pattern, PatternRef, Type}, check::{match_fallback_match_nb, match_is_all_range}, compiler::{CompileContext, compile_expr, compiler_utils::{codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_string, create_var, get_current_function, get_llvm_type, get_void_val, load_list_tail, load_list_val, move_bb_after_current}, debuginfo::get_debug_loc}};
+use crate::{ast::{ASTRef, Pattern, PatternRef, Type}, check::{match_fallback_match_nb, match_is_all_range}, compiler::{CompileContext, compile_expr, compiler_utils::{codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_string, create_var, get_current_function, get_llvm_type, get_variant_tag, get_void_val, load_list_tail, load_list_val, move_bb_after_current}, debuginfo::get_debug_loc}};
 
 // TODO : when will be added or patterns (TODO) (for ex : match a with | [1, 2, 3] | [2, 3, 4]) I can create a more optimized version when matching multiple lists by creating a decision tree in the compiled program
 fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list_val : PointerValue<'llvm_ctx>, pattern_list : &[PatternRef], elem_type : &Type) -> IntValue<'llvm_ctx>{
@@ -81,7 +81,7 @@ fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut C
 
 fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_expr_type : &Type) -> IntValue<'llvm_ctx>{
     match pattern.get(&compile_context.rustaml_context.pattern_pool).clone() {
-        Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap_or_else(|_| panic!("not an int value : {:?}", matched_val)), compile_context.context.i64_type().const_int(i as u64, false), "match_int_cmp").unwrap(),
+        Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(i as u64, false), "match_int_cmp").unwrap(),
         Pattern::Float(f) => compile_context.builder.build_float_compare(FloatPredicate::OEQ, matched_val.into_float_value(), compile_context.context.f64_type().const_float(f), "match_float_cmp").unwrap(),
         Pattern::Bool(b) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.into_int_value(), compile_context.context.bool_type().const_int(b as u64, false), "match_bool_cmp").unwrap(),
         Pattern::Range(lower, upper, inclusivity) => {
@@ -99,6 +99,10 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
             combined_bool_val
         }
         Pattern::VarName(_) | Pattern::Underscore => compile_context.context.bool_type().const_int(true as u64, false),
+        Pattern::SumTypeVariant(name) => {
+            let variant_tag = get_variant_tag(compile_context.rustaml_context, name);
+            compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(variant_tag as u64, false), "match_int_cmp").unwrap()
+        }
         Pattern::List(pattern_list) => {
             
             let elem_type = match matched_expr_type {
@@ -156,11 +160,22 @@ fn match_has_enough_fallback_switch(compile_context: &CompileContext<'_, '_, '_>
         || match_fallback_match_nb(compile_context.rustaml_context, patterns) == 1
 }
 
+
+fn match_can_use_switch_sum_type(matched_val_type : &Type) -> bool {
+    match matched_val_type {
+        Type::SumType(sum_type) => {
+            sum_type.variants.iter().all(|v| v.associated_type.is_none())
+        }
+        _ => false,
+    }
+}
+
 fn match_can_use_switch(compile_context: &CompileContext<'_, '_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
     
-    matches!(matched_val_type, Type::Integer | Type::Bool) // TODO : what other types match ? 
+    (matches!(matched_val_type, Type::Integer | Type::Bool) // TODO : what other types match ?
+    || match_can_use_switch_sum_type(matched_val_type)) 
     // TODO : when guard are added, verify that there is no guard
-        && patterns.iter().all(|(p, _)| matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::Integer(_) | Pattern::Bool(_) | Pattern::VarName(_) | Pattern::Underscore))
+        && patterns.iter().all(|(p, _)| matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::Integer(_) | Pattern::Bool(_) | Pattern::SumTypeVariant(_) | Pattern::VarName(_) | Pattern::Underscore))
         && match_has_enough_fallback_switch(compile_context, matched_val_type, patterns)
 }
 
@@ -201,6 +216,11 @@ fn compile_match_switch<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
             Pattern::Bool(b) => {
                 let bool_val = compile_context.context.bool_type().const_int(*b as u64 , false);
                 cases.push((bool_val, *bb))
+            }
+            Pattern::SumTypeVariant(n) => {
+                let variant_tag = get_variant_tag(compile_context.rustaml_context, *n);
+                let variant_tag_val = compile_context.context.i64_type().const_int(variant_tag as u64 , true);
+                cases.push((variant_tag_val, *bb))
             }
             _ => unreachable!(),
         }

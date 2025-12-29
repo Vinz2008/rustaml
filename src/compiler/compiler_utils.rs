@@ -1,6 +1,6 @@
 use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace};
 
-use crate::{ast::{CType, Type}, compiler::{debuginfo::LineColLoc, CompileContext}, string_intern::StringRef};
+use crate::{ast::{CType, Type}, compiler::{CompileContext, debuginfo::LineColLoc}, rustaml::RustamlContext, string_intern::StringRef};
 
 pub fn encountered_any_type() -> ! {
     panic!("Encountered Any when compiling")
@@ -282,6 +282,19 @@ pub fn promote_val_var_arg<'llvm_ctx>(compile_context: &CompileContext<'_, '_, '
 // dummy val for void, if it is used as a real value, it is a bug
 pub fn get_void_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> AnyValueEnum<'llvm_ctx> {
     //llvm_context.ptr_type(AddressSpace::default()).get_undef().into()
-    llvm_context.struct_type(&[], false).const_zero().into()
-    
+    llvm_context.struct_type(&[], false).const_zero().into()   
+}
+
+pub fn get_variant_tag(rustaml_context : &RustamlContext, name : StringRef) -> usize {
+    for (_k, t) in &rustaml_context.type_aliases {
+        match t {
+            Type::SumType(sum_type) => {
+                if let Some(pos) = sum_type.variants.iter().position(|v| v.name.as_ref() == name.get_str(&rustaml_context.str_interner)) {
+                    return pos;
+                }
+            }
+            _ => {}
+        }
+    }
+    unreachable!()
 }

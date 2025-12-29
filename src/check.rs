@@ -58,6 +58,25 @@ pub fn match_is_all_range(rustaml_context : &RustamlContext, matched_val_type : 
 
             merged_range == Some(i64::MIN..=i64::MAX)
         }
+        Type::SumType(sum_type) => {
+            for v in &sum_type.variants {
+                let has_found_variant = patterns.iter().any(|(p, _)| {
+                    match p.get(&rustaml_context.pattern_pool) {
+                        Pattern::SumTypeVariant(v_name) => {
+                            if v_name.get_str(&rustaml_context.str_interner) == v.name.as_ref(){
+                                return true;
+                            }
+                        },
+                        _ => {},
+                    }
+                    false
+                });
+                if !has_found_variant {
+                    return false;
+                }
+            }
+            true
+        }
         _ => false, // TODO
     }
 }

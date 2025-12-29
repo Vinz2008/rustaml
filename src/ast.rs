@@ -17,7 +17,9 @@ use debug_with_context::{DebugWithContext, DebugWrapContext};
 #[debug_context(RustamlContext)]
 #[debug_context(PrintTypedContext)]
 pub enum Pattern {
+    // TODO : should the VarName and SumTypeVariant be differentiated here in the AST or after ?
     VarName(StringRef), // | x pattern
+    SumTypeVariant(StringRef), // | Test1 pattern // TODO : put also the index of the variant to optimize ?
     Integer(i64), // | 2
     Float(f64), // | 2.6
     Bool(bool), // | true
@@ -272,12 +274,13 @@ pub enum CType {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Variant {
     pub name: Box<str>, // TODO : should it be this (probably not StringRef to not need context to print types ? or should it ?)
-    associated_type : Option<Type>,
+    pub associated_type : Option<Type>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SumType {
-    pub variants : Box<[Variant]>
+    pub name : Option<Box<str>>,
+    pub variants : Box<[Variant]>,
 }
 
 // TODO : add a type pool to remove boxes (test performance ? normally should be useful for lowering the type size, it would become only 64 bit and we could make it Copy, but we wouldn't use it everywhere there is Type like for other types, just in refence in the type to other types to lower the size while only indexing in the vector when it is really needed)
@@ -293,7 +296,7 @@ pub enum Type {
     Any, // not already resolved type during type checking
     Generic(u32),
     CType(CType),
-    SumType(SumType),
+    SumType(SumType), // box it ? (benchmark to see)
     // TODO : record/product type
     Unit,
     Never,
@@ -304,6 +307,10 @@ impl <C> DebugWithContext<C> for Type {
     fn fmt_with_context(&self, f: &mut std::fmt::Formatter, _context: &C) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
+}
+
+fn best_display_sum_type(){
+
 }
 
 impl Display for Type {
@@ -318,7 +325,13 @@ impl Display for Type {
             },
             Type::Unit => f.write_str("()"),
             Type::Never => f.write_char('!'),
-            Type::SumType(sum_type) => todo!(), // TODO
+            Type::SumType(sum_type) => {
+                if let Some(s) = sum_type.name.as_deref() {
+                    f.write_str(&s)
+                } else {
+                    todo!() // TODO
+                }
+            },
             Type::Any => f.write_str("Any"), // TODO
             Type::Generic(_g_idx) => panic!("Can't print generic type"), // TODO ?
             Type::CType(_) => todo!(), // TODO
@@ -570,7 +583,10 @@ fn parse_sum_type(parser: &mut Parser) -> Result<(Type, usize), ParserErr> {
         });
     }
 
-    let sum_type = SumType { variants: variants.into_boxed_slice() };
+    let sum_type = SumType { 
+        name: None,
+        variants: variants.into_boxed_slice() 
+    };
     Ok((Type::SumType(sum_type), end_range))
 }
 
@@ -614,19 +630,27 @@ fn parse_type_annotation(parser: &mut Parser) -> Result<(Type, usize), ParserErr
 
 fn parse_type_alias(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
     let name_tok = parser.eat_tok(Some(TokenDataTag::Identifier))?;
-    let name = match name_tok.tok_data {
-        TokenData::Identifier(s) => parser.rustaml_context.str_interner.intern_compiler(&s.iter().collect::<String>()),
+    let name_str = match name_tok.tok_data {
+        TokenData::Identifier(s) => s.iter().collect::<String>(),
         _ => unreachable!(),
     };
 
+    let name = parser.rustaml_context.str_interner.intern_compiler(&name_str);
+
     parser.eat_tok(Some(TokenDataTag::Equal))?;
 
-    let (t, type_end_range) = parse_type_annotation(parser)?;
-    let mut type_end_range = type_end_range;
+    let (mut t, mut type_end_range) = parse_type_annotation(parser)?;
 
     if let Some(TokenData::EndOfExpr) = parser.current_tok_data() {
         let eof_tok = parser.eat_tok(Some(TokenDataTag::EndOfExpr)).unwrap();
         type_end_range = eof_tok.range.end;
+    }
+
+    match &mut t {
+        Type::SumType(s) => {
+            s.name = Some(name_str.clone().into_boxed_str());
+        },
+        _ => {},
     }
 
     parser.rustaml_context.type_aliases.insert(name, t.clone());
@@ -882,6 +906,22 @@ fn parse_integer_pattern(parser : &mut Parser, token : &Token) -> Result<(i64, u
     }
 }
 
+fn is_a_variant(parser : &mut Parser, name : &str) -> bool {
+    for (_n, t) in &parser.rustaml_context.type_aliases {
+        match t {
+            Type::SumType(s) => {
+                for v in &s.variants {
+                    if v.name.as_ref() == name {
+                        return true;
+                    }
+                }
+            },
+            _ => {}
+        }
+    }
+    return false;
+}
+
 fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
     let pattern_tok = parser.eat_tok(None)?;
     let pattern_first_tok_range = pattern_tok.range.clone();
@@ -898,7 +938,14 @@ fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
                 let s = buf.iter().collect::<String>();
                 match s.as_str() {
                     "_" => Pattern::Underscore,
-                    s_ref => Pattern::VarName(parser.rustaml_context.str_interner.intern_compiler(s_ref)),
+                    s_ref => {
+                        let interned_str = parser.rustaml_context.str_interner.intern_compiler(s_ref);
+                        if is_a_variant(parser, s_ref) {
+                            Pattern::SumTypeVariant(interned_str)
+                        } else {
+                            Pattern::VarName(interned_str)
+                        }
+                    },
                 }
             };
             (p, pattern_first_tok_range)

@@ -282,9 +282,10 @@ impl DebugWithContext<RustamlContext> for List {
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 struct SumTypeVal {
-    // TODO : are there other ways to represent this ?
+    // TODO : are there other ways to represent this ? (do I really need the sum_type_name and variant_nb ?)
     sum_type_name : StringRef,
     variant_nb : usize,
+    variant_name : StringRef,
     // TODO : add val
 }
 
@@ -991,6 +992,14 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
                 _ => unreachable!(),
             }
         },
+        Pattern::SumTypeVariant(n) => {
+            match matched_val {
+                Val::SumType(s) => {
+                    n == s.variant_name
+                }
+                _ => unreachable!(),
+            }
+        }
         Pattern::List(l) => {
             let matched_expr_list = match matched_val {
                 Val::List(l) => l,
@@ -1122,7 +1131,11 @@ fn interpret_variant(context : &mut InterpretContext, name : StringRef, _arg : O
         }
     }
     let (sum_type_name, variant_nb) = sum_type_name_variant_nb.unwrap();
-    let sum_type_val = SumTypeVal { sum_type_name, variant_nb };
+    let sum_type_val = SumTypeVal { 
+        sum_type_name, 
+        variant_nb, 
+        variant_name: name 
+    };
     Val::SumType(sum_type_val)
 }
 
