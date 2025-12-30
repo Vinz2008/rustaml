@@ -1,7 +1,7 @@
 use core::panic;
 use std::{fs, hash::{Hash, Hasher}, io::Write, ops::Range, path::{MAIN_SEPARATOR, Path, PathBuf}, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_variant_tag, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_variant_tag, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{AddressSpace, Either, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue}};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -162,6 +162,13 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             attributes: vec![attr_return("noalias"), attr_args("noundef", 0)],
         },
         BuiltinFunction {
+            name: "__chars",
+            is_variadic: false,
+            args: Box::new([ptr_type]),
+            ret: Some(ptr_type_ret),
+            attributes: vec![attr_return("noalias"), attr_args("nonnull", 0)],
+        },
+        BuiltinFunction {
             name: "fprintf",
             is_variadic: true,
             args: Box::new([ptr_type, ptr_type]),
@@ -313,11 +320,11 @@ fn get_format_ctype(c_type : &CType) -> &'static str {
     
 }
 
-fn get_format_string(print_type : &Type) -> &'static str {
+fn get_printf_format_string(print_type : &Type) -> &'static str {
     match print_type {
         Type::Integer => "%ld\n", // TODO : verify it is good
         Type::Float => "%f\n",
-        Type::Str | Type::Bool => "%s\n", // TODO : add a better printing solution
+        Type::Str | Type::Bool | Type::Char => "%s\n", // TODO : add a better printing solution
         Type::List(_) => unreachable!(), // the format will not be used
         Type::Function(_, _, _) => panic!("Can't print functions"),
         Type::Unit => "%s\n",
@@ -342,13 +349,16 @@ fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 
     let printf_fun = compile_context.get_internal_function("printf");
     // TODO : change this
-    let format_str = get_format_string(print_val_type);
+    let format_str = get_printf_format_string(print_val_type);
     let format_str = create_string(compile_context, format_str);
     match print_val_type {
         Type::Bool => {
             let bool_to_str_fun = compile_context.get_internal_function("__bool_to_str");
             let bool_to_str_args = vec![print_val];
             print_val = compile_context.builder.build_call(bool_to_str_fun, &bool_to_str_args, "bool_to_str_internal").unwrap().try_as_basic_value().unwrap_left().into();
+        }
+        Type::Char => {
+            todo!()
         }
         Type::Unit => {
             print_val = create_string(compile_context, "()").as_basic_value_enum().into();
@@ -389,6 +399,7 @@ fn get_format_string_format(format_str : &str, arg_types : &[Type]) -> String {
                             Type::Float => "%f",
                             Type::Bool => "%b",
                             Type::Str => "%s",
+                            Type::Char => "%c",
                             Type::List(_) => "%l",
                             _ => panic!("Can't format type {:?}", arg_type),
                         };
@@ -484,6 +495,13 @@ fn compile_filter<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_
     compile_context.builder.build_call(filter_fun, &args, "filter_call").unwrap().as_any_value_enum()
 }
 
+fn compile_chars<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, s : PointerValue<'llvm_ctx>) -> AnyValueEnum<'llvm_ctx> {
+    let chars_fun = compile_context.get_internal_function("__chars");
+    let args = vec![s.into()];
+    compile_context.builder.build_call(chars_fun, &args, "chars_call").unwrap().as_any_value_enum()
+}
+
+
 fn should_monomorphize_function(arg_types : &[Type], ret_type : &Type) -> bool {
     matches!(ret_type, Type::Generic(_)) || arg_types.iter().any(|e| matches!(e, Type::Generic(_)))
 }
@@ -569,6 +587,10 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
                 let list = args[0];
                 let func = args[1];
                 return compile_filter(compile_context, list, func);
+            }
+            "chars" => {
+                let s = compile_expr(compile_context, args[0]).into_pointer_value();
+                return compile_chars(compile_context, s);
             }
             n => (Some(n.to_owned()), Some(*name)),
         }
@@ -818,7 +840,7 @@ fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
             //dbg!(lhs_val, rhs_val);
            // dbg!(elem_type);
             let type_tag_val = get_type_tag_val(compile_context.context, elem_type);
-            let std_lhs_val = to_std_c_val(compile_context, lhs_val, elem_type);
+            let std_lhs_val = as_val_in_list(compile_context, lhs_val, elem_type);
             create_list_append_call(compile_context, rhs_val.into_pointer_value(), type_tag_val, std_lhs_val).into()
         },
         Operator::ListMerge => {
@@ -1058,21 +1080,6 @@ fn create_list_merge<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     compile_context.builder.build_call(function, args, "list_append").unwrap().as_any_value_enum().into_pointer_value()
 }
 
-fn to_std_c_val<'llvm_ctx>(compile_context: &CompileContext<'_, '_, 'llvm_ctx>, val: AnyValueEnum<'llvm_ctx>, val_type : &Type) -> IntValue<'llvm_ctx> {
-    match val_type {
-        Type::Float | Type::Bool | Type::List(_) | Type::Str | Type::Never => compile_context.builder.build_bit_cast(TryInto::<BasicValueEnum>::try_into(val).unwrap(), compile_context.context.i64_type(), "bitcast_to_uint64_t").unwrap().into_int_value(),
-        Type::Integer => val.into_int_value(),
-        Type::Unit => {
-            let void_val = get_void_val(compile_context.context);
-            compile_context.builder.build_bit_cast(TryInto::<BasicValueEnum>::try_into(void_val).unwrap(), compile_context.context.i64_type(), "bitcast_to_uint64_t").unwrap().into_int_value()
-        },
-        Type::Any => encountered_any_type(),
-        Type::CType(_) => todo!(),
-        Type::SumType(_) => todo!(),
-        Type::Function(_, _, _) | Type::Generic(_) => unreachable!(),
-    }
-}
-
 fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : &[ASTRef], list_type : &Type) -> AnyValueEnum<'llvm_ctx> {
 
     if list.is_empty(){
@@ -1087,7 +1094,7 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
     let type_tag_val = get_type_tag_val(compile_context.context, list_element_type);
     // TODO : optimize these iterations ?
     let vals = list.iter().map(|e| compile_expr(compile_context, *e)).collect::<Vec<_>>();
-    let std_vals = vals.iter().map(|e| to_std_c_val(compile_context, *e, list_element_type)).collect::<Vec<_>>();
+    let std_vals = vals.iter().map(|e| as_val_in_list(compile_context, *e, list_element_type)).collect::<Vec<_>>();
 
     let llvm_element_type = get_llvm_type(compile_context, list_element_type);
     let size = create_int(compile_context, list.len() as i128);

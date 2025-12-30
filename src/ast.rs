@@ -293,6 +293,7 @@ pub enum Type {
     Bool,
     Function(Box<[Type]>, Box<Type>, bool), // the bool is if the function is variadic
     Str,
+    Char,
     List(Box<Type>),
     Any, // not already resolved type during type checking
     Generic(u32),
@@ -317,6 +318,7 @@ impl Display for Type {
             Type::Float => f.write_str("float"),
             Type::Bool => f.write_str("bool"),
             Type::Str => f.write_str("str"),
+            Type::Char => f.write_str("char"),
             Type::List(e) => {
                 f.write_str(&format!("list[{}]", e.as_ref()))
             },

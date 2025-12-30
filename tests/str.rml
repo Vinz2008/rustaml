@@ -4,8 +4,7 @@ let gen_str len = match len with
 
 let str = gen_str 10000 ;;
 
-// TODO : implement this and remove this
-let chars s : str -> list[int] = [] ;; 
+// TODO : test this in the interpreter
 
 let match_str s = match (chars s) with 
   | [] -> "empty"

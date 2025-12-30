@@ -997,6 +997,7 @@ fn std_functions_constraints_types(context : &mut TypeContext) {
     std_function_constraint(context, "rand", vec![Type::Unit], Type::Integer, false);
     std_function_constraint(context, "format", vec![Type::Str], Type::Str, true);
     std_function_constraint(context, "panic", vec![Type::Str], Type::Never, true);
+    std_function_constraint(context, "chars", vec![Type::Str], Type::List(Box::new(Type::Char)), false);
     let generic_type_elem_map_input = Type::Generic(0);
     let generic_type_elem_map_output = Type::Generic(1);
     std_function_constraint(context, "map", vec![Type::List(Box::new(generic_type_elem_map_input.clone())), Type::Function(Box::new([generic_type_elem_map_input]), Box::new(generic_type_elem_map_output.clone()), false)], Type::List(Box::new(generic_type_elem_map_output)), false);

@@ -281,7 +281,7 @@ impl DebugWithContext<RustamlContext> for List {
 
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
-struct SumTypeVal {
+pub struct SumTypeVal {
     // TODO : are there other ways to represent this ? (do I really need the sum_type_name and variant_nb ?)
     sum_type_name : StringRef,
     variant_nb : usize,
@@ -840,6 +840,7 @@ const STD_FUNCTIONS : &[&str] = &[
     "panic",
     "map",
     "filter",
+    //  TODO : add chars
 ];
 
 fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args_val : Vec<Val>) -> Val {

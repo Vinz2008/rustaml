@@ -198,6 +198,7 @@ enum TypeTag {
     FUNCTION_TYPE = 3,
     STR_TYPE = 4,
     LIST_TYPE = 5,
+    CHAR_TYPE = 6,
 };
 
 typedef uint64_t Val;
@@ -292,7 +293,6 @@ struct ListNode* __list_node_append_back(struct ListNode* list, uint8_t type_tag
 
     current->next = list_node_init(type_tag, val);
     return list;
-    
 }
 
 // clone the list nodes, but doesn't clone the list vals
@@ -388,6 +388,25 @@ int64_t __list_len(struct ListNode* list){
         count++;
     }
     return count;
+}
+
+
+struct ListNode* __chars(const char* s){
+    // TODO : optimize this by not iterating through all of it when appending
+    struct ListNode* l = NULL;
+    size_t bytes_len = strlen(s);
+    for (int i = 0; i < bytes_len; i++){
+        uint8_t c = s[i];
+        if ((c & 0xC0) == 0x80){ // & 11000000 == 10000000
+            // TODO : invalid UTF-8
+        }
+        if ((c & 0x80) == 0){ // & 10000000
+            // no need to use INTO_TYPE because it is just widening all unsigned (so just zext)
+            l = __list_node_append_back(l, CHAR_TYPE, (Val)c);
+        }
+        // TODO : multi bytes codepoints
+    }
+    return l;
 }
 
 const char* __bool_to_str(bool b){
@@ -792,21 +811,68 @@ static void format_str(struct str* str, char* s){
     str->len += len_s;
 }
 
+
+void format_char(struct str* str, uint32_t c){
+    if (c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF)) {
+        fprintf(stderr, "Invalid UTF-8 codepoint %d\n", c);
+        exit(1);
+    }
+
+    if (c <= 0x007F){
+        ensure_size_string(str, str->len + 1);
+        str->buf[str->len] = (char)c;
+        str->len += 1;
+    } else if (c <= 0x07FF){
+        ensure_size_string(str, str->len + 2);
+        uint8_t byte_1 = (uint8_t)((c >> 6 | 0xC0) & 0xDF); // | 11000000 & 11011111
+        uint8_t byte_2 = ((uint8_t)c | 0x80) & 0xBF; // | 10000000 & 10111111
+        (str->buf + str->len)[0] = byte_1;
+        (str->buf + str->len)[1] = byte_2;
+        str->len += 2;
+    } else if (c <= 0xFFFF){
+        ensure_size_string(str, str->len + 3);
+        uint8_t bytes[3];
+        bytes[0] = ((uint8_t)(c >> 12) | 0xE0) & 0xEF; // | 11100000 & 11101111
+        bytes[1] = ((uint8_t)(c >> 6) | 0x80) & 0xBF;
+        bytes[2] = ((uint8_t)c | 0x80) & 0xBF;
+        memcpy(str->buf + str->len, bytes, 3);
+        str->len += 3;
+    } else if (c <= 0x10FFFF){
+        ensure_size_string(str, str->len + 4);
+        uint8_t bytes[4];
+        bytes[0] = ((uint8_t)(c >> 18) | 0xF0) & 0xF7; // | 11110000 & 11110111
+        bytes[1] = ((uint8_t)(c >> 12) | 0x80) & 0xBF;
+        bytes[2] = ((uint8_t)(c >> 6) | 0x80) & 0xBF;
+        bytes[3] = ((uint8_t)c | 0x80) & 0xBF;
+        memcpy(str->buf + str->len, bytes, 4);
+        str->len += 4;
+    }
+}
+
 // TODO : deduplicate this code with the normal format
 static void list_node_format(struct str* str, uint8_t tag, Val val){
-    if (tag == INT_TYPE) {
-        format_int(str, INTO_TYPE(int64_t, val));
-    } else if (tag == FLOAT_TYPE){
-        format_float(str, INTO_TYPE(double, val));
-    } else if (tag == BOOL_TYPE){
-        format_bool(str, INTO_TYPE(bool, val));
-    } else if (tag == STR_TYPE){
-        format_str(str, INTO_TYPE(char*, val));
-    } else if (tag == LIST_TYPE){
-        list_format(str, INTO_TYPE(struct ListNode*, val));
-    } else {
-        fprintf(stderr, "ERROR : WRONG TAGS IN LIST IN FORMAT (%d) (BUG IN COMPILER  \?\?)\n", tag);
-        exit(1);
+    switch (tag) {
+        case INT_TYPE:
+            format_int(str, INTO_TYPE(int64_t, val));
+            break;
+        case FLOAT_TYPE:
+            format_float(str, INTO_TYPE(double, val));
+            break;
+        case BOOL_TYPE:
+            format_bool(str, INTO_TYPE(bool, val));
+            break;
+        case STR_TYPE:
+            format_str(str, INTO_TYPE(char*, val));
+            break;
+        case LIST_TYPE:
+            list_format(str, INTO_TYPE(struct ListNode*, val));
+            break;
+        case CHAR_TYPE:
+            format_char(str, INTO_TYPE(uint32_t, val));
+            break;
+        default:
+            fprintf(stderr, "ERROR : WRONG TAGS IN LIST IN FORMAT (%d) (BUG IN COMPILER  \?\?)\n", tag);
+            exit(1);
     }
 }
 
@@ -866,6 +932,8 @@ static char* vformat_string(char* format, va_list va){
                     case 's':
                         format_str(&str, va_arg(va, char*));
                         break;
+                    case 'c':
+                        format_char(&str, va_arg(va, uint32_t));
                     case 'b':
                         format_bool(&str, (bool)va_arg(va, int));
                         break;
