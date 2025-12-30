@@ -14,6 +14,7 @@ use cfg_if::cfg_if;
 use inkwell::support::LLVMString;
 
 
+// TODO : only declare these structs when cache feature is enabled (so the we don't generate a useless implementation of Seralize and Deserialize)
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct CachedCompMeta {
     pub shared_libs : Vec<String>,
