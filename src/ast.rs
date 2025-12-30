@@ -27,7 +27,7 @@ pub enum Pattern {
     String(StringRef), // | "test"
     List(Box<[PatternRef]>), // | [1, 2, 3]
     // TODO : make it possible to have 1 :: 2 :: l (so replace StringRef with PatternRef)
-    ListDestructure(StringRef, PatternRef), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
+    ListDestructure(PatternRef, PatternRef), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
     Underscore,
 }
 
@@ -925,27 +925,19 @@ fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
     let pattern_tok = parser.eat_tok(None)?;
     let pattern_first_tok_range = pattern_tok.range.clone();
 
-    let (pattern, range) = match pattern_tok.tok_data {
+    let (mut pattern, mut range) = match pattern_tok.tok_data {
         TokenData::Identifier(buf) => {
-            let p = if matches!(parser.current_tok_data(), Some(TokenData::Op(Operator::ListAppend))){
-                parser.eat_tok(Some(TokenDataTag::Op))?;
-
-                let head = buf.iter().collect::<String>();
-                let tail_pattern = parse_pattern(parser)?;
-                Pattern::ListDestructure(parser.rustaml_context.str_interner.intern_compiler(&head), tail_pattern)
-            } else {
-                let s = buf.iter().collect::<String>();
-                match s.as_str() {
-                    "_" => Pattern::Underscore,
-                    s_ref => {
-                        let interned_str = parser.rustaml_context.str_interner.intern_compiler(s_ref);
-                        if is_a_variant(parser, s_ref) {
-                            Pattern::SumTypeVariant(interned_str)
-                        } else {
-                            Pattern::VarName(interned_str)
-                        }
-                    },
-                }
+            let s = buf.iter().collect::<String>();
+            let p = match s.as_str() {
+                "_" => Pattern::Underscore,
+                s_ref => {
+                    let interned_str = parser.rustaml_context.str_interner.intern_compiler(s_ref);
+                    if is_a_variant(parser, s_ref) {
+                        Pattern::SumTypeVariant(interned_str)
+                    } else {
+                        Pattern::VarName(interned_str)
+                    }
+                },
             };
             (p, pattern_first_tok_range)
         },
@@ -978,6 +970,15 @@ fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
         },
         t => return Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, pattern_first_tok_range)),
     };
+
+    if matches!(parser.current_tok_data(), Some(TokenData::Op(Operator::ListAppend))){
+        parser.eat_tok(Some(TokenDataTag::Op))?;
+        let head_pattern = parser.rustaml_context.pattern_pool.push(pattern, range.clone());
+        let tail_pattern = parse_pattern(parser)?;
+        let tail_pattern_range = tail_pattern.get_range(&parser.rustaml_context.pattern_pool);
+        pattern = Pattern::ListDestructure(head_pattern, tail_pattern);
+        range = range.start..tail_pattern_range.end;
+    }
 
     Ok(parser.rustaml_context.pattern_pool.push(pattern, range))
 

@@ -376,7 +376,7 @@ impl Val {
 #[debug_context(RustamlContext)]
 pub enum FunctionBody {
     Ast(ASTRef),
-    Ffi(FFIFunc),
+    Ffi(FFIFunc), // TODO : should it be a Rc to prevent cloning it from being very costly and to reduce the size of the enum
 }
 
 #[derive(Clone, PartialEq, DebugWithContext)]
@@ -1035,7 +1035,7 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
             // TODO : this len is hot code (optimize it)
             return pattern_matched_nb == l.len()
         },
-        Pattern::ListDestructure(_, tail_pattern) => {
+        Pattern::ListDestructure(head_pattern, tail_pattern) => {
             let matched_expr_list = match matched_val {
                 Val::List(l) => l,
                 _ => unreachable!(),
@@ -1045,12 +1045,16 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
                 return false;
             }
 
-            let tail = match matched_expr_list.get(&context.rustaml_context.list_node_pool) {
-                List::Node(_, next ) => next,
+            let (head_val, tail) = match matched_expr_list.get(&context.rustaml_context.list_node_pool) {
+                List::Node(head_val, next ) => (head_val.clone(), *next),
                 List::None => unreachable!(),
             };
 
-            let tail_val = Val::List(*tail);
+            if !interpret_match_pattern(context, &head_val, head_pattern){
+                return false;
+            }
+
+            let tail_val = Val::List(tail);
             if !interpret_match_pattern(context, &tail_val, tail_pattern){
                 return false;
             }
@@ -1065,18 +1069,18 @@ fn handle_match_pattern_start(context: &mut InterpretContext, pattern : PatternR
         Pattern::VarName(s) => { 
             context.vars.insert(*s, matched_expr_val.clone());
         },
-        Pattern::ListDestructure(head_name, tail_pattern) => {
+        &Pattern::ListDestructure(head_pattern, tail_pattern) => {
             let matched_expr_list = match matched_expr_val {
                 Val::List(l) => l,
                 _ => unreachable!(),
             };
             let (head_val, tail) = match matched_expr_list.get(&context.rustaml_context.list_node_pool) {
-                List::Node(val, next ) => (val, next),
+                List::Node(val, next ) => (val.clone(), *next),
                 List::None => unreachable!(),
             };
-            context.vars.insert(*head_name, head_val.clone());
-            let tail_val = Val::List(*tail);
-            handle_match_pattern_start(context, *tail_pattern, &tail_val);
+            handle_match_pattern_start(context, head_pattern, &head_val);
+            let tail_val = Val::List(tail);
+            handle_match_pattern_start(context, tail_pattern, &tail_val);
         }
         _ => {},
     }
@@ -1087,9 +1091,9 @@ fn handle_match_pattern_end(context: &mut InterpretContext, pattern : PatternRef
         Pattern::VarName(s) => { 
             context.vars.remove(s);
         },
-        Pattern::ListDestructure(head_name, tail_pattern) => {
-            context.vars.remove(head_name);
-            handle_match_pattern_end(context, *tail_pattern);
+        &Pattern::ListDestructure(head_pattern, tail_pattern) => {
+            handle_match_pattern_end(context, head_pattern);
+            handle_match_pattern_end(context, tail_pattern);
         },
         _ => {},
     }

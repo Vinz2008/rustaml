@@ -38,3 +38,9 @@ let match_fail a = match a with
   | 1 -> 3 ;;
 
 // let _ = print (match_fail 2) ;;
+
+let match_find_bug a = match a with 
+  | a :: b :: c :: d -> "wrong"
+  | _ -> "good" ;;
+
+let _ = print (match_find_bug [1, 2]) ;;

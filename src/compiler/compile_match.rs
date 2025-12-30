@@ -79,6 +79,46 @@ fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut C
     }
 }
 
+fn compile_short_circuiting_match_list_destructure<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list_val : PointerValue<'llvm_ctx>, head_pattern : PatternRef, tail_pattern : PatternRef, elem_type : &Type) -> IntValue<'llvm_ctx>{
+    let is_not_empty = compile_context.builder.build_int_compare(IntPredicate::NE, list_val, compile_context.context.ptr_type(AddressSpace::default()).const_null(), "cmp_destructure_not_empty").unwrap();
+    let this_function = get_current_function(compile_context.builder);
+    let start_bb = compile_context.builder.get_insert_block().unwrap();
+    let is_not_empty_bb = compile_context.context.append_basic_block(this_function, "is_empty");
+    let is_head_matched_bb = compile_context.context.append_basic_block(this_function, "head_matched");
+    let is_tail_matched_bb = compile_context.context.append_basic_block(this_function, "tail_matched");
+    let after_bb = compile_context.context.append_basic_block(this_function, "after_bb");
+    create_br_conditional(compile_context, is_not_empty, is_not_empty_bb, after_bb);
+
+    move_bb_after_current(compile_context, is_not_empty_bb);
+    compile_context.builder.position_at_end(is_not_empty_bb);
+    let head_val = load_list_val(compile_context, elem_type, list_val);
+    let head_pattern_matched = compile_pattern_match_bool_val(compile_context, head_pattern, head_val.as_any_value_enum(), elem_type);
+    let end_is_not_empty_bb = compile_context.builder.get_insert_block().unwrap();
+    create_br_conditional(compile_context, head_pattern_matched, is_head_matched_bb, after_bb);
+
+    move_bb_after_current(compile_context, is_head_matched_bb);
+    compile_context.builder.position_at_end(is_head_matched_bb);
+    let tail_val = load_list_tail(compile_context, list_val);
+    let tail_pattern_matched = compile_pattern_match_bool_val(compile_context, tail_pattern, tail_val.as_any_value_enum(), &Type::List(Box::new(elem_type.clone())));
+    let end_is_head_matched_bb = compile_context.builder.get_insert_block().unwrap();
+    create_br_conditional(compile_context, tail_pattern_matched, is_tail_matched_bb, after_bb);
+
+    move_bb_after_current(compile_context, is_tail_matched_bb);
+    compile_context.builder.position_at_end(is_tail_matched_bb);
+    create_br_unconditional(compile_context, after_bb);
+
+    move_bb_after_current(compile_context, after_bb);
+    compile_context.builder.position_at_end(after_bb);
+    let phi_node = compile_context.builder.build_phi(compile_context.context.bool_type(), "phi_match_destructure_list").unwrap();
+    let true_val = compile_context.context.bool_type().const_int(true as u64, false);
+    let false_val = compile_context.context.bool_type().const_int(false as u64, false);
+    let incoming_phi : Vec<(&dyn BasicValue<'_>, inkwell::basic_block::BasicBlock<'_>)> = 
+        vec![(&false_val, start_bb), (&false_val, end_is_not_empty_bb), (&false_val, end_is_head_matched_bb), (&true_val, is_tail_matched_bb)];
+
+    phi_node.add_incoming(&incoming_phi);
+    phi_node.as_basic_value().into_int_value()
+}
+
 fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_expr_type : &Type) -> IntValue<'llvm_ctx>{
     match pattern.get(&compile_context.rustaml_context.pattern_pool).clone() {
         Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(i as u64, false), "match_int_cmp").unwrap(),
@@ -119,7 +159,14 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
             let args = vec![pattern_str_val.into(), matched_val.try_into().unwrap()];
             compile_context.builder.build_call(str_cmp_fun, &args, "pattern_match_str_cmp").unwrap().as_any_value_enum().into_int_value()
         },
-        Pattern::ListDestructure(_, _) => compile_context.builder.build_int_compare(IntPredicate::NE, matched_val.into_pointer_value(), compile_context.context.ptr_type(AddressSpace::default()).const_null(), "cmp_destructure_not_empty").unwrap(),
+        Pattern::ListDestructure(head, tail) => {
+            // TODO : fix this
+            let elem_type = match matched_expr_type {
+                Type::List(e) => e.as_ref(),
+                _ => unreachable!(),   
+            };
+            compile_short_circuiting_match_list_destructure(compile_context, matched_val.into_pointer_value(), head, tail, elem_type)
+        }
         //p => panic!("unknown pattern {:?}", DebugWrapContext::new(p, compile_context.rustaml_context)),
     }
 }
@@ -138,10 +185,9 @@ fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContex
                 _ => unreachable!(),
             };
 
-            let element_type_llvm = get_llvm_type(compile_context, element_type);
             let matched_val_list = matched_val.into_pointer_value();
             let head_val = load_list_val(compile_context, element_type, matched_val_list);
-            create_var(compile_context, head, head_val.into(), element_type_llvm);
+            compile_pattern_match_prologue(compile_context, head, head_val.into(), element_type);
             let tail_val = load_list_tail(compile_context, matched_val_list);
             compile_pattern_match_prologue(compile_context, tail, tail_val.into(), matched_val_type);
         }

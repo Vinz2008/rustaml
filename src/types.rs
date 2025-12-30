@@ -314,12 +314,12 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
         },
         Pattern::ListDestructure(e, l) => {
             let element_type_var = context.table.new_type_var();
-            let is_var_underscore= is_underscore(context.rustaml_context, e); 
+            /*let is_var_underscore= is_underscore(context.rustaml_context, e); 
             if !is_var_underscore {
                 create_var(context, e, false, element_type_var);
-            }
-
+            }*/
             context.push_constraint(Constraint::IsElementOf { element: element_type_var, list: matched_type_var }, range.clone());
+            collect_constraints_pattern(context, element_type_var, e);
             collect_constraints_pattern(context, matched_type_var, l);
         }
         Pattern::VarName(n) => { 
@@ -340,15 +340,12 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
 }
 
 fn remove_vars_pattern(context : &mut TypeContext, pattern: PatternRef){
-    // TODO : remove this clone ?
-    match pattern.get(&context.rustaml_context.pattern_pool).clone() {
-        Pattern::ListDestructure(e, l) => {
-            if !is_underscore(context.rustaml_context, e) {
-                remove_var(context, e);
-            }
+    match pattern.get(&context.rustaml_context.pattern_pool) {
+        &Pattern::ListDestructure(e, l) => {
+            remove_vars_pattern(context, e);
             remove_vars_pattern(context, l);
         }
-        Pattern::VarName(n) => {
+        &Pattern::VarName(n) => {
             if !is_underscore(context.rustaml_context, n) {
                 remove_var(context, n);
             }
