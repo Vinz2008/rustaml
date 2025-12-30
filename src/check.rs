@@ -77,6 +77,27 @@ pub fn match_is_all_range(rustaml_context : &RustamlContext, matched_val_type : 
             }
             true
         }
+        Type::List(_) => {
+            // TODO : make this smarter ? (for example if there is [], true :: l, and false :: l, it should be all cases)
+            let mut has_empty_pattern= false;
+            let mut has_more_than_one_pattern = false;
+            for (p, _) in patterns {
+                match p.get(&rustaml_context.pattern_pool) {
+                    Pattern::List(l) => {
+                        if l.is_empty(){
+                            has_empty_pattern = true;
+                        }
+                    }
+                    Pattern::ListDestructure(_e, l) => {
+                        if matches!(l.get(&rustaml_context.pattern_pool), Pattern::Underscore | Pattern::VarName(_)) {
+                            has_more_than_one_pattern = true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            has_empty_pattern && has_more_than_one_pattern
+        }
         _ => false, // TODO
     }
 }

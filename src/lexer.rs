@@ -84,7 +84,8 @@ impl Operator {
 #[derive(Debug, Clone, Tag, PartialEq)]
 pub enum TokenData {
     Identifier(Box<[char]>),
-    String(Box<[char]>), 
+    String(Box<[char]>),
+    Char(char),
     Op(Operator),
     Integer(i128),
     Float(f64),
@@ -99,7 +100,7 @@ pub enum TokenData {
     Function,
     Extern,
     Cast,
-    Type, // TODO : create type aliases
+    Type,
     True,
     False,
     Equal,
@@ -387,7 +388,13 @@ pub fn lex(content: Vec<char>, is_debug_print : bool) -> Result<Vec<Token>, Lexe
             },
             '\'' => {
                 // TODO : handling of char litteral ?
-                Some(Token::new(TokenData::Apostrophe, range))
+                let char_c = lexer.read_char();
+                if let Some(c) = char_c && let Some('\'') = lexer.read_char() {
+                    Some(Token::new(TokenData::Char(c), lexer.pos-3..lexer.pos-1))
+                } else {
+                    lexer.go_back_pos(lexer.pos-range.end);
+                    Some(Token::new(TokenData::Apostrophe, range))
+                }
             }
             '\"' => Some(lex_string(&mut lexer)?),
             op_char if Operator::is_char_op(op_char) => lex_op(&mut lexer)?,

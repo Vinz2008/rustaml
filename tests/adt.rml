@@ -11,13 +11,7 @@ let f2 a : () -> t2 = Test1 ;;
 let _ = f2 () ;;
 let _ = print (Test2 == Test3) ;;
 
-let f_rand a : () -> t2 = 
-  if (rand ()) == 3 then 
-    Test1 else 
-      (if rand() > 1 then Test2 else Test3) 
-  ;; 
-
-let z = match (f_rand ()) with
+let z = match (f2 ()) with
   | Test1 -> 1
   | Test2 -> 2
   | Test3 -> 3 ;;

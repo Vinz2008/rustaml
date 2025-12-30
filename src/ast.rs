@@ -26,6 +26,7 @@ pub enum Pattern {
     Range(i64, i64, bool), // bool is for the inclusivity | 0..1
     String(StringRef), // | "test"
     List(Box<[PatternRef]>), // | [1, 2, 3]
+    // TODO : make it possible to have 1 :: 2 :: l (so replace StringRef with PatternRef)
     ListDestructure(StringRef, PatternRef), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
     Underscore,
 }
@@ -307,10 +308,6 @@ impl <C> DebugWithContext<C> for Type {
     fn fmt_with_context(&self, f: &mut std::fmt::Formatter, _context: &C) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
-}
-
-fn best_display_sum_type(){
-
 }
 
 impl Display for Type {
@@ -786,6 +783,8 @@ fn parse_function_arg(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
         TokenData::False => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: false }, tok_range)),
         TokenData::ParenOpen => parse_parenthesis(parser, tok_range.start), // TODO : move this to the start of parse_node and make it unreachable! ? (because each time there are parenthesis, parse_node -> parse_primary -> parse_node is added to the call stack) 
         TokenData::ArrayOpen => parse_static_list(parser, tok_range.start),
+        TokenData::Op(op) => parse_unary_op(parser, op, tok_range.start),
+        // TODO : add anonymous functions ? other things (verify that it works with the parser)
         t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok_range))
     };
 

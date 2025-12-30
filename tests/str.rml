@@ -2,4 +2,17 @@ let gen_str len = match len with
   | 0 -> ""
   | l -> "a" ^ gen_str (len - 1) ;;
 
-let s = gen_str 10000 ;;
+let str = gen_str 10000 ;;
+
+// TODO : implement this and remove this
+let chars s : str -> list[int] = [] ;; 
+
+let match_str s = match (chars s) with 
+  | [] -> "empty"
+// TODO : need to implement syntax like 1 :: l
+//  | 'c' :: 'b' :: 'a' -> "c with ba"
+// TODO : 
+// | "ab" -> "ab string"
+  | _ -> "other" ;;
+
+let _ = print (match_str str) ;;
