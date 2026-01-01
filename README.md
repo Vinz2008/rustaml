@@ -12,6 +12,7 @@ A simple functional language (still very in progress) inspired by ocaml and writ
 - Static types with Hindley–Milner type system
 - Generic functions
 - Good error messages
+- UTF-8 strings support by default
 
 
 ## Parts that are Done

@@ -25,6 +25,7 @@ pub enum Pattern {
     Bool(bool), // | true
     Range(i64, i64, bool), // bool is for the inclusivity | 0..1
     String(StringRef), // | "test"
+    Char(char), // | 'c'
     List(Box<[PatternRef]>), // | [1, 2, 3]
     // TODO : make it possible to have 1 :: 2 :: l (so replace StringRef with PatternRef)
     ListDestructure(PatternRef, PatternRef), // head name then tail name TODO : refactor to be recursive so you can have e::e2::l
@@ -229,6 +230,9 @@ pub enum ASTNode {
     },
     String {
         str : StringRef
+    },
+    Char {
+        c : char,
     },
     List {
         list : Box<[ASTRef]>,
@@ -768,7 +772,7 @@ fn parse_let(parser: &mut Parser, let_range_start : usize) -> Result<ASTRef, Par
 fn is_function_arg_start(tok_data : Option<&TokenData>) -> bool {
     match tok_data {
         Some(t) => 
-            matches!(t, TokenData::Identifier(_) | TokenData::Integer(_) | TokenData::Float(_) | TokenData::String(_) | TokenData::ParenOpen | TokenData::ArrayOpen | TokenData::True | TokenData::False),
+            matches!(t, TokenData::Identifier(_) | TokenData::Integer(_) | TokenData::Float(_) | TokenData::String(_) | TokenData::ParenOpen | TokenData::ArrayOpen | TokenData::True | TokenData::False | TokenData::Char(_)),
         None => false,
     }
 }
@@ -779,6 +783,7 @@ fn parse_function_arg(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
     let node = match tok.tok_data {
         TokenData::Integer(nb) => Ok(parse_integer(parser, nb, tok_range)),
         TokenData::Float(nb) => Ok(parse_float(parser, nb, tok_range)),
+        TokenData::Char(c) => Ok(parse_character(parser, c, tok_range)),
         TokenData::String(buf) => Ok(parse_string(parser, &buf, tok_range)),
         TokenData::Identifier(buf) => parse_identifier_expr(parser, &buf, tok_range),
         TokenData::True => Ok(parser.rustaml_context.ast_pool.push(ASTNode::Boolean { b: true }, tok_range)),
@@ -970,6 +975,9 @@ fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
 
             (Pattern::List(elems.into_boxed_slice()), pattern_first_tok_range.start..range_end)
         },
+        TokenData::Char(c) => {
+            (Pattern::Char(c), pattern_first_tok_range)
+        }
         t => return Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, pattern_first_tok_range)),
     };
 
@@ -1167,6 +1175,11 @@ fn parse_cast(parser : &mut Parser, cast_range_start : usize) -> Result<ASTRef, 
     }, cast_range_start..end_range))
 }
 
+fn parse_character(parser: &mut Parser, c : char, range : Range<usize>) -> ASTRef {
+    let char_ast = ASTNode::Char { c };
+    parser.rustaml_context.ast_pool.push(char_ast, range) // TODO : in these case where the type is already known because it is evident use push_with_type instead ?
+}
+
 fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     let tok = parser.eat_tok(None).unwrap();
     let tok_range = tok.range.clone();
@@ -1187,6 +1200,7 @@ fn parse_primary(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
         TokenData::Extern => parse_extern_func(parser, tok_range.start),
         TokenData::Type => parse_type_alias(parser),
         TokenData::Cast => parse_cast(parser, tok_range.start),
+        TokenData::Char(c) => Ok(parse_character(parser, c, tok_range)),
         //t => panic!("t: {:?}", t),
         t => Err(ParserErr::new(ParserErrData::UnexpectedTok { tok: t }, tok.range))
     };

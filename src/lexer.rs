@@ -387,7 +387,6 @@ pub fn lex(content: Vec<char>, is_debug_print : bool) -> Result<Vec<Token>, Lexe
                 }
             },
             '\'' => {
-                // TODO : handling of char litteral ?
                 let char_c = lexer.read_char();
                 if let Some(c) = char_c && let Some('\'') = lexer.read_char() {
                     Some(Token::new(TokenData::Char(c), lexer.pos-3..lexer.pos-1))

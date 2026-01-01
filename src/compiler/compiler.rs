@@ -25,6 +25,7 @@ pub struct CachedCompilation {
     pub metadata : CachedCompMeta,
 }
 
+
 cfg_if! {
     if #[cfg(feature = "cache")]{
         use crate::cache::{write_cached_llvm_ir, get_cached_llvm_ir};
@@ -147,6 +148,12 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             args: Box::new([llvm_context.bool_type().into()]),
             ret: Some(ptr_type_ret),
             attributes: vec![attr_return("noundef"), attr_return("nonnull")],
+            ..Default::default()
+        },
+        BuiltinFunction {
+            name: "__char_to_str",
+            args: Box::new([llvm_context.i32_type().into()]),
+            ret: Some(ptr_type_ret),
             ..Default::default()
         },
         BuiltinFunction {
@@ -359,7 +366,9 @@ fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
             print_val = compile_context.builder.build_call(bool_to_str_fun, &bool_to_str_args, "bool_to_str_internal").unwrap().try_as_basic_value().unwrap_left().into();
         }
         Type::Char => {
-            todo!()
+            let char_to_str_fun = compile_context.get_internal_function("__char_to_str");
+            let char_to_str_args = vec![print_val];
+            print_val = compile_context.builder.build_call(char_to_str_fun, &char_to_str_args, "char_to_str_internal").unwrap().try_as_basic_value().unwrap_left().into();
         }
         Type::Unit => {
             print_val = create_string(compile_context, "()").as_basic_value_enum().into();
@@ -1217,6 +1226,7 @@ pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llv
         ASTNode::Integer { nb } => create_int(compile_context, nb).into(), // TODO : sign extend or not ?
         ASTNode::Float { nb } => compile_context.context.f64_type().const_float(nb).into(),
         ASTNode::Boolean { b } => compile_context.context.bool_type().const_int(b as u64, false).into(),
+        ASTNode::Char { c } => compile_context.context.i32_type().const_int(c as u64, false).into(),
         ASTNode::String { str } => compile_str(compile_context, str).into(),
         ASTNode::VarDecl { name, val, body, var_type: _ } => compile_var_decl(compile_context, ast_node, name, val, body, false),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => compile_if(compile_context, cond_expr, then_body, else_body),
@@ -1533,9 +1543,7 @@ impl OptionalArgs {
     }
 }
 
-// TODO : add self profiling (dump in file the time of lexer, ast, compilation, compiling std, linking, etc)
-
-// TODO : pass all the args after optimization level as a struct named OptionalArgs
+// TODO : add also a std.rml for std functions that are written in rustaml which will also be included in the executable 
 pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optional_args : OptionalArgs) {
     let optimization_level = match optional_args.optimization_level {
         0 => OptimizationLevel::None,

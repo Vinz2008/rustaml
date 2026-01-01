@@ -296,6 +296,7 @@ pub enum Val {
     Float(f64),
     Bool(bool),
     String(StringRef),
+    Char(char),
     List(ListRef),
     Function(FunctionDef),
     SumType(SumTypeVal),
@@ -354,6 +355,7 @@ impl Display for ValWrapDisplay<'_> {
             Val::Integer(i) => write!(f, "{}", i),
             Val::Float(fl) => write!(f, "{}", fl),
             Val::Bool(b) => write!(f, "{}", b),
+            Val::Char(c) => write!(f, "{}", c),
             Val::String(s) => write!(f, "{}", s.get_str(&self.rustaml_context.str_interner)),
             Val::List(l) => display_list(*l, self.rustaml_context, f),
             Val::Function(_) => write!(f, "function"), // TODO ?
@@ -993,6 +995,14 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
                 _ => unreachable!(),
             }
         },
+        Pattern::Char(c) => {
+            match matched_val {
+                Val::Char(matched_char) => {
+                    c == *matched_char
+                }
+                _ => unreachable!(),
+            }
+        }
         Pattern::SumTypeVariant(n) => {
             match matched_val {
                 Val::SumType(s) => {
@@ -1194,6 +1204,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
         ASTNode::Float { nb } => Val::Float(nb),
         ASTNode::Integer { nb } => Val::Integer(nb.try_into().unwrap()),
         ASTNode::Boolean { b } => Val::Bool(b),
+        ASTNode::Char { c } => Val::Char(c),
         ASTNode::VarDecl { name, val, body, var_type: _ } => {
             let val_node = interpret_node(context, val);
             let is_underscore = name.get_str(&context.rustaml_context.str_interner) == "_";

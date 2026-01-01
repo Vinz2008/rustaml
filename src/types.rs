@@ -303,7 +303,8 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
         Pattern::Integer(_) | Pattern::Range(_, _, _) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Integer), range),
         Pattern::Float(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Float), range),
         Pattern::Bool(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Bool), range),
-        Pattern::String(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Str), range), 
+        Pattern::String(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Str), range),
+        Pattern::Char(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Char), range), 
         Pattern::List(pattern_list) => {
             context.push_constraint(Constraint::ListType(matched_type_var), range.clone());
             for p in pattern_list {
@@ -375,6 +376,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         ASTNode::Float { .. } => context.push_constraint(Constraint::IsType(new_type_var, Type::Float), range),
         ASTNode::String { .. } => context.push_constraint(Constraint::IsType(new_type_var, Type::Str), range),
         ASTNode::Boolean { .. } => context.push_constraint(Constraint::IsType(new_type_var, Type::Bool), range),
+        ASTNode::Char { .. } => context.push_constraint(Constraint::IsType(new_type_var, Type::Char), range),
         ASTNode::Variant { name, arg: _ } => {
             let sum_type = get_variant_type(context.rustaml_context, name);
             context.push_constraint(Constraint::IsType(new_type_var, sum_type), range)

@@ -184,7 +184,9 @@ static void assert_fail(){
 #endif
 
 #define ALLOC_ERROR(...) ({ \
-        fprintf(stderr, "ALLOC ERROR : " __VA_ARGS__); \
+        fprintf(stderr, "ALLOC ERROR in %s:", __func__); \
+        fprintf(stderr, __VA_ARGS__); \
+        fprintf(stderr, "\n"); \
         exit(1); \
     }) 
 
@@ -259,6 +261,9 @@ struct ListNode* __list_node_init_static(uint8_t type_tag, Val* vals_static, int
     assert(len > 0 && "len should be greater than 0");
 
     struct ListNode* list_nodes = MALLOC(len * sizeof(struct ListNode));
+    if (!list_nodes){
+        ALLOC_ERROR("ListNode static");
+    }
     for (int64_t i = 0; i < len; i++){
         list_nodes[i] = (struct ListNode){
             .type_tag = type_tag,
@@ -295,24 +300,40 @@ struct ListNode* __list_node_append_back(struct ListNode* list, uint8_t type_tag
     return list;
 }
 
+struct ListBuilder {
+    struct ListNode* head;
+    struct ListNode* tail;
+};
+
+static struct ListBuilder list_builder_init(){
+    return (struct ListBuilder){
+        .head = NULL,
+        .tail = NULL,
+    };
+}
+
+static void list_builder_append_back(struct ListBuilder* list_builder, uint8_t type_tag, Val val){
+    ASSERT_NOT_NULL(list_builder);
+    struct ListNode* new = list_node_init(type_tag, val);
+    if (list_builder->tail == NULL){
+        list_builder->head = new;
+        list_builder->tail = new;
+    } else {
+        list_builder->tail->next = new;
+        list_builder->tail = new;
+    }
+}
+
 // clone the list nodes, but doesn't clone the list vals
 static struct ListNode* clone_list(struct ListNode* list){
-    struct ListNode* new_list = NULL;
-    struct ListNode* current_new_list = NULL;
     struct ListNode* current = list;
+    struct ListBuilder list_builder = list_builder_init();
     
     while (current != NULL){
-        struct ListNode* new_node = list_node_init(current->type_tag, current->val);
-        if (current_new_list){
-            current_new_list->next = new_node;
-            current_new_list = current_new_list->next;
-        } else {
-            new_list = new_node;
-            current_new_list = new_list;
-        }
+        list_builder_append_back(&list_builder, current->type_tag, current->val);
         current = current->next;
     }
-    return new_list;
+    return list_builder.head;
 }
 
 struct ListNode* __list_node_merge(struct ListNode* list1, struct ListNode* list2){
@@ -390,23 +411,116 @@ int64_t __list_len(struct ListNode* list){
     return count;
 }
 
+// use this to prevent errors from pessimizing the fast path of execution 
+__attribute__((cold, noreturn))
+static void utf8_error(const char* msg, uint8_t* b){
+    if (b){
+        fprintf(stderr, "Invalid UTF-8 : %s (%x)\n", msg, *b);
+    } else {
+        fprintf(stderr, "Invalid UTF-8 : %s\n", msg);
+    }
+    exit(1);
+}
+
+#define IS_CONTINUATION_BYTE(c) ((c & 0xC0) == 0x80) // & 11000000 == 10000000
+
+// the data are on the low 6 bits with the 2 highest bits as 0
+#define GET_CONTINUATION_BYTE_DATA(c) (c & 0x3F) // & 00111111
 
 struct ListNode* __chars(const char* s){
-    // TODO : optimize this by not iterating through all of it when appending
-    struct ListNode* l = NULL;
+    struct ListBuilder list_builder = list_builder_init();
     size_t bytes_len = strlen(s);
-    for (int i = 0; i < bytes_len; i++){
+    size_t i = 0;
+
+    // first fast loop
+    while (i < bytes_len && (s[i] & 0x80) == 0) {
+        list_builder_append_back(&list_builder, CHAR_TYPE, (Val)s[i]);
+        i++;
+    }
+
+    while (i < bytes_len){
         uint8_t c = s[i];
-        if ((c & 0xC0) == 0x80){ // & 11000000 == 10000000
-            // TODO : invalid UTF-8
-        }
+
         if ((c & 0x80) == 0){ // & 10000000
             // no need to use INTO_TYPE because it is just widening all unsigned (so just zext)
-            l = __list_node_append_back(l, CHAR_TYPE, (Val)c);
+            list_builder_append_back(&list_builder, CHAR_TYPE, (Val)c);
+            i++;
+        } else {
+            if (IS_CONTINUATION_BYTE(c)){
+                utf8_error("continuation byte not expected", &c);
+            }
+            uint32_t code_point;
+            if ((c & 0xE0) == 0xC0){ // & 11100000 == 11000000
+                // 2 bytes codepoints
+                if (i + 1 >= bytes_len){
+                    utf8_error("missing bytes", NULL);
+                }
+                uint8_t byte_1 = c;
+                uint8_t byte_2 = s[i+1];
+                if (!IS_CONTINUATION_BYTE(byte_2)){
+                    utf8_error("should be continuation byte", &byte_2);
+                }
+                // (byte_1 & 00011111) | (byte_2 & 01111111)
+                code_point = (((uint32_t)(byte_1 & 0x1F)) << 6) | (uint32_t)GET_CONTINUATION_BYTE_DATA(byte_2) ; 
+                if (code_point < 0x80) {
+                    utf8_error("overlong encoding", NULL);
+                }
+                i += 2;
+            } else if ((c & 0xF0) == 0xE0){ // & 11110000 == 11100000
+                // 3 bytes codepoints
+                if (i + 2 >= bytes_len){
+                    utf8_error("missing bytes", NULL);
+                }
+                uint8_t byte_1 = c;
+                uint8_t byte_2 = s[i+1];
+                uint8_t byte_3 = s[i+2];
+                if (!IS_CONTINUATION_BYTE(byte_2)){
+                    utf8_error("should be continuation byte", &byte_2);
+                }
+                if (!IS_CONTINUATION_BYTE(byte_3)){
+                    utf8_error("should be continuation byte", &byte_3);
+                }
+                // (byte_1 & 00001111)
+                code_point = ((uint32_t)(byte_1 & 0xF) << 12) | ((uint32_t)GET_CONTINUATION_BYTE_DATA(byte_2) << 6) | ((uint32_t)GET_CONTINUATION_BYTE_DATA(byte_3));
+                if (code_point < 0x800) {
+                    utf8_error("overlong encoding", NULL);
+                }
+                
+                i += 3;
+            } else if ((c & 0xF8) == 0xF0) { // & 11111000 == 11110000
+                // 4 bytes codepoints
+                if (i + 3 >= bytes_len){
+                    utf8_error("missing bytes", NULL);
+                }
+                uint8_t byte_1 = c;
+                uint8_t byte_2 = s[i+1];
+                uint8_t byte_3 = s[i+2];
+                uint8_t byte_4 = s[i+3];
+                if (!IS_CONTINUATION_BYTE(byte_2)){
+                    utf8_error("should be continuation byte", &byte_2);
+                }
+                if (!IS_CONTINUATION_BYTE(byte_3)){
+                    utf8_error("should be continuation byte", &byte_3);
+                }
+                if (!IS_CONTINUATION_BYTE(byte_4)){
+                    utf8_error("should be continuation byte", &byte_4);
+                }
+                // (byte_1 & 00000111)
+                code_point = ((uint32_t)(byte_1 & 0x7) << 18) | ((uint32_t)GET_CONTINUATION_BYTE_DATA(byte_2) << 12) | ((uint32_t)GET_CONTINUATION_BYTE_DATA(byte_3) << 6) | (uint32_t)GET_CONTINUATION_BYTE_DATA(byte_4);
+                if (code_point < 0x10000) {
+                    utf8_error("overlong encoding", NULL);
+                }
+                i += 4;
+            } else {
+                utf8_error("unknown leading bits", &c);
+            }
+            if (code_point > 0x10FFFF || (code_point >= 0xD800 && code_point <= 0xDFFF)) {
+                utf8_error("invalid Unicode scalar", NULL);
+            }
+            list_builder_append_back(&list_builder, CHAR_TYPE, (Val)code_point);
         }
-        // TODO : multi bytes codepoints
     }
-    return l;
+    return list_builder.head;
 }
 
 const char* __bool_to_str(bool b){
@@ -567,10 +681,18 @@ int64_t __rand(){
 }
 
 
+struct str {
+    char* buf;
+    size_t capacity;
+    size_t len;
+};
+
 static void list_print_no_new_line(struct ListNode* list);
+static void format_char(struct str* str, uint32_t c);
 
 // TODO : transform in the future into a print_val function
 static void list_node_print(uint8_t tag, Val val){
+    // TODO : transform this into a switch ?
     if (tag == INT_TYPE) {
         printf("%" PRId64 "", INTO_TYPE(int64_t, val));
     } else if (tag == FLOAT_TYPE){
@@ -583,6 +705,19 @@ static void list_node_print(uint8_t tag, Val val){
         const char* s = INTO_TYPE(char*, val);
         ASSERT_NOT_NULL(s);
         printf("%s", s);
+    } else if (tag == CHAR_TYPE){
+        // use this instead of format_char to prevent useless heap allocations
+        char buf[5];
+        struct str s = (struct str){
+            .buf = buf,
+            .len = 0,
+            .capacity = 5,
+        };
+        uint32_t c = INTO_TYPE(uint32_t, val);
+        // TODO : assert valid codepoint ? (but already in format_char ?)
+        format_char(&s, c);
+        buf[s.len] = '\0';
+        printf("%s", buf);
     } else if (tag == LIST_TYPE){
         list_print_no_new_line(INTO_TYPE(struct ListNode*, val));
     } else {
@@ -610,12 +745,6 @@ void __list_print(struct ListNode* list){
     printf("\n");
 }
 
-struct str {
-    char* buf;
-    size_t capacity;
-    size_t len;
-};
-
 static void str_append_with_realloc(struct str* str, char c){
     ASSERT_NOT_NULL(str);
     if (str->len + 1 >= str->capacity){
@@ -625,6 +754,19 @@ static void str_append_with_realloc(struct str* str, char c){
     //printf("current_len : %d, current_capacity : %d\n", str->len, str->capacity);
     str->buf[str->len] = c;
     str->len += 1;
+}
+
+const char* __char_to_str(uint32_t c){
+    const int buf_size = 5; // 4 bytes max for codepoint + null byte
+    // it should not call realloc on the str, if it does it would do UB
+    struct str s = (struct str){
+        .buf = MALLOC(sizeof(char) * buf_size),
+        .len = 0,
+        .capacity = buf_size,
+    };
+    format_char(&s, c);
+    s.buf[s.len] = '\0';
+    return s.buf;
 }
 
 static uint64_t absolute(int64_t i){
@@ -812,7 +954,7 @@ static void format_str(struct str* str, char* s){
 }
 
 
-void format_char(struct str* str, uint32_t c){
+static void format_char(struct str* str, uint32_t c){
     if (c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF)) {
         fprintf(stderr, "Invalid UTF-8 codepoint %d\n", c);
         exit(1);
@@ -871,7 +1013,7 @@ static void list_node_format(struct str* str, uint8_t tag, Val val){
             format_char(str, INTO_TYPE(uint32_t, val));
             break;
         default:
-            fprintf(stderr, "ERROR : WRONG TAGS IN LIST IN FORMAT (%d) (BUG IN COMPILER  \?\?)\n", tag);
+            fprintf(stderr, "ERROR : WRONG TAGS IN LIST IN FORMAT (BUG IN COMPILER  \?\?)\n");
             exit(1);
     }
 }
@@ -934,6 +1076,7 @@ static char* vformat_string(char* format, va_list va){
                         break;
                     case 'c':
                         format_char(&str, va_arg(va, uint32_t));
+                        break;
                     case 'b':
                         format_bool(&str, (bool)va_arg(va, int));
                         break;
@@ -971,3 +1114,4 @@ char* __format_string(char* format, ...){
 }*/
 
 
+// TODO : instead of using the fprintf(stderr, ..) and exit(1), use a macro for errors that would be this in low optimizations levels/with a flag transformed to a trap instruction like __builtin_trap()

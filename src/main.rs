@@ -128,6 +128,7 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         disable_gc : bool,
 
+        // TODO: why the sanitizer doesn't work ?
         #[arg(long, default_value_t = false)]
         enable_sanitizer : bool,
 

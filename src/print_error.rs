@@ -186,7 +186,7 @@ pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : 
         ParserErrData::ImportError => return, // skip because the error has already be printen by get_ast_from_string
         ParserErrData::UnexpectedEOF => print_unexpected_eof_error(error_basic_infos),
         ParserErrData::WrongTok { expected_tok, got_tok } => print_wrong_tok_error(error_basic_infos, expected_tok, got_tok),
-        ParserErrData::UnexpectedTok {tok } => print_unexpected_tok_error(error_basic_infos, tok),
+        ParserErrData::UnexpectedTok { tok } => print_unexpected_tok_error(error_basic_infos, tok),
         //ParserErrData::UnknownVar { name } => print_unknown_var(error_basic_infos, &name),
         //ParserErrData::TypeInferenceErr { arg_name } => print_type_inference_error(error_basic_infos, &arg_name),
         ParserErrData::UnknownTypeAnnotation { type_str } => print_unknown_type_annotation(error_basic_infos, &type_str),

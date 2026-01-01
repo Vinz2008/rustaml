@@ -121,9 +121,10 @@ fn compile_short_circuiting_match_list_destructure<'llvm_ctx>(compile_context: &
 
 fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_expr_type : &Type) -> IntValue<'llvm_ctx>{
     match pattern.get(&compile_context.rustaml_context.pattern_pool).clone() {
-        Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(i as u64, false), "match_int_cmp").unwrap(),
+        Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(i as u64, true), "match_int_cmp").unwrap(),
         Pattern::Float(f) => compile_context.builder.build_float_compare(FloatPredicate::OEQ, matched_val.into_float_value(), compile_context.context.f64_type().const_float(f), "match_float_cmp").unwrap(),
         Pattern::Bool(b) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.into_int_value(), compile_context.context.bool_type().const_int(b as u64, false), "match_bool_cmp").unwrap(),
+        Pattern::Char(c) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap(), compile_context.context.i32_type().const_int(c as u64, false), "match_int_cmp").unwrap(),
         Pattern::Range(lower, upper, inclusivity) => {
             let (lower_predicate, upper_predicate) = if inclusivity {
                 (IntPredicate::SLE, IntPredicate::SGE)
@@ -265,7 +266,7 @@ fn compile_match_switch<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
             }
             Pattern::SumTypeVariant(n) => {
                 let variant_tag = get_variant_tag(compile_context.rustaml_context, *n);
-                let variant_tag_val = compile_context.context.i64_type().const_int(variant_tag as u64 , true);
+                let variant_tag_val = compile_context.context.i64_type().const_int(variant_tag as u64 , false);
                 cases.push((variant_tag_val, *bb))
             }
             _ => unreachable!(),

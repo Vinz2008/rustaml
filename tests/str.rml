@@ -4,14 +4,29 @@ let gen_str len = match len with
 
 let str = gen_str 10000 ;;
 
+// TODO : make it possible to have aux in the gen_str_tail_rec function
+
+let aux acc len = 
+    match len with
+    | 0 -> acc
+    | l -> aux (acc ^ "a") (l-1) ;;
+
+let gen_str_tail_rec len = aux "" len ;;
+
 // TODO : test this in the interpreter
+
+let c = 'a' ;;
 
 let match_str s = match (chars s) with 
   | [] -> "empty"
-// TODO : need to implement syntax like 1 :: l
-//  | 'c' :: 'b' :: 'a' -> "c with ba"
-// TODO : 
+  | 'c' :: 'b' :: 'a' :: [] -> "c with ba"
+  | '⭐' :: a -> "star"
+// TODO : should it work ?
 // | "ab" -> "ab string"
   | _ -> "other" ;;
 
-let _ = print (match_str str) ;;
+let _ = print (match_str (str)) ;;
+let _ = print '⭐' ;;
+let _ = print (chars (gen_str 10)) ;;
+// let _ = print (chars (gen_str_tail_rec 10000)) ;;
+let _ = print (match_str "⭐ssdfdfd")
