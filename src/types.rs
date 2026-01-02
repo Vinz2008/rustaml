@@ -712,9 +712,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             }
 
         }
-        ASTNode::TypeAlias { name, type_alias } => {
-            // TODO : what should it even do ?
-        }
+        ASTNode::TypeAlias { name: _, type_alias: _ } => {}
         //t => panic!("Unknown ast node : {:?}", DebugWrapContext::new(&t, context.rustaml_context)),
     }
 

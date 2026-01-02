@@ -154,7 +154,7 @@ fn check<'a>(check_context : &CheckContext<'a>, ast : ASTRef) -> Result<(), Chec
                 check(check_context, *e)?;
             }
         }
-        ASTNode::FunctionDefinition { name: _, args, body, type_annotation: _ } => {
+        ASTNode::FunctionDefinition { name: _, args: _, body, type_annotation: _ } => {
             check(check_context, *body)?;
         }
         ASTNode::AnonFunc { args: _, body, type_annotation: _ } => {

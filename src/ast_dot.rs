@@ -130,6 +130,12 @@ pub fn _generate_ast_dot(graph : &mut Graph<String, String>, rustaml_context : &
         ASTNode::Unit => {
             graph.add_node("()".to_string())
         }
+        ASTNode::Variant { name, arg } => {
+            graph.add_node(name.get_str(&rustaml_context.str_interner).to_string())
+        }
+        ASTNode::Char { c } => {
+            graph.add_node(format!("\'{}\'", c))
+        }
         ASTNode::TopLevel { nodes } => {
             let toplevel_node = graph.add_node("toplevel".to_string());
             for n in nodes {

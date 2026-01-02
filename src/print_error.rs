@@ -289,7 +289,7 @@ pub fn print_type_error(type_error : TypesErr, filename : &Path, content : &str)
         TypesErrData::VarNotFound { name, nearest_var_name } => print_var_not_found_error(error_basic_infos, &name, nearest_var_name),
         TypesErrData::WrongArgNb { function_name, expected_nb, got_nb } => print_wrong_arg_nb(error_basic_infos, &function_name, expected_nb, got_nb),
         TypesErrData::WrongArgType { function_name, expected_type, got_type } => print_wrong_arg_type(error_basic_infos, &function_name, expected_type, got_type),
-        TypesErrData::WrongRetType { function_name, expected_type, got_type } => todo!(), // TODO (can you create this error, have not been able to do it)
+        TypesErrData::WrongRetType { function_name: _, expected_type: _, got_type: _ } => todo!(), // TODO (can you create this error, have not been able to do it)
         TypesErrData::WrongType { expected_type, got_type } => print_wrong_type_error(error_basic_infos, expected_type, got_type),
     };
 

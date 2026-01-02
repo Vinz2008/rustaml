@@ -18,7 +18,7 @@ fn get_type_symbol(t : &Type) -> Symbol {
 }
 
 fn mangle_cpp(s : &str, function_type : &Type) -> String {
-    let (ret_type, arg_types) = match function_type {
+    let (_ret_type, arg_types) = match function_type {
         Type::Function(args, ret, _) => (ret.as_ref(), args.as_ref()), 
         _ => unreachable!(),
     };

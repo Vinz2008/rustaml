@@ -14,7 +14,7 @@ use crate::interpreter::gc::{try_gc_collect, Gc, GcContext};
 use crate::rustaml::ensure_stack;
 use crate::rustaml::RustamlContext;
 use crate::string_intern::StringRef;
-use crate::{ast::{ASTNode, Type, Pattern, ExternLang}, lexer::Operator};
+use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
 #[cfg(feature = "gc-test-collect")] 
 use crate::interpreter::gc::collect_gc;
@@ -23,6 +23,8 @@ use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(target_arch = "wasm32")]{
+        use crate::ast::ExternLang;
+
         fn ffi_not_supported_wasm() -> ! {
             panic!("FFI not supported on wasm");
         }
@@ -380,7 +382,7 @@ impl Display for ValWrapDisplay<'_> {
             Val::String(s) => write!(f, "{}", s.get_str(&self.rustaml_context.str_interner)),
             Val::List(l) => display_list(*l, self.rustaml_context, f),
             Val::Function(_) => write!(f, "function"), // TODO ?
-            Val::SumType(s) => todo!(), // TODO
+            Val::SumType(_) => todo!(), // TODO
             Val::Unit => write!(f, "()"),
         }
     }
@@ -1146,7 +1148,7 @@ fn interpret_match(context: &mut InterpretContext, matched_expr : ASTRef, patter
     panic!("No pattern was matched in match expressions (not exhaustive match)")
 }
 
-fn interpret_cast(context : &mut InterpretContext, to_type : Type, expr : ASTRef) -> Val {
+fn interpret_cast(context : &mut InterpretContext, _to_type : Type, expr : ASTRef) -> Val {
     let val = interpret_node(context, expr);
     // TODO
     val
