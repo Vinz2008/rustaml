@@ -9,17 +9,38 @@ use rand::prelude::*;
 use crate::ast::ASTRef;
 use crate::ast::PatternRef;
 use crate::debug_println;
-use crate::interpreter::ffi::call_ffi_function;
-use crate::interpreter::ffi::get_ffi_func;
-use crate::interpreter::ffi::FFIFunc;
+
 use crate::interpreter::gc::{try_gc_collect, Gc, GcContext};
 use crate::rustaml::ensure_stack;
 use crate::rustaml::RustamlContext;
 use crate::string_intern::StringRef;
-use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
+use crate::{ast::{ASTNode, Type, Pattern, ExternLang}, lexer::Operator};
 
 #[cfg(feature = "gc-test-collect")] 
 use crate::interpreter::gc::collect_gc;
+
+use cfg_if::cfg_if;
+
+cfg_if! {
+    if #[cfg(target_arch = "wasm32")]{
+        fn ffi_not_supported_wasm() -> ! {
+            panic!("FFI not supported on wasm");
+        }
+
+        #[derive(Clone, PartialEq, DebugWithContext)]
+        #[debug_context(RustamlContext)]
+        struct FFIFunc;
+        
+        fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFIFunc, args : &[Val]) -> Val {
+            ffi_not_supported_wasm()
+        }
+        fn get_ffi_func(context : &mut InterpretContext, name: StringRef, func_type : Type, external_lang : ExternLang, so_str : Option<StringRef>) -> FFIFunc {
+            ffi_not_supported_wasm()
+        }
+    } else {
+        use crate::interpreter::ffi::{call_ffi_function, get_ffi_func, FFIFunc};
+    }
+}
 
 // None values are freed lists that can be reused
 #[derive(Clone)]
