@@ -176,6 +176,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             ret: Some(ptr_type_ret),
             attributes: vec![attr_return("noalias"), attr_args("nonnull", 0)],
         },
+        // TODO : remove this ?
         BuiltinFunction {
             name: "fprintf",
             is_variadic: true,
@@ -183,12 +184,20 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             ret: Some(llvm_context.i32_type().into()),
             attributes: vec![attr_args("noundef", 0), attr_args("noundef", 1)],
         },
+        // TODO : remove this ?
         BuiltinFunction {
             name: "printf",
             is_variadic: true,
             args: Box::new([ptr_type]),
             ret: Some(llvm_context.i32_type().into()),
             attributes: vec![attr_args("noundef", 0)],
+        },
+        BuiltinFunction {
+            name: "__print_val",
+            is_variadic: true,
+            args: Box::new([ptr_type]),
+            ret: Some(llvm_context.void_type().into()),
+            attributes: vec![attr_args("noundef", 0), attr_args("readonly", 0)],
         },
         BuiltinFunction {
             name: "exit",
@@ -321,22 +330,25 @@ fn compile_if<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>
 
 fn get_format_ctype(c_type : &CType) -> &'static str {
     match c_type {
-        CType::I32 => "%d\n",
-        CType::U64 => "%ld\n",
+        CType::I32 => todo!(),
+        CType::U64 => "%Cu64",
         _ => panic!("Can't print ctypes {:?}", c_type)  // TODO
     }
     
 }
 
-fn get_printf_format_string(print_type : &Type) -> &'static str {
+// TODO : use also this for the formatting
+fn get_format_string(print_type : &Type) -> &'static str {
     match print_type {
-        Type::Integer => "%ld\n", // TODO : verify it is good
-        Type::Float => "%f\n",
-        Type::Str | Type::Bool | Type::Char => "%s\n", // TODO : add a better printing solution
-        Type::List(_) => unreachable!(), // the format will not be used
+        Type::Integer => "%d", // TODO : verify it is good
+        Type::Float => "%f",
+        Type::Str => "%s", // TODO : add a better printing solution
+        Type::Bool => "%b", 
+        Type::Char => "%c",
+        Type::List(_) => "%l", // the format will not be used // TODO : use the format
         Type::Function(_, _, _) => panic!("Can't print functions"),
-        Type::Unit => "%s\n",
-        Type::Never => "", // can't print it, normally if the function is really a never type, it should be never return, so the print should never be called 
+        Type::Unit => "%u",
+        Type::Never => "%n", // can't print it, normally if the function is really a never type, it should be never return, so the print should never be called 
         Type::CType(c_type) => get_format_ctype(c_type),
         Type::Any => encountered_any_type(),
         Type::SumType(_) => unreachable!(), // TODO ?
@@ -346,36 +358,20 @@ fn get_printf_format_string(print_type : &Type) -> &'static str {
 
 // TODO : call a c function that will call printf ? (then write the formatting part myself ? under a feature flag ?)
 fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, print_val : AnyValueEnum<'llvm_ctx>, print_val_type : &Type) -> AnyValueEnum<'llvm_ctx> {
-    let mut print_val = TryInto::<BasicMetadataValueEnum>::try_into(print_val).unwrap();
+    let print_val = TryInto::<BasicMetadataValueEnum>::try_into(print_val).unwrap();
 
-    if let Type::List(_) = print_val_type {
+    /*if let Type::List(_) = print_val_type {
         let print_list_fun = compile_context.get_internal_function("__list_print");
         let print_list_args = vec![print_val];
         compile_context.builder.build_call(print_list_fun, &print_list_args, "print_list_internal").unwrap();
         return get_void_val(compile_context.context);
-    }
+    }*/
 
-    let printf_fun = compile_context.get_internal_function("printf");
-    // TODO : change this
-    let format_str = get_printf_format_string(print_val_type);
+    let printf_fun = compile_context.get_internal_function("__print_val");
+    let format_str = get_format_string(print_val_type);
     let format_str = create_string(compile_context, format_str);
-    match print_val_type {
-        Type::Bool => {
-            let bool_to_str_fun = compile_context.get_internal_function("__bool_to_str");
-            let bool_to_str_args = vec![print_val];
-            print_val = compile_context.builder.build_call(bool_to_str_fun, &bool_to_str_args, "bool_to_str_internal").unwrap().try_as_basic_value().unwrap_left().into();
-        }
-        Type::Char => {
-            let char_to_str_fun = compile_context.get_internal_function("__char_to_str");
-            let char_to_str_args = vec![print_val];
-            print_val = compile_context.builder.build_call(char_to_str_fun, &char_to_str_args, "char_to_str_internal").unwrap().try_as_basic_value().unwrap_left().into();
-        }
-        Type::Unit => {
-            print_val = create_string(compile_context, "()").as_basic_value_enum().into();
-        }
-        _ => {}
-    }
-    let printf_args = vec![format_str.into(), print_val];
+    let print_val = promote_val_var_arg(compile_context, print_val_type, print_val.try_into().unwrap());
+    let printf_args = [format_str.into(), print_val.into()];
     compile_context.builder.build_call(printf_fun, &printf_args, "print_internal_call").unwrap();
     get_void_val(compile_context.context)
 }
@@ -404,15 +400,7 @@ fn get_format_string_format(format_str : &str, arg_types : &[Type]) -> String {
                             Some(a) => a,
                             None => panic!("ERROR: missing {{}} for the arg number {}", arg_idx),
                         };
-                        let arg_format_str = match arg_type {
-                            Type::Integer => "%d",
-                            Type::Float => "%f",
-                            Type::Bool => "%b",
-                            Type::Str => "%s",
-                            Type::Char => "%c",
-                            Type::List(_) => "%l",
-                            _ => panic!("Can't format type {:?}", arg_type),
-                        };
+                        let arg_format_str = get_format_string(arg_type);
                         format_string_ret.push_str(arg_format_str);
 
                         arg_idx += 1;
@@ -439,9 +427,9 @@ fn compile_format<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_
     let format_str = format_str.get_str(&compile_context.rustaml_context.str_interner);
     let format_str = get_format_string_format(format_str, arg_types.as_slice());
     let mut args= vec![create_string(compile_context, &format_str).into()];
-    let mut args_val = args_val.into_iter().zip(arg_types).map(|(e, t)| promote_val_var_arg(compile_context, t, e)).collect::<Vec<_>>();
+    let mut args_val = args_val.into_iter().zip(arg_types).map(|(e, t)| promote_val_var_arg(compile_context, &t, e.try_into().unwrap())).collect::<Vec<_>>();
     args.append(&mut args_val);
-    let args = args.into_iter().map(|e| e.try_into().unwrap()).collect::<Vec<_>>();
+    let args = args.into_iter().map(|e| e.into()).collect::<Vec<_>>();
     compile_context.builder.build_call(format_fun, &args, "format_string_internal_call").unwrap().as_any_value_enum()
 }
 
@@ -1108,7 +1096,7 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
 
     let llvm_element_type = get_llvm_type(compile_context, list_element_type);
     let size = create_int(compile_context, list.len() as i128);
-    let static_array = create_entry_block_array_alloca(compile_context, "temp_static_list", llvm_element_type, size);
+    let static_array = create_entry_block_array_alloca(compile_context, "temp_static_list", compile_context.context.i64_type().into(), size); // use a i64 type to prevent type aliasing UB
     
 
     if std_vals.iter().all(|e| e.is_const()){

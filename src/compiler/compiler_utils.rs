@@ -1,4 +1,4 @@
-use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, IntType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue}};
+use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}};
 
 use crate::{ast::{CType, Type}, compiler::{CompileContext, debuginfo::LineColLoc}, rustaml::RustamlContext, string_intern::StringRef};
 
@@ -300,9 +300,9 @@ pub fn from_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
     }
 }
 
-pub fn promote_val_var_arg<'llvm_ctx>(compile_context: &CompileContext<'_, '_, 'llvm_ctx>, val_type : Type, val : AnyValueEnum<'llvm_ctx>) -> AnyValueEnum<'llvm_ctx>{
+pub fn promote_val_var_arg<'llvm_ctx>(compile_context: &CompileContext<'_, '_, 'llvm_ctx>, val_type : &Type, val : BasicValueEnum<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx>{
     match val_type {
-        Type::Bool => compile_context.builder.build_int_z_extend(val.into_int_value(), compile_context.context.i32_type(), "zext_va_arg").unwrap().as_any_value_enum(),
+        Type::Bool => compile_context.builder.build_int_z_extend(val.into_int_value(), compile_context.context.i32_type(), "zext_va_arg").unwrap().as_basic_value_enum(),
         _ => val,
     }
 }

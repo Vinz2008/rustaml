@@ -141,6 +141,8 @@ __attribute__((weak)) size_t strlen(const char* s){
 typedef struct {} FILE;
 static FILE stderr_impl;
 __attribute__((weak)) FILE* stderr = &stderr_impl;
+static FILE stdout_impl;
+__attribute__((weak)) FILE* stdout = &stdout_impl;
 
 
 __attribute__((weak)) int fprintf(FILE* stream, const char* format, ... ){
@@ -163,7 +165,7 @@ __attribute__((noreturn)) void __stack_chk_fail(void) {
     while (1) { }
 }
 
-
+// TODO : remove this
 __attribute__((weak)) int printf(const char* format, ...){
     (void)format;
     return 0;
@@ -262,7 +264,7 @@ static struct ListNode* list_node_init(uint8_t type_tag, Val val) {
 }
 
 // optimization, improve cache locality
-struct ListNode* __list_node_init_static(uint8_t type_tag, Val* vals_static, int64_t len){
+struct ListNode* __list_node_init_static(uint8_t type_tag, const Val* vals_static, int64_t len){
     ASSERT_NOT_NULL(vals_static);
     assert(len > 0 && "len should be greater than 0");
 
@@ -710,86 +712,14 @@ struct str {
     size_t len;
 };
 
-static void list_print_no_new_line(struct ListNode* list);
-static void format_char(struct str* str, uint32_t c);
-
-// TODO : transform in the future into a print_val function
-static void list_node_print(uint8_t tag, Val val){
-    // TODO : transform this into a switch ?
-    if (tag == INT_TYPE) {
-        printf("%" PRId64 "", INTO_TYPE(int64_t, val));
-    } else if (tag == FLOAT_TYPE){
-        printf("%f", INTO_TYPE(double, val));
-    } else if (tag == BOOL_TYPE){
-        uint8_t b = INTO_TYPE(uint8_t, val);
-        ASSERT_BOOL(b);
-        printf("%s", __bool_to_str((bool)b));
-    } else if (tag == STR_TYPE){
-        const char* s = INTO_TYPE(char*, val);
-        ASSERT_NOT_NULL(s);
-        printf("%s", s);
-    } else if (tag == CHAR_TYPE){
-        // use this instead of format_char to prevent useless heap allocations
-        char buf[5];
-        struct str s = (struct str){
-            .buf = buf,
-            .len = 0,
-            .capacity = 5,
-        };
-        uint32_t c = INTO_TYPE(uint32_t, val);
-        // TODO : assert valid codepoint ? (but already in format_char ?)
-        format_char(&s, c);
-        buf[s.len] = '\0';
-        printf("%s", buf);
-    } else if (tag == LIST_TYPE){
-        list_print_no_new_line(INTO_TYPE(struct ListNode*, val));
-    } else {
-        fprintf(stderr, "ERROR : WRONG TAGS IN LIST IN PRINT (BUG IN COMPILER  \?\?)\n");
-        exit(1);
-    }
-}
-
-static void list_print_no_new_line(struct ListNode* list){
-    bool first = true;
-    printf("[");
-    while (list != NULL){
-        if (!first){
-            printf(", ");
-        } 
-        list_node_print(list->type_tag, list->val);
-        list = list->next;
-        first = false;
-    }
-    printf("]");
-}
-
-void __list_print(struct ListNode* list){
-    list_print_no_new_line(list);
-    printf("\n");
-}
-
 static void str_append_with_realloc(struct str* str, char c){
     ASSERT_NOT_NULL(str);
     if (str->len + 1 >= str->capacity){
         str->capacity = str->capacity + str->capacity/2; // str->capacity * 1.5
         str->buf = REALLOC(str->buf, str->capacity);
     }
-    //printf("current_len : %d, current_capacity : %d\n", str->len, str->capacity);
     str->buf[str->len] = c;
     str->len += 1;
-}
-
-const char* __char_to_str(uint32_t c){
-    const int buf_size = 5; // 4 bytes max for codepoint + null byte
-    // it should not call realloc on the str, if it does it would do UB
-    struct str s = (struct str){
-        .buf = MALLOC(sizeof(char) * buf_size),
-        .len = 0,
-        .capacity = buf_size,
-    };
-    format_char(&s, c);
-    s.buf[s.len] = '\0';
-    return s.buf;
 }
 
 static uint64_t absolute(int64_t i){
@@ -876,21 +806,17 @@ static void int_to_string_impl(char* buf, int64_t integer, int digit_number){
         memcpy(buf + start  + digit_number - i - 2, digit_pairs + two_digits * 2, 2);
         u /= 100;
     }
-    if (u != 0){
+    if (i < digit_number){
         buf[start + digit_number - i - 1] = (char)u + '0';
     }
 }
 
-/*static int max_double_digit_nb(){
-    return 32; // 24 would be safe, but use 32 because it will be cheaper on bdwgc
-    // could also do floor(log10(d)) but would use more CPU
-}*/
-
-#define MAX_DIGIT_POSSIBLE_DOUBLE 32 // 24 would be safe, but use 32 because it will be cheaper on bdwgc
-    // could also do floor(log10(d)) in a function but would use more CPU
+#define MAX_INT_BUF_SIZE 22
+#define MAX_DOUBLE_BUF_SIZE 24
 
 // TODO : implement ryu or grisu implementation (or both with grisu with ryu as fallback ?)
 static size_t double_to_string_impl(char* buf, double d, size_t max_char_nb){
+    const int MAX_DECIMAL_PLACES = 6;
     if (d != d){
         // NAN
         buf[0] = 'n';
@@ -934,13 +860,20 @@ static size_t double_to_string_impl(char* buf, double d, size_t max_char_nb){
         buf[pos] = '.';
         pos++;
 
-        while (pos < max_char_nb) {
+        int decimal_count = 0;
+
+        while (decimal_count < MAX_DECIMAL_PLACES && pos < max_char_nb) {
             frac_part *= 10;
             int digit = (int)frac_part;
             buf[pos] = '0' + digit;
             pos++;
             frac_part -= digit;
+            decimal_count++;
         }
+    } else {
+        // TODO : keep this or not ?
+        buf[pos++] = '.';
+        buf[pos++] = '0';
     }
     return pos;
 }
@@ -957,8 +890,8 @@ static void format_int(struct str* str, int64_t i){
 }
 
 static void format_float(struct str* str, double d){
-    ensure_size_string(str, str->len + MAX_DIGIT_POSSIBLE_DOUBLE);
-    str->len += double_to_string_impl(str->buf + str->len, d, MAX_DIGIT_POSSIBLE_DOUBLE);
+    ensure_size_string(str, str->len + MAX_DOUBLE_BUF_SIZE);
+    str->len += double_to_string_impl(str->buf + str->len, d, MAX_DOUBLE_BUF_SIZE);
 }
 
 static void format_bool(struct str* str, bool b){
@@ -983,19 +916,18 @@ static void format_char(struct str* str, uint32_t c){
         exit(1);
     }
 
+    ensure_size_string(str, str->len + 4); // need always at least 4 bytes
+
     if (c <= 0x007F){
-        ensure_size_string(str, str->len + 1);
         str->buf[str->len] = (char)c;
         str->len += 1;
     } else if (c <= 0x07FF){
-        ensure_size_string(str, str->len + 2);
         uint8_t byte_1 = (uint8_t)((c >> 6 | 0xC0) & 0xDF); // | 11000000 & 11011111
         uint8_t byte_2 = ((uint8_t)c | 0x80) & 0xBF; // | 10000000 & 10111111
         (str->buf + str->len)[0] = byte_1;
         (str->buf + str->len)[1] = byte_2;
         str->len += 2;
     } else if (c <= 0xFFFF){
-        ensure_size_string(str, str->len + 3);
         uint8_t bytes[3];
         bytes[0] = ((uint8_t)(c >> 12) | 0xE0) & 0xEF; // | 11100000 & 11101111
         bytes[1] = ((uint8_t)(c >> 6) | 0x80) & 0xBF;
@@ -1003,7 +935,6 @@ static void format_char(struct str* str, uint32_t c){
         memcpy(str->buf + str->len, bytes, 3);
         str->len += 3;
     } else if (c <= 0x10FFFF){
-        ensure_size_string(str, str->len + 4);
         uint8_t bytes[4];
         bytes[0] = ((uint8_t)(c >> 18) | 0xF0) & 0xF7; // | 11110000 & 11110111
         bytes[1] = ((uint8_t)(c >> 12) | 0x80) & 0xBF;
@@ -1064,8 +995,8 @@ static void list_format(struct str* str, struct ListNode* list){
 
 
 static void ensure_size_string(struct str* s, size_t size){
-    if (size >= s->capacity){
-        while (size >= s->capacity){
+    if (size > s->capacity){
+        while (size > s->capacity){
             s->capacity *= 2;
         }
         s->buf = REALLOC(s->buf, s->capacity);
@@ -1101,11 +1032,12 @@ static char* vformat_string(char* format, va_list va){
                         format_char(&str, va_arg(va, uint32_t));
                         break;
                     case 'b':
-                        format_bool(&str, (bool)va_arg(va, int));
+                        format_bool(&str, (bool)va_arg(va, uint32_t));
                         break;
                     case 'l':
                         list_format(&str, va_arg(va, struct ListNode*));
                         break;
+                    // TODO : add unit %u
                     default:
                         fprintf(stderr, "ERROR : Unknown format\n");
                         exit(1);
@@ -1128,6 +1060,201 @@ char* __format_string(char* format, ...){
     char* s = vformat_string(format, va);
     va_end(va);
     return s;
+}
+
+const char* __char_to_str(uint32_t c){
+    const int buf_size = 5; // 4 bytes max for codepoint + null byte
+    // it should not call realloc on the str, if it does it would do UB
+    struct str s = (struct str){
+        .buf = MALLOC(sizeof(char) * buf_size),
+        .len = 0,
+        .capacity = buf_size,
+    };
+    format_char(&s, c);
+    s.buf[s.len] = '\0';
+    return s.buf;
+}
+
+static void list_print_no_new_line(struct ListNode* list);
+
+// TODO : transform in the future into a print_val function
+static void list_node_print(uint8_t tag, Val val){
+    // TODO : transform this into a switch ?
+    if (tag == INT_TYPE) {
+        char buf[MAX_INT_BUF_SIZE];
+        struct str s = (struct str){
+            .buf = buf,
+            .capacity = MAX_INT_BUF_SIZE,
+            .len = 0,
+        };
+        int64_t i = INTO_TYPE(int64_t, val);
+        format_int(&s, i);
+        fwrite(buf, 1, s.len, stdout);
+    } else if (tag == FLOAT_TYPE){
+        char buf[MAX_DOUBLE_BUF_SIZE];
+        struct str s = (struct str){
+            .buf = buf,
+            .capacity = MAX_DOUBLE_BUF_SIZE,
+            .len = 0,
+        };
+        double d = INTO_TYPE(double, val);
+        format_float(&s, d);
+        fwrite(buf, 1, s.len, stdout);
+    } else if (tag == BOOL_TYPE){
+        uint8_t b = INTO_TYPE(uint8_t, val);
+        ASSERT_BOOL(b);
+        const char* s = __bool_to_str((bool)b);
+        size_t s_len = strlen(s);
+        fwrite(s, 1, s_len, stdout);
+    } else if (tag == STR_TYPE){
+        const char* s = INTO_TYPE(char*, val);
+        ASSERT_NOT_NULL(s);
+        size_t s_len = strlen(s);
+        fwrite(s, 1, s_len, stdout);
+    } else if (tag == CHAR_TYPE){
+        // use this instead of format_char to prevent useless heap allocations
+        char buf[4];
+        struct str s = (struct str){
+            .buf = buf,
+            .len = 0,
+            .capacity = 4,
+        };
+        uint32_t c = INTO_TYPE(uint32_t, val);
+        // TODO : assert valid codepoint ? (but already in format_char ?)
+        format_char(&s, c);
+        fwrite(buf, 1, s.len, stdout);
+    } else if (tag == LIST_TYPE){
+        list_print_no_new_line(INTO_TYPE(struct ListNode*, val));
+    } else {
+        fprintf(stderr, "ERROR : WRONG TAGS IN LIST IN PRINT (BUG IN COMPILER  \?\?)\n");
+        exit(1);
+    }
+}
+
+static void list_print_no_new_line(struct ListNode* list){
+    bool first = true;
+    const char open_square_bracket = '[';
+    fwrite(&open_square_bracket, 1, 1, stdout);
+    const char* comma = ", ";
+    while (list != NULL){
+        if (!first){
+            fwrite(comma, 1, 2, stdout);
+        } 
+        list_node_print(list->type_tag, list->val);
+        list = list->next;
+        first = false;
+    }
+    const char close_square_bracket = ']';
+    fwrite(&close_square_bracket, 1, 1, stdout);
+}
+
+// TODO : remove this ?
+void __list_print(struct ListNode* list){
+    list_print_no_new_line(list);
+    const char new_line = '\n';
+    fwrite(&new_line, 1, 1, stdout);
+}
+
+
+
+// TODO : make this file agnostic ?
+// print with a \n
+void __print_val(const char* format, ...){
+    va_list va;
+    va_start(va, format);
+    if (*format == '%'){
+        format++;
+        switch (*format){
+            case 'd':
+                format++;
+                int64_t i = va_arg(va, int64_t);
+                char buf_int[MAX_INT_BUF_SIZE];
+                struct str str_int = (struct str){
+                    .buf = buf_int,
+                    .capacity = MAX_INT_BUF_SIZE,
+                    .len = 0,
+                };
+                format_int(&str_int, i);
+                // TODO : use something lower level than fwrite ?
+                fwrite(buf_int, 1, str_int.len, stdout);
+                break;
+
+            case 'l':
+                format++;
+                struct ListNode* list = va_arg(va, struct ListNode*);
+                list_print_no_new_line(list);
+                break;
+
+            case 'f':
+                format++;
+                char buf_float[MAX_DOUBLE_BUF_SIZE];
+                struct str str_float = (struct str){
+                    .buf = buf_float,
+                    .capacity = MAX_DOUBLE_BUF_SIZE,
+                    .len = 0,
+                };
+                double d = va_arg(va, double);
+                format_float(&str_float, d);
+                fwrite(buf_float, 1, str_float.len, stdout);
+                break;
+            case 's':
+                format++;
+                char* s = va_arg(va, char*);
+                size_t s_len = strlen(s);
+                fwrite(s, 1, s_len, stdout);
+                break;
+            case 'c':
+                format++;
+                uint32_t c = va_arg(va, uint32_t);
+                char buf_char[4];
+                struct str str_char = (struct str){
+                    .buf = buf_char,
+                    .len = 0,
+                    .capacity = 4,
+                };
+                format_char(&str_char, c);
+                fwrite(buf_char, 1, str_char.len, stdout);
+                break;
+            case 'C':
+                format++;
+                // TODO : case of Ctypes
+                if (*format == 'u'){
+                    format++;
+                    if (*format == '6' && format[1] == '4'){
+                        format += 2;
+                        // u64
+                        printf("%ld", va_arg(va, uint64_t)); // TODO ? (not use printf ?)
+                    }
+                }
+                break;
+            case 'b':
+                format++;
+                bool b = (bool)va_arg(va, uint32_t);
+                const char* bool_str = __bool_to_str(b);
+                size_t bool_str_len = strlen(bool_str);
+                fwrite(bool_str, 1, bool_str_len, stdout);
+                break;
+            case 'u':
+                format++;
+                const char* s_unit = "()";
+                fwrite(s_unit, 1, 2, stdout);
+                break;
+            
+            case 'n':
+                fprintf(stderr, "UNREACHABLE : trying to print a never type\n");
+                exit(1);
+            default:
+                fprintf(stderr, "Unknown format in print : %%%c\n", *format);
+                exit(1);
+        }
+    } else {
+        char c = *format;
+        fwrite(&c, 1, 1, stdout);
+        format++;
+    }
+    char c = '\n';
+    fwrite(&c, 1, 1, stdout);
+    va_end(va);
 }
 
 /*int main(){
