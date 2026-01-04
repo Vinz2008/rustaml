@@ -173,6 +173,7 @@ __attribute__((weak)) int printf(const char* format, ...){
 #ifdef	NDEBUG
 #define assert(e) ((void)0)
 #else
+__attribute__((noinline))
 static void assert_fail(){
     __builtin_trap();
     while (1){}
@@ -215,10 +216,11 @@ typedef uint64_t Val;
 
 
 // TODO : optimize by putting the type_tag in a List struct which will have the tag and just the head of the list (so the tag is only stored one time -> 24 to 16 bytes for each node)
+// TODO : put a list len in it ?
 struct ListNode {
+    struct ListNode* next; // if empty null
+    Val val; // can be a i64, a ptr or a f64 depending on type_tag 
     uint8_t type_tag;
-    Val val; // can be a i64, a ptr or a f64 depending on type_tag
-    struct ListNode* next; // if empty null 
 };
 
 uint8_t __str_cmp(const char* s1, const char* s2){
@@ -244,14 +246,18 @@ char* __str_append(const char* s1, const char* s2){
     return ret;
 }
 
+static void _list_node_init(struct ListNode* l, uint8_t type_tag, Val val) {
+    l->type_tag = type_tag;
+    l->val = val;
+    l->next = NULL;
+}
+
 static struct ListNode* list_node_init(uint8_t type_tag, Val val) {
     struct ListNode* l = MALLOC(sizeof(struct ListNode));
     if (!l){
         ALLOC_ERROR("ListNode");
     }
-    l->type_tag = type_tag;
-    l->val = val;
-    l->next = NULL;
+    _list_node_init(l, type_tag, val);
     return l;
 }
 
@@ -300,21 +306,41 @@ struct ListNode* __list_node_append_back(struct ListNode* list, uint8_t type_tag
     return list;
 }
 
+int64_t __list_len(struct ListNode* list){
+    int64_t count = 0;
+    while (list != NULL){
+        list = list->next;
+        count++;
+    }
+    return count;
+}
+
 struct ListBuilder {
     struct ListNode* head;
     struct ListNode* tail;
+    struct ListNode* nodes_buf; // if preallocated the number of nodes, not NULL, else NULL
+    size_t nodes_buf_idx; // only valid if nodes_buf is not null
 };
 
-static struct ListBuilder list_builder_init(){
+static struct ListBuilder list_builder_init(struct ListNode* nodes_buf){
     return (struct ListBuilder){
         .head = NULL,
         .tail = NULL,
+        .nodes_buf = nodes_buf,
+        .nodes_buf_idx = 0,
     };
 }
 
 static void list_builder_append_back(struct ListBuilder* list_builder, uint8_t type_tag, Val val){
     ASSERT_NOT_NULL(list_builder);
-    struct ListNode* new = list_node_init(type_tag, val);
+    struct ListNode* new;
+    if (list_builder->nodes_buf){
+        new = list_builder->nodes_buf + list_builder->nodes_buf_idx;
+        _list_node_init(new, type_tag, val);
+        list_builder->nodes_buf_idx++;
+    } else {
+        new = list_node_init(type_tag, val);
+    }
     if (list_builder->tail == NULL){
         list_builder->head = new;
         list_builder->tail = new;
@@ -325,34 +351,31 @@ static void list_builder_append_back(struct ListBuilder* list_builder, uint8_t t
 }
 
 // clone the list nodes, but doesn't clone the list vals
-static struct ListNode* clone_list(struct ListNode* list){
+static struct ListBuilder clone_list(struct ListNode* list){
     struct ListNode* current = list;
-    struct ListBuilder list_builder = list_builder_init();
+    int64_t list_len = __list_len(list);
+    struct ListNode* list_nodes_buf = MALLOC(list_len * sizeof(struct ListNode));
+    struct ListBuilder list_builder = list_builder_init(list_nodes_buf);
     
     while (current != NULL){
         list_builder_append_back(&list_builder, current->type_tag, current->val);
         current = current->next;
     }
-    return list_builder.head;
+    return list_builder;
 }
 
 struct ListNode* __list_node_merge(struct ListNode* list1, struct ListNode* list2){
-    struct ListNode* list1_cloned = clone_list(list1);
+    struct ListBuilder list1_cloned_builder = clone_list(list1);
+    struct ListNode* list1_cloned_head = list1_cloned_builder.head;
+    struct ListNode* list1_cloned_tail = list1_cloned_builder.tail;
 
-    struct ListNode* list1_last = list1_cloned;
-
-    while (list1_last != NULL && list1_last->next != NULL){
-        list1_last = list1_last->next;
-    }
-
-
-    if (list1_last == NULL) {
-        list1_cloned = list2;
+    if (list1_cloned_tail == NULL) {
+        list1_cloned_head = list2;
     } else {
-        list1_last->next = list2;
+        list1_cloned_tail->next = list2;
     }
 
-    return list1_cloned;
+    return list1_cloned_head;
 }
 
 static bool list_node_cmp(uint8_t tag1, Val val1, uint8_t tag2, Val val2){
@@ -402,15 +425,6 @@ uint8_t __list_cmp(struct ListNode* list1, struct ListNode* list2){
     return list1 == list2; // both are NULL
 }
 
-int64_t __list_len(struct ListNode* list){
-    int64_t count = 0;
-    while (list != NULL){
-        list = list->next;
-        count++;
-    }
-    return count;
-}
-
 // use this to prevent errors from pessimizing the fast path of execution 
 __attribute__((cold, noreturn))
 static void utf8_error(const char* msg, uint8_t* b){
@@ -428,8 +442,12 @@ static void utf8_error(const char* msg, uint8_t* b){
 #define GET_CONTINUATION_BYTE_DATA(c) (c & 0x3F) // & 00111111
 
 struct ListNode* __chars(const char* s){
-    struct ListBuilder list_builder = list_builder_init();
     size_t bytes_len = strlen(s);
+    if (bytes_len == 0){
+        return NULL;
+    }
+    struct ListNode* list_nodes_buf = MALLOC(bytes_len * sizeof(struct ListNode)); // bytes_len is the upper bound
+    struct ListBuilder list_builder = list_builder_init(list_nodes_buf);
     size_t i = 0;
 
     // first fast loop
@@ -519,6 +537,11 @@ struct ListNode* __chars(const char* s){
             }
             list_builder_append_back(&list_builder, CHAR_TYPE, (Val)code_point);
         }
+    }
+
+    size_t used_nodes = list_builder.nodes_buf_idx;
+    if (used_nodes < bytes_len-1){
+        list_nodes_buf = REALLOC(list_nodes_buf, used_nodes * sizeof(struct ListNode));
     }
     return list_builder.head;
 }

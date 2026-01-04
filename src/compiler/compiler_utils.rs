@@ -1,4 +1,4 @@
-use inkwell::{basic_block::BasicBlock, builder::Builder, context::Context, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue}, AddressSpace};
+use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, IntType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue}};
 
 use crate::{ast::{CType, Type}, compiler::{CompileContext, debuginfo::LineColLoc}, rustaml::RustamlContext, string_intern::StringRef};
 
@@ -27,7 +27,7 @@ pub fn get_type_tag_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context, t : &Type)
 pub fn get_list_type<'llvm_ctx>(llvm_context: &'llvm_ctx Context) -> StructType<'llvm_ctx>{
     // put it in an Optional in the context
 
-    let field_types: &[BasicTypeEnum] = &[llvm_context.i8_type().into(), llvm_context.i64_type().into(), llvm_context.ptr_type(AddressSpace::default()).into()];
+    let field_types: &[BasicTypeEnum] = &[llvm_context.ptr_type(AddressSpace::default()).into(),  llvm_context.i64_type().into(), llvm_context.i8_type().into()];
     llvm_context.struct_type(field_types, false)
 }
 
@@ -57,9 +57,9 @@ pub fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, '_, 'llvm_
 
         // layout of list
         // struct ListNode {
-        //      uint8_t type_tag;
-        //      void* val; // can be also a i64 or f64 depending on type_tag
         //      struct ListNode* next; // if empty null 
+        //      void* val; // can be also a i64 or f64 depending on type_tag
+        //      uint8_t type_tag;
         // }
         Type::List(_t) => compile_context.context.ptr_type(AddressSpace::default()).into(), // TODO ?
         Type::Str => compile_context.context.ptr_type(AddressSpace::default()).into(),
@@ -242,7 +242,7 @@ pub fn create_br_unconditional<'llvm_ctx>(compile_context: &mut CompileContext<'
 
 fn load_type_tag<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : PointerValue<'llvm_ctx>) -> IntValue<'llvm_ctx> {
     let list_type = get_list_type(compile_context.context);
-    let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 0, "load_type_tag_gep").unwrap();
+    let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 2, "load_type_tag_gep").unwrap();
     compile_context.builder.build_load(compile_context.context.i8_type(), gep_ptr, "load_tag_gep").unwrap().into_int_value()
 }
 
@@ -250,14 +250,18 @@ pub fn load_list_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     let list_type = get_list_type(compile_context.context);
     let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 1, "load_list_val_gep").unwrap();
     let elem_type_llvm = get_llvm_type(compile_context, elem_type);
-    compile_context.builder.build_load( TryInto::<BasicTypeEnum>::try_into(elem_type_llvm).unwrap(), gep_ptr, "load_val_gep").unwrap()
+    let basic_type = TryInto::<BasicTypeEnum>::try_into(elem_type_llvm).unwrap();
+    let load_i64 = compile_context.builder.build_load(compile_context.context.i64_type(), gep_ptr, "load_val_gep").unwrap().into_int_value();
+    from_val_in_list(compile_context, load_i64, elem_type)
 }
 
 pub fn load_list_tail<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list : PointerValue<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
     let list_type = get_list_type(compile_context.context);
-    let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 2, "load_list_tail_gep").unwrap();
+    let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 0, "load_list_tail_gep").unwrap();
     compile_context.builder.build_load(compile_context.context.ptr_type(AddressSpace::default()), gep_ptr, "load_tail_gep").unwrap().into_pointer_value()
 }
+
+// TODO : have one api for casting for cast and this ?
 
 pub fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, val : AnyValueEnum<'llvm_ctx>, val_type : &Type) -> IntValue<'llvm_ctx> {
     let i64_type = compile_context.context.i64_type();
@@ -278,6 +282,24 @@ pub fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
     }
 }
 
+// TODO : replace these with BasicValue
+pub fn from_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, val : IntValue<'llvm_ctx>, to_type : &Type) -> BasicValueEnum<'llvm_ctx> {
+    match to_type {
+        Type::Integer => val.into(),
+        Type::Float => compile_context.builder.build_bit_cast(val, compile_context.context.f64_type(), "bitcast_val_to_float").unwrap().into(),
+        Type::Bool => compile_context.builder.build_int_truncate(val, compile_context.context.bool_type(), "trunc_val_to_bool").unwrap().into(),
+        Type::Char => compile_context.builder.build_int_truncate(val, compile_context.context.i32_type(), "trunc_val_to_char").unwrap().into(),
+        Type::Str | Type::List(_) | Type::Function(_, _, _) => compile_context.builder.build_int_to_ptr(val, compile_context.context.ptr_type(AddressSpace::default()), "val_to_ptr").unwrap().into(),
+        Type::Never | Type::Unit => {
+            // doesn't need to use the val
+            get_void_val_basic(compile_context.context)
+        }
+        Type::SumType(sumtype) => todo!(),
+        Type::Any => encountered_any_type(),
+        Type::Generic(_) | Type::CType(_) => unreachable!(),
+    }
+}
+
 pub fn promote_val_var_arg<'llvm_ctx>(compile_context: &CompileContext<'_, '_, 'llvm_ctx>, val_type : Type, val : AnyValueEnum<'llvm_ctx>) -> AnyValueEnum<'llvm_ctx>{
     match val_type {
         Type::Bool => compile_context.builder.build_int_z_extend(val.into_int_value(), compile_context.context.i32_type(), "zext_va_arg").unwrap().as_any_value_enum(),
@@ -286,9 +308,14 @@ pub fn promote_val_var_arg<'llvm_ctx>(compile_context: &CompileContext<'_, '_, '
 }
 
 // dummy val for void, if it is used as a real value, it is a bug
-pub fn get_void_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> AnyValueEnum<'llvm_ctx> {
+fn get_void_val_basic<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> BasicValueEnum<'llvm_ctx> {
     //llvm_context.ptr_type(AddressSpace::default()).get_undef().into()
     llvm_context.struct_type(&[], false).const_zero().into()   
+}
+
+// dummy val for void, if it is used as a real value, it is a bug
+pub fn get_void_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> AnyValueEnum<'llvm_ctx> {
+    get_void_val_basic(llvm_context).as_any_value_enum()
 }
 
 pub fn get_variant_tag(rustaml_context : &RustamlContext, name : StringRef) -> usize {

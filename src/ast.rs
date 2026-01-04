@@ -336,7 +336,8 @@ impl Display for Type {
                 }
             },
             Type::Any => f.write_str("Any"), // TODO
-            Type::Generic(_g_idx) => panic!("Can't print generic type"), // TODO ?
+            //Type::Generic(_g_idx) => panic!("Can't print generic type"), // TODO ?
+            Type::Generic(g_idx) => f.write_str(&format!("generic {}", g_idx)), // TODO ?
             Type::CType(_) => todo!(), // TODO
             Type::Function(_, _, _) => unreachable!(),
         }

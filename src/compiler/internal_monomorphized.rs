@@ -13,8 +13,9 @@ pub fn init_monomorphized_internal_fun<'llvm_ctx>() -> FxHashMap<&'static str, F
 // this is the code that is tried to be recreated with this function
 
 // struct ListNode {
-//     Val val;
 //     struct ListNode* next;
+//     Val val;
+//     uint8_t tag;
 // };
 
 // // l is of type T1
@@ -29,9 +30,9 @@ pub fn init_monomorphized_internal_fun<'llvm_ctx>() -> FxHashMap<&'static str, F
 //     return ret;
 // }
 
-// TODO : create others functions on list (will need to replace monomorphized_map_fun with a monomorphized_internal_fun as a hashmap in a hashmap for names)
-// TODO : can you create an abstraction for these types
-// TODO : use the principles used here to add monomorphization for any function
+
+// TODO : use a list builder with a preallocated buffer to improve cache locality
+
 pub fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, elem_type : &Type, ret_elem_type : &Type) -> FunctionValue<'llvm_ctx> {
     if let Some(f) = compile_context.monomorphized_internal_fun.get("map").unwrap().get(&(elem_type.clone(), ret_elem_type.clone())){
         return *f;
@@ -72,7 +73,6 @@ pub fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut CompileContext
     let after_bb = compile_context.context.append_basic_block(function, "after");
 
     compile_context.builder.position_at_end(cond_bb);
-    // TODO
 
     let load_current = compile_context.builder.build_load(ptr_type.as_basic_type_enum(), current_alloca, "load_current").unwrap().into_pointer_value();
 
