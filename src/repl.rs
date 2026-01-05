@@ -30,7 +30,10 @@ pub fn repl(rustaml_context : &mut RustamlContext){
     loop {
         let readline = rl.readline("> ");
         match readline {
-            Ok(line) => interpret_repl_code(rustaml_context, line),
+            Ok(line) => {
+                rl.add_history_entry(line.as_str()).unwrap();
+                interpret_repl_code(rustaml_context, line)
+            },
             Err(ReadlineError::Interrupted) => continue,
             Err(ReadlineError::Eof) => break,
             Err(err) => {
