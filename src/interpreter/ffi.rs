@@ -1,4 +1,4 @@
-use std::{ffi::CString, os::raw::c_void, rc::Rc};
+use std::{ffi::CString, mem::{ManuallyDrop, MaybeUninit}, ops::Deref, os::raw::c_void, ptr, rc::Rc};
 
 use crate::{ast::{CType, ExternLang, Type}, interpreter::{call_function, FunctionBody, FunctionDef, InterpretContext, Val}, mangle::mangle_name_external, rustaml::RustamlContext, string_intern::StringRef};
 
@@ -218,13 +218,117 @@ unsafe extern "C" fn function_ptr_trampoline(cif: &ffi_cif, result : &mut c_void
 
 struct FFIContext {
     // TODO, : replace these vecs with impossible to grow vecs
-    u8s : Vec<u8>,
-    c_strs : Vec<CString>,
-    c_str_ptrs : Vec<*const i8>,
+    u8s : FixedVec<u8>,
+    c_strs : FixedVec<CString>,
+    c_str_ptrs : FixedVec<*const i8>,
     // TODO : verify if they are needed
-    closures : Vec<Closure<'static>>,
-    fn_ptrs : Vec<*const c_void>,
-    user_data_ffi : Vec<*mut UserData>,
+    closures : FixedVec<Closure<'static>>,
+    fn_ptrs : FixedVec<*const c_void>,
+    user_data_ffi : FixedVec<*mut UserData>,
+}
+
+struct FixedVec<T> {
+    array : Box<[MaybeUninit<T>]>,
+    len : usize,
+}
+
+impl<T> FixedVec<T> {
+    fn new(capacity : usize) -> FixedVec<T>{
+        assert_ne!(capacity, 0);
+        let mut v = Vec::with_capacity(capacity);
+        v.resize_with(capacity, || MaybeUninit::uninit());
+        FixedVec { 
+            array: v.into_boxed_slice(), 
+            len: 0
+        }
+    }
+    fn push(&mut self, val : T){
+        if self.len == self.array.len(){
+            panic!("Capacity exceeded in FixedVec");
+        }
+        let idx = self.len;
+        self.len += 1;
+        unsafe {
+            self.array.get_unchecked_mut(idx).write(val);
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn as_slice(&self) -> &[T] {
+        unsafe { 
+            self.array[..self.len].assume_init_ref() 
+        }
+    }
+
+}
+
+impl<T> Deref for FixedVec<T> {
+    type Target = [T];
+    
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+struct FixedVecIter<T> {
+    array: Box<[MaybeUninit<T>]>,
+    pos: usize,
+    len: usize,
+}
+
+impl<T> Iterator for FixedVecIter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos == self.len {
+            return None;
+        }
+        let val = unsafe {
+            self.array[self.pos].assume_init_read()
+        };
+        self.pos += 1;
+        Some(val)
+    }
+}
+
+impl<T> IntoIterator for FixedVec<T> {
+    type Item = T;
+
+    type IntoIter = FixedVecIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let manually_drop_array = ManuallyDrop::new(self);
+        FixedVecIter {
+            array: unsafe  {
+                ptr::read(&manually_drop_array.array)
+            },
+            pos: 0,
+            len: manually_drop_array.len,
+        }
+    }
+}
+
+impl<T> Drop for FixedVecIter<T> {
+    fn drop(&mut self) {
+        for i in self.pos..self.len {
+            unsafe {
+                self.array[i].assume_init_drop();
+            }
+        }
+    }
+}
+
+impl<T> Drop for FixedVec<T> {
+    fn drop(&mut self) {
+        for i in 0..self.len {
+            unsafe {
+                self.array[i].assume_init_drop();
+            }
+        }
+    }
 }
 
 // TODO : what number should it be ?
@@ -233,12 +337,13 @@ const USER_DATA_MAX_NB : usize = 20;
 impl FFIContext {
     fn new(args_len : usize) -> FFIContext {
         FFIContext {
-            u8s: Vec::with_capacity(args_len), // to prevent pointer invalidation, reserve the max size possible, even if bigger than needed
-            c_strs: Vec::with_capacity(args_len),
-            c_str_ptrs: Vec::with_capacity(args_len),
-            closures: Vec::with_capacity(args_len),
-            fn_ptrs: Vec::with_capacity(args_len),
-            user_data_ffi: Vec::with_capacity(USER_DATA_MAX_NB), // only USER_DATA_MAX_NB user data can be used, more will do pointer invalidation, so you need to call no more than USER_DATA_MAX_NB times ffi functions during a function call (ex : calling a ffi function, which calls an arg that is a rustaml function that calls a ffi function), make this number not too big because there is an allocation of USER_DATA_MAX_NB * 24 bytes
+            u8s: FixedVec::new(args_len), // to prevent pointer invalidation, reserve the max size possible, even if bigger than needed
+            c_strs: FixedVec::new(args_len),
+            c_str_ptrs: FixedVec::new(args_len),
+            closures: FixedVec::new(args_len),
+            fn_ptrs: FixedVec::new(args_len),
+            // TODO : put this in the stack instead ? (because constant size ?)
+            user_data_ffi: FixedVec::new(USER_DATA_MAX_NB), // only USER_DATA_MAX_NB user data can be used, more will do pointer invalidation, so you need to call no more than USER_DATA_MAX_NB times ffi functions during a function call (ex : calling a ffi function, which calls an arg that is a rustaml function that calls a ffi function), make this number not too big because there is an allocation of USER_DATA_MAX_NB * 24 bytes
         }
     }
 }
