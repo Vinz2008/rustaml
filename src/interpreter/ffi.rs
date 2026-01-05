@@ -173,6 +173,12 @@ unsafe fn get_val_from_arg(arg : *const c_void, arg_type : &Type) -> Val {
     }
 }
 
+// TODO : add a catch_unwind
+// like this ? : let _ = catch_unwind(AssertUnwindSafe(|| {
+        // body
+//    })).unwrap_or_else(|_| {
+//        std::process::abort();
+//    });
 unsafe extern "C" fn function_ptr_trampoline(cif: &ffi_cif, result : &mut c_void, args_ptr: *const *const c_void, user_data : &mut UserData){
     unsafe {
         let user_data = &mut *(user_data as *mut UserData);
@@ -211,6 +217,7 @@ unsafe extern "C" fn function_ptr_trampoline(cif: &ffi_cif, result : &mut c_void
 }
 
 struct FFIContext {
+    // TODO, : replace these vecs with impossible to grow vecs
     u8s : Vec<u8>,
     c_strs : Vec<CString>,
     c_str_ptrs : Vec<*const i8>,
@@ -236,6 +243,16 @@ impl FFIContext {
     }
 }
 
+fn prepare_func_ptr(context : &mut InterpretContext, ffi_context : &mut FFIContext, func_def : &FunctionDef){
+    let closure = get_function_closure(context, ffi_context, func_def);
+    ffi_context.closures.push(closure);
+
+    let fn_arg: unsafe extern "C" fn() = *ffi_context.closures.last().unwrap().code_ptr();
+    let arg_ptr = fn_arg as *const () as *const c_void;
+
+    ffi_context.fn_ptrs.push(arg_ptr);
+}
+
 // return a ref to make it work with libffi Arg
 fn get_func_ptr<'a>(context : &mut InterpretContext, ffi_context : &'a mut FFIContext, func_def : &FunctionDef) -> &'a *const c_void {
     let closure = get_function_closure(context, ffi_context, func_def);
@@ -245,11 +262,76 @@ fn get_func_ptr<'a>(context : &mut InterpretContext, ffi_context : &'a mut FFICo
     let arg_ptr = fn_arg as *const () as *const c_void;
 
     ffi_context.fn_ptrs.push(arg_ptr);
-    ffi_context.fn_ptrs.push(arg_ptr);
+    //ffi_context.fn_ptrs.push(arg_ptr);
     ffi_context.fn_ptrs.last().unwrap()
 }
 
-fn get_arg(context : &mut InterpretContext, ffi_context : &mut FFIContext, v : &Val) -> Arg {
+// TODO: need this ?
+// return a ref to make it work with libffi Arg
+/*fn get_func_ptr<'a>(ffi_context : &'a mut FFIContext) -> &'a *const c_void {
+    ffi_context.fn_ptrs.last().unwrap()
+}*/
+
+
+fn prepare_args_data(context : &mut InterpretContext, ffi_context : &mut FFIContext, args : &[Val]){
+    for v in args {
+        match v {
+            Val::String(s) => {
+                let arg_str = s.get_str(&context.rustaml_context.str_interner);
+                let cstring = std::ffi::CString::new(arg_str).unwrap();
+                ffi_context.c_strs.push(cstring);
+                let cstring_ptr = ffi_context.c_strs.last().unwrap().as_ptr();
+                ffi_context.c_str_ptrs.push(cstring_ptr);
+            }
+            Val::Bool(b) => {
+                ffi_context.u8s.push(*b as u8);
+            }
+            Val::Function(func_def) => {
+                prepare_func_ptr(context, ffi_context, func_def);
+            }
+            Val::Integer(_) | Val::Float(_) => {} 
+            Val::Char(c) => todo!(), // TODO
+            _ => unreachable!()
+        }
+    }
+}
+
+// TODO : need to call prepare_arg_data before
+fn get_ffi_args<'a>(ffi_context : &'a FFIContext, args : &'a [Val]) -> Vec<Arg<'a>> {
+    let mut ffi_args= Vec::with_capacity(args.len());
+    let mut string_count = 0;
+    let mut func_count = 0;
+    let mut bool_count = 0;
+    for a in args.iter().rev() {
+        let arg = match a {
+            Val::Integer(i) => Arg::new(i),
+            Val::Float(f) => Arg::new(f),
+            Val::String(_) => {
+                let str_pos = ffi_context.c_str_ptrs.len()-1-string_count;
+                string_count += 1;
+                Arg::new(ffi_context.c_str_ptrs.get(str_pos).unwrap())
+            },
+            Val::Bool(_) => {
+                let bool_pos = ffi_context.u8s.len()-1-bool_count;
+                bool_count += 1;
+                Arg::new(ffi_context.u8s.get(bool_pos).unwrap())
+            }
+            Val::Function(_) => {
+                let func_pos = ffi_context.fn_ptrs.len()-1-func_count;
+                func_count += 1;
+                Arg::new(ffi_context.fn_ptrs.get(func_pos).unwrap())
+                //Arg::new(get_func_ptr(ffi_context))
+            },
+            _ => unreachable!(),
+        };
+        ffi_args.push(arg);
+    }
+    ffi_args.reverse(); // reverse it because it was created reversed
+    ffi_args
+}
+
+
+/*fn get_arg<'a>(context : &mut InterpretContext, ffi_context : &'a mut FFIContext, v : &'a Val) -> Arg<'a> {
     match v {
         Val::Integer(i) => Arg::new(i),
         Val::Float(f) => Arg::new(f),
@@ -271,13 +353,15 @@ fn get_arg(context : &mut InterpretContext, ffi_context : &mut FFIContext, v : &
         },
         _ => unreachable!(),
     }
-}
+}*/
 
 pub fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFIFunc, args : &[Val]) -> Val {
     let mut ffi_context = FFIContext::new(args.len());
 
     unsafe  {
-        let args = args.iter().map(|e| get_arg(context, &mut ffi_context, e)).collect::<Vec<_>>();
+        //let args = args.iter().map(|e| get_arg(context, &ffi_context, e)).collect::<Vec<_>>();
+        prepare_args_data(context, &mut ffi_context, args);
+        let args = get_ffi_args(&ffi_context, args);
         let val = match &ffi_func.ret_type {
             Type::Integer => {
                 let i = ffi_func.cif.call(ffi_func.code_ptr, &args);
