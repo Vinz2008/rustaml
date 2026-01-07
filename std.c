@@ -1,5 +1,3 @@
-// TODO : use GC_malloc_atomic on certain cases
-
 #if __STDC_HOSTED__ == 0
 #define FREESTANDING
 #endif
@@ -39,6 +37,7 @@
 #ifdef _GC_
 #include <gc.h>
 #define MALLOC(size) GC_malloc(size)
+#define MALLOC_NO_PTR(size) GC_malloc_atomic(size) // allocate memory where no ptr will be written (ex : str -> yes, list node : no) 
 #define REALLOC(ptr, new_size) GC_realloc(ptr, new_size)
 #define FREE(ptr) GC_free(ptr)
 
@@ -48,6 +47,7 @@ void __gc_init(){
 
 #else
 #define MALLOC(size) malloc(size)
+#define MALLOC_NO_PTR(size) malloc(size)
 #define FREE(ptr) free(ptr)
 #define REALLOC(ptr, new_size) realloc(ptr, new_size)
 #endif
@@ -67,6 +67,7 @@ __attribute__((weak)) void* memcpy(void* dest, const void* src, size_t size){
 }
 
 #define MALLOC(size) malloc(size)
+#define MALLOC_NO_PTR(size) malloc(size)
 #define FREE(ptr) free(ptr)
 #define REALLOC(ptr, new_size) realloc(ptr, new_size)
 
@@ -243,7 +244,7 @@ char* __str_append(const char* s1, const char* s2){
 
     size_t len_s1 = strlen(s1);
     size_t len_s2 = strlen(s2);
-    char* ret = MALLOC(len_s1 + len_s2 + 1);
+    char* ret = MALLOC_NO_PTR(len_s1 + len_s2 + 1);
     memcpy(ret, s1, len_s1);
     memcpy(ret + len_s1, s2, len_s2);
     ret[len_s1 + len_s2] = '\0';
@@ -1007,7 +1008,7 @@ static void ensure_size_string(struct str* s, size_t size){
 
 static struct str str_init(size_t default_capacity) {
     return (struct str){
-        .buf = MALLOC(sizeof(char) * default_capacity),
+        .buf = MALLOC_NO_PTR(sizeof(char) * default_capacity),
         .capacity = default_capacity,
         .len = 0,
     };
@@ -1068,7 +1069,7 @@ const char* __char_to_str(uint32_t c){
     const int buf_size = 5; // 4 bytes max for codepoint + null byte
     // it should not call realloc on the str, if it does it would do UB
     struct str s = (struct str){
-        .buf = MALLOC(sizeof(char) * buf_size),
+        .buf = MALLOC_NO_PTR(sizeof(char) * buf_size),
         .len = 0,
         .capacity = buf_size,
     };
