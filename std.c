@@ -1,3 +1,5 @@
+// TODO : use GC_malloc_atomic on certain cases
+
 #if __STDC_HOSTED__ == 0
 #define FREESTANDING
 #endif
