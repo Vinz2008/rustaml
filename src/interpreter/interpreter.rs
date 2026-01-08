@@ -215,22 +215,16 @@ impl List {
 
     // intepret nodes here instead of doing before the call and passing a Vec<Val> to avoid not necessary allocations
     fn new_from(context: &mut InterpretContext, v : &[ASTRef]) -> ListRef {
-        let mut l = List::None;
-        for e in v {
-            let val = interpret_node(context, *e);
-            l.append(&mut context.rustaml_context.list_node_pool, val);
+        let mut list_ref = context.rustaml_context.list_node_pool.push(List::None);
+        for e in v.iter().rev() {
+            let val = interpret_node(context, *e);;
+            list_ref = list_push_start(&mut context.rustaml_context.list_node_pool, val, list_ref);
         }
         
-        context.rustaml_context.list_node_pool.push(l)
+        list_ref
     }
 
     fn add_list_at_end(&mut self, list_pool : &mut ListPool, list : ListRef){
-        
-        //let mut current: &mut List = self;
-        /*while let List::Node(_, next ) = current && let List::Node(_, next1) = next.get(&list_pool) {
-            current = next.get_mut(list_pool);
-        }*/
-
         let mut current_ref = match self {
             List::Node(_, next_ref) => {
                 if let List::None = next_ref.get(list_pool){
@@ -245,16 +239,6 @@ impl List {
             },
         };
 
-        /*while let &mut List::Node(_, next) = current {
-            match next.get_mut(list_pool) {
-                List::None => break,
-                n => {
-                    current = n;
-                }
-                
-            }
-            //current = next.get_mut(list_pool);
-        }*/
         while let List::Node(_, next) = current_ref.get(list_pool){
             if let List::None = next.get(list_pool){
                 break;
@@ -275,16 +259,6 @@ impl List {
         let new_node = list_pool.push(List::Node(val, tail));
         self.add_list_at_end(list_pool, new_node);
     }
-
-    /*fn append(&mut self, list_pool: &mut ListPool, val : Val){
-        let new_node = list_pool.push(List::None);
-        let mut current: &mut List = self;
-        while let List::Node(_, next ) = current {
-            current = next.get_mut(list_pool);
-        }
-        
-        *current = List::new(val, new_node);
-    }*/
 
     pub fn iter<'a>(&'a self, list_pool : &'a ListPool) -> ListIter<'a> {
         ListIter { current: self, list_pool }
@@ -308,6 +282,7 @@ impl List {
         }
     }
 
+    // TODO : make this more iterative
     pub fn deep_clone(&self, list_pool : &mut ListPool) -> List {
         match self {
             List::Node(val, l) => {
@@ -659,6 +634,10 @@ fn interpret_binop_str(context: &mut InterpretContext, op : Operator, lhs_val : 
     v
 }
 
+fn list_push_start(list_node_pool : &mut ListPool, lhs_val : Val, rhs_list : ListRef) -> ListRef {
+    list_node_pool.push(List::new(lhs_val, rhs_list))
+}
+
 fn interpret_binop_list(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
 
     let rhs_list = match rhs_val {
@@ -668,7 +647,7 @@ fn interpret_binop_list(context: &mut InterpretContext, op : Operator, lhs_val :
 
     let v = match op {
         // TODO : call add_allocation for gc in these cases
-        Operator::ListAppend => Val::List(context.rustaml_context.list_node_pool.push(List::new(lhs_val, rhs_list))),
+        Operator::ListAppend => Val::List(list_push_start(&mut context.rustaml_context.list_node_pool, lhs_val, rhs_list)),
         Operator::ListMerge => {
             // TODO : optimize this ?
             let lhs_list = match lhs_val {
@@ -850,16 +829,15 @@ fn interpret_map(context: &mut InterpretContext, list_val : Val, fun_val : Val) 
         }
     }
     
-    let mut new_list = List::None;
+    let mut new_list_ref = context.rustaml_context.list_node_pool.push(List::None);
 
     
     // TODO : create a function which will be another new_from to create from a val slice to not go throught the whole list at each append ?
-    for v in vals {
+    for v in vals.into_iter().rev() {
         let new_val = call_function(context, &fun_val, vec![v]);
-        new_list.append(&mut context.rustaml_context.list_node_pool, new_val);
+        new_list_ref = list_push_start(&mut context.rustaml_context.list_node_pool, new_val, new_list_ref);
     }
 
-    let new_list_ref = context.rustaml_context.list_node_pool.push(new_list);
 
     Val::List(new_list_ref)
 }
@@ -876,7 +854,7 @@ fn interpret_filter(context: &mut InterpretContext, list_val : Val, fun_val : Va
         _ => unreachable!(),
     };
 
-    let mut new_list = List::None;
+    
 
     let mut vals= Vec::new();
     {
@@ -888,9 +866,10 @@ fn interpret_filter(context: &mut InterpretContext, list_val : Val, fun_val : Va
         }
     }
 
-    
+    let mut new_list_ref = context.rustaml_context.list_node_pool.push(List::None);    
+
     // TODO : create a function which will be another new_from to create from a val slice to not go throught the whole list at each append ?
-    for v in vals {
+    for v in vals.into_iter().rev() {
         let should_append = call_function(context, &fun_val, vec![v.clone()]);
         let should_append_bool = match should_append {
             Val::Bool(b) => b,
@@ -898,11 +877,9 @@ fn interpret_filter(context: &mut InterpretContext, list_val : Val, fun_val : Va
         };
 
         if should_append_bool {
-            new_list.append(&mut context.rustaml_context.list_node_pool, v);
+            new_list_ref = list_push_start(&mut context.rustaml_context.list_node_pool, v, new_list_ref);
         }
     }
-
-    let new_list_ref = context.rustaml_context.list_node_pool.push(new_list);
 
     Val::List(new_list_ref)
 }
@@ -912,11 +889,10 @@ fn interpret_chars(context : &mut InterpretContext, str : Val) -> Val {
         Val::String(s) => s,
         _ => unreachable!(),
     };
-    let mut new_list = List::None;
-    for c in str.get_str(&context.rustaml_context.str_interner).chars() {
-        new_list.append(&mut context.rustaml_context.list_node_pool, Val::Char(c));
+    let mut new_list_ref = context.rustaml_context.list_node_pool.push(List::None);
+    for c in str.get_str(&context.rustaml_context.str_interner).chars().rev() {
+        new_list_ref = list_push_start(&mut context.rustaml_context.list_node_pool, Val::Char(c), new_list_ref);
     }
-    let new_list_ref = context.rustaml_context.list_node_pool.push(new_list);
     Val::List(new_list_ref)
 }
 
