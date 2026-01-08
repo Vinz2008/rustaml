@@ -91,6 +91,12 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
     
     vec![
         BuiltinFunction {
+            name: "__init",
+            args: Box::new([]),
+            ret: Some(llvm_context.void_type().into()),
+            ..Default::default()
+        },
+        BuiltinFunction {
             name: "__str_cmp",
             args: Box::new([ptr_type, ptr_type]),
             ret: Some(llvm_context.bool_type().into()),
@@ -134,7 +140,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             name: "__list_len",
             args: Box::new([ptr_type]),
             ret: Some(llvm_context.i64_type().into()),
-            attributes: vec![attr_args("noundef", 1)],
+            attributes: vec![attr_args("noundef", 0)],
             ..Default::default()
         },
         BuiltinFunction {
@@ -1636,6 +1642,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         };
 
         let main_function = get_main_function(&context, &module);
+        
 
         let internal_functions = get_internal_functions(&context);
 
@@ -1661,8 +1668,13 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
             monomorphized_internal_fun: init_monomorphized_internal_fun(),
         };
 
+        let entry_main_bb = main_function.get_first_basic_block().unwrap();
+        compile_context.builder.position_at_end(entry_main_bb);
+        let init_func = compile_context.get_internal_function("__init");
+        compile_context.builder.build_call(init_func, &[], "init_call").unwrap();
+        
         let top_level_nodes = match frontend_output.ast.get(&compile_context.rustaml_context.ast_pool) {
-            ASTNode::TopLevel { nodes } => nodes.clone(),
+            ASTNode::TopLevel { nodes } => nodes.clone(), // TODO : remove this clone
             _ => unreachable!(),
         };
 

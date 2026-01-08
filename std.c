@@ -41,7 +41,7 @@
 #define REALLOC(ptr, new_size) GC_realloc(ptr, new_size)
 #define FREE(ptr) GC_free(ptr)
 
-void __gc_init(){
+void gc_init(){
     GC_INIT();
 }
 
@@ -50,6 +50,7 @@ void __gc_init(){
 #define MALLOC_NO_PTR(size) malloc(size)
 #define FREE(ptr) free(ptr)
 #define REALLOC(ptr, new_size) realloc(ptr, new_size)
+void gc_init(){}
 #endif
 
 #else
@@ -70,6 +71,7 @@ __attribute__((weak)) void* memcpy(void* dest, const void* src, size_t size){
 #define MALLOC_NO_PTR(size) malloc(size)
 #define FREE(ptr) free(ptr)
 #define REALLOC(ptr, new_size) realloc(ptr, new_size)
+void gc_init(){}
 
 struct Metadata {
     size_t size;
@@ -1258,6 +1260,10 @@ void __print_val(const char* format, ...){
     char c = '\n';
     fwrite(&c, 1, 1, stdout);
     va_end(va);
+}
+
+void __init(){
+    gc_init();
 }
 
 /*int main(){
