@@ -858,6 +858,19 @@ fn interpret_filter(context: &mut InterpretContext, list_val : Val, fun_val : Va
     Val::List(new_list_ref)
 }
 
+fn interpret_chars(context : &mut InterpretContext, str : Val) -> Val {
+    let str = match str {
+        Val::String(s) => s,
+        _ => unreachable!(),
+    };
+    let mut new_list = List::None;
+    for c in str.get_str(&context.rustaml_context.str_interner).chars() {
+        new_list.append(&mut context.rustaml_context.list_node_pool, Val::Char(c));
+    }
+    let new_list_ref = context.rustaml_context.list_node_pool.push(new_list);
+    Val::List(new_list_ref)
+}
+
 const STD_FUNCTIONS : &[&str] = &[
     "print",
     "rand",
@@ -865,10 +878,11 @@ const STD_FUNCTIONS : &[&str] = &[
     "panic",
     "map",
     "filter",
-    //  TODO : add chars
+    "chars"
 ];
 
 fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args_val : Vec<Val>) -> Val {
+    // TODO : better error handling for wrong nb of args
     match name.get_str(&context.rustaml_context.str_interner) {
         "print" => {
             // TODO : verification before when parsing ?
@@ -896,6 +910,7 @@ fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args
             let message = format!("{}", args_val[0].display(context.rustaml_context)) ;
             rustaml_panic(&message)
         }
+        // TODO : remove these clones
         "map" => {
             assert_eq!(args_val.len(), 2);
             let list = args_val[0].clone();
@@ -907,6 +922,11 @@ fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args
             let list = args_val[0].clone();
             let fun = args_val[1].clone();
             interpret_filter(context, list, fun)
+        }
+        "chars" => {
+            assert_eq!(args_val.len(), 1);
+            let s = args_val[0].clone();
+            interpret_chars(context, s)
         }
         _ => unreachable!()
     }
