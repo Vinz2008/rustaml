@@ -759,14 +759,11 @@ fn set_type_with_changed(type_mut : &mut Option<Type>, t: Type, changed : &mut b
 const ANON_FUNC_NAME : &str = "[anonymous function]";
 
 fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], constraints_ranges : &[Range<usize>]) -> Result<(), TypesErr> {
-    //println!("constraints: {:?}", constraints);
     let mut changed = true;
     while changed {
         changed = false;
         for (idx, c) in constraints.iter().enumerate() {
-            //println!("solving constraint : {:?}", c);
             let range = constraints_ranges[idx].clone();
-            //dbg!(c);
             match c {
                 Constraint::IsType(tv, t) => {
                     let root_tv = table.find_root(*tv);
@@ -781,9 +778,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                         None => t.clone(),
                     };
 
-                    //println!("real type becomes with isType {:?}", &merged_type);
                     set_type_with_changed(&mut table.real_types[root_tv.0 as usize], merged_type, &mut changed);
-                    //table.real_types[root_tv.0 as usize] = Some(merged_type);
 
                 },
                 Constraint::SameType(tv1, tv2) => {
@@ -810,7 +805,6 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                         };
 
                         if let Some(merged_type) = merged_type {
-                            //println!("real type becomes with SameType {:?}", &merged_type);
                             table.real_types[root_tv2.0 as usize] = Some(merged_type);
                             table.real_types[root_tv1.0 as usize] = None;
                             
@@ -844,7 +838,6 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                     };
 
                     if let Some((actual_args, actual_ret, variadic)) = fun_type_tuple {
-                        //let is_arg_nb_wrong = (function_name != &Some("print".to_owned()) && !variadic && passed_args_types.len() != actual_args.len()) || (function_name == &Some("print".to_owned()) && passed_args_types.len() != 1);
                         let is_arg_nb_wrong = !variadic && passed_args_types.len() != actual_args.len();
 
                         if is_arg_nb_wrong {
@@ -852,11 +845,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                             return Err(TypesErr::new(TypesErrData::WrongArgNb { function_name: function_name.clone().unwrap_or_else(|| ANON_FUNC_NAME.to_owned()) , expected_nb: actual_args.len(), got_nb: passed_args_types.len() }, range));
                         }
 
-                        //dbg!((&actual_ret, &actual_args));
-
                         let mut merged_arg_types = Vec::new();
-                        //dbg!(&passed_args_types);
-                        //dbg!(&actual_args);
                         for (passed_arg, actual_arg) in passed_args_types.iter().zip(&actual_args) {
                             if let Some(merged_art_type) = merge_types(passed_arg, actual_arg){
                                 merged_arg_types.push(merged_art_type);
@@ -908,7 +897,6 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                     let list_root = table.find_root(*list);
                     let element_type = table.real_types[element_root.0 as usize].clone();
                     let list_type = table.real_types[list_root.0 as usize].clone();
-                    //dbg!((&list_type, &element_type));
 
                     let merged_element_type = match (&list_type, &element_type) {
                         (Some(Type::List(list_element_type)), element_type) => {
@@ -961,8 +949,6 @@ fn apply_types_to_ast(context : &mut TypeContext){
 
     for (node, tv) in &context.node_type_vars {
         let t = context.table.resolve_type(*tv);
-
-        //debug_println!(context.rustaml_context.is_debug_print, "set type of node {:?} to {:?}", DebugWrapContext::new(node, context.rustaml_context), DebugWrapContext::new(&t, context.rustaml_context));
 
         node.set_type(&mut context.rustaml_context.ast_pool, t);
     }

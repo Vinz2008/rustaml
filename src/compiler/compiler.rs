@@ -446,15 +446,13 @@ fn compile_panic<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
 }
 
 fn compile_map<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list_ast : ASTRef, fun_ast : ASTRef) -> AnyValueEnum<'llvm_ctx> {
-    let fun_type = fun_ast.get_type(&compile_context.rustaml_context.ast_pool).clone();
-    let ret_elem_type = match fun_type {
-        Type::Function(_, ret, _) => *ret,
+    let ret_elem_type = match fun_ast.get_type(&compile_context.rustaml_context.ast_pool) {
+        Type::Function(_, ret, _) => ret.as_ref().clone(),
         _ => unreachable!(),
     };
     
-    let list_type = list_ast.get_type(&compile_context.rustaml_context.ast_pool).clone();
-    let elem_type = match list_type {
-        Type::List(e) => *e,
+    let elem_type = match list_ast.get_type(&compile_context.rustaml_context.ast_pool) {
+        Type::List(e) => e.as_ref().clone(),
         _ => unreachable!()
     };
 
@@ -472,15 +470,13 @@ fn compile_map<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx
 }
 
 fn compile_filter<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list_ast : ASTRef, fun_ast : ASTRef) -> AnyValueEnum<'llvm_ctx> {
-    let fun_type = fun_ast.get_type(&compile_context.rustaml_context.ast_pool).clone();
-    let arg_type = match fun_type {
-        Type::Function(args, _, _) => args.into_iter().next().unwrap(),
+    let arg_type = match fun_ast.get_type(&compile_context.rustaml_context.ast_pool) {
+        Type::Function(args, _, _) => args.iter().next().unwrap().clone(),
         _ => unreachable!(),
     };
     
-    let list_type = list_ast.get_type(&compile_context.rustaml_context.ast_pool).clone();
-    let elem_type = match list_type {
-        Type::List(e) => *e,
+    let elem_type = match list_ast.get_type(&compile_context.rustaml_context.ast_pool) {
+        Type::List(e) => e.as_ref().clone(),
         _ => unreachable!()
     };
 
@@ -543,7 +539,7 @@ fn monomophize_function<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
                 compile_context.generic_map.insert(gen_idx, arg_call.clone()); // TODO : handle if the gen_idx was already set to something ? (is it even possible ?)
                 arg_types_without_generics.push(arg_call);
             }
-            a => arg_types_without_generics.push(a.clone()),
+            a => arg_types_without_generics.push(a),
         }
     }
     
@@ -608,8 +604,8 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
 
     let callee_type = callee.get_type(&compile_context.rustaml_context.ast_pool).clone();
 
-    let (arg_types, ret_type) = match callee_type.clone() {
-        Type::Function(args, ret, _) => (args, *ret),
+    let (arg_types, ret_type) = match &callee_type {
+        Type::Function(args, ret, _) => (args.clone(), ret.as_ref().clone()),
         _ => unreachable!(),
     };
     
@@ -778,7 +774,7 @@ fn compile_binop_float<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, '
 }
 
 // TODO : replace most of AnyValueEnum with BasicValueEnum ?
-fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, operand_type : Type, name : &str) -> IntValue<'llvm_ctx>{
+fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs_val : AnyValueEnum<'llvm_ctx>, rhs_val : AnyValueEnum<'llvm_ctx>, operand_type : &Type, name : &str) -> IntValue<'llvm_ctx>{
 
     if let Type::Unit = operand_type {
         // both types should be unit, so return true
@@ -1006,7 +1002,7 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     match op.get_type() {
         Type::Integer => compile_binop_int(compile_context, op, lhs_val, rhs_val, &name, range).into(),
         Type::Float => compile_binop_float(compile_context, op, lhs_val, rhs_val, &name).into(),
-        Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, lhs_type, &name).into(),
+        Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, &lhs_type, &name).into(),
         Type::Str => compile_binop_str(compile_context, op, lhs_val, rhs_val, &name),
         Type::List(_) => compile_binop_list(compile_context, op, lhs_val, rhs_val, &lhs_type),
         _ => unreachable!(),
@@ -1674,7 +1670,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
         compile_context.builder.build_call(init_func, &[], "init_call").unwrap();
         
         let top_level_nodes = match frontend_output.ast.get(&compile_context.rustaml_context.ast_pool) {
-            ASTNode::TopLevel { nodes } => nodes.clone(), // TODO : remove this clone
+            ASTNode::TopLevel { nodes } => nodes.clone(),
             _ => unreachable!(),
         };
 
@@ -1702,7 +1698,7 @@ pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlCo
 
         #[cfg(feature = "debug-llvm")]
         compile_context.module.verify().or_else(|e| -> Result<_, LLVMString> { 
-            compile_context.module.print_to_file(filename_without_ext.clone() + "_error.ll").unwrap();
+            compile_context.module.print_to_file(filename_without_ext + "_error.ll").unwrap();
             panic!("LLVM ERROR {}", e.to_string()) 
         }).unwrap();
 

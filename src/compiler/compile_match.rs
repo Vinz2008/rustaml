@@ -339,7 +339,6 @@ fn compile_match_switch<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
 pub fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, match_node : ASTRef, matched_expr : ASTRef, patterns : &[(PatternRef, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
     
     let matched_val = compile_expr(compile_context, matched_expr);
-    //let matched_val_type = matched_expr.get(&compile_context.rustaml_context.ast_pool).get_type(compile_context.rustaml_context, &compile_context.var_types).unwrap();
     let matched_val_type = matched_expr.get_type(&compile_context.rustaml_context.ast_pool).clone();
 
     let match_type = match_node.get_type(&compile_context.rustaml_context.ast_pool).clone();

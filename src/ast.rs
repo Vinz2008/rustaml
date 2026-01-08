@@ -652,7 +652,7 @@ fn parse_type_alias(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
 
     match &mut t {
         Type::SumType(s) => {
-            s.name = Some(name_str.clone().into_boxed_str());
+            s.name = Some(name_str.into_boxed_str());
         },
         _ => {},
     }

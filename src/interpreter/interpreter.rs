@@ -2,6 +2,7 @@ use rustc_hash::FxHashMap;
 use std::cmp::max;
 use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
+use std::mem;
 use std::panic;
 use debug_with_context::DebugWithContext;
 use rand::prelude::*;
@@ -200,6 +201,12 @@ pub enum List {
     Node(Val, ListRef)
 }
 
+impl Default for List {
+    fn default() -> Self {
+        List::None
+    }
+}
+
 
 impl List {
     fn new(val : Val, next : ListRef) -> List {
@@ -217,7 +224,59 @@ impl List {
         context.rustaml_context.list_node_pool.push(l)
     }
 
+    fn add_list_at_end(&mut self, list_pool : &mut ListPool, list : ListRef){
+        
+        //let mut current: &mut List = self;
+        /*while let List::Node(_, next ) = current && let List::Node(_, next1) = next.get(&list_pool) {
+            current = next.get_mut(list_pool);
+        }*/
+
+        let mut current_ref = match self {
+            List::Node(_, next_ref) => {
+                if let List::None = next_ref.get(list_pool){
+                    *next_ref = list;
+                    return;
+                }
+                *next_ref
+            },
+            List::None => {
+                *self = list.get(list_pool).clone();
+                return;
+            },
+        };
+
+        /*while let &mut List::Node(_, next) = current {
+            match next.get_mut(list_pool) {
+                List::None => break,
+                n => {
+                    current = n;
+                }
+                
+            }
+            //current = next.get_mut(list_pool);
+        }*/
+        while let List::Node(_, next) = current_ref.get(list_pool){
+            if let List::None = next.get(list_pool){
+                break;
+            }
+            current_ref = *next;
+        }
+
+        let current = current_ref.get_mut(list_pool);
+        let val = match mem::take(current){
+            List::Node(v, _next) => v,
+            List::None => unreachable!(),
+        };
+        *current = List::new(val, list);
+    }
+
     fn append(&mut self, list_pool: &mut ListPool, val : Val){
+        let tail = list_pool.push(List::None);
+        let new_node = list_pool.push(List::Node(val, tail));
+        self.add_list_at_end(list_pool, new_node);
+    }
+
+    /*fn append(&mut self, list_pool: &mut ListPool, val : Val){
         let new_node = list_pool.push(List::None);
         let mut current: &mut List = self;
         while let List::Node(_, next ) = current {
@@ -225,8 +284,7 @@ impl List {
         }
         
         *current = List::new(val, new_node);
-
-    }
+    }*/
 
     pub fn iter<'a>(&'a self, list_pool : &'a ListPool) -> ListIter<'a> {
         ListIter { current: self, list_pool }
@@ -609,7 +667,6 @@ fn interpret_binop_list(context: &mut InterpretContext, op : Operator, lhs_val :
     };
 
     let v = match op {
-        // TODO : use the already existing subtree, should it be clone ?
         // TODO : call add_allocation for gc in these cases
         Operator::ListAppend => Val::List(context.rustaml_context.list_node_pool.push(List::new(lhs_val, rhs_list))),
         Operator::ListMerge => {
@@ -620,15 +677,7 @@ fn interpret_binop_list(context: &mut InterpretContext, op : Operator, lhs_val :
             };
 
             let mut cloned_lhs = lhs_list.get(&context.rustaml_context.list_node_pool).clone().deep_clone(&mut context.rustaml_context.list_node_pool);
-
-            let mut rhs_vals = Vec::new();
-            for v in rhs_list.get(&context.rustaml_context.list_node_pool).iter(&context.rustaml_context.list_node_pool) {
-                rhs_vals.push(v.clone()); // TODO : add a deep clone for vals for situations like this (where val is cloned, but need to deep clone for immutability)
-            }
-
-            for v in rhs_vals {
-                cloned_lhs.append(&mut context.rustaml_context.list_node_pool, v);
-            }
+            cloned_lhs.add_list_at_end(&mut context.rustaml_context.list_node_pool, rhs_list);
 
             let cloned_lhs_ref = context.rustaml_context.list_node_pool.push(cloned_lhs);
 
