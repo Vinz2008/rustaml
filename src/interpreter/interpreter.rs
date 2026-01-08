@@ -254,6 +254,7 @@ impl List {
         *current = List::new(val, list);
     }
 
+    // TODO : remove this ?
     fn append(&mut self, list_pool: &mut ListPool, val : Val){
         let tail = list_pool.push(List::None);
         let new_node = list_pool.push(List::Node(val, tail));
