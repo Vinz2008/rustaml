@@ -28,6 +28,6 @@ let match_str s = match (chars s) with
 let _ = print (match_str (str)) ;;
 let _ = print '⭐' ;;
 let _ = print (chars (gen_str 10)) ;;
-let _ = print (chars "abcdefgh") ;;
+// let _ = print (chars "abcdefgh") ;;
 // let _ = print (chars (gen_str_tail_rec 10000)) ;;
 let _ = print (match_str "⭐ssdfdfd")

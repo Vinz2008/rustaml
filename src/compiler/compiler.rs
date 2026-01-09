@@ -144,12 +144,6 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             ..Default::default()
         },
         BuiltinFunction {
-            name: "__list_print",
-            args: Box::new([ptr_type]),
-            ret: Some(llvm_context.void_type().into()),
-            ..Default::default()
-        },
-        BuiltinFunction {
             name: "__bool_to_str",
             args: Box::new([llvm_context.bool_type().into()]),
             ret: Some(ptr_type_ret),
@@ -365,13 +359,6 @@ fn get_format_string(print_type : &Type) -> &'static str {
 // TODO : call a c function that will call printf ? (then write the formatting part myself ? under a feature flag ?)
 fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, print_val : AnyValueEnum<'llvm_ctx>, print_val_type : &Type) -> AnyValueEnum<'llvm_ctx> {
     let print_val = TryInto::<BasicMetadataValueEnum>::try_into(print_val).unwrap();
-
-    /*if let Type::List(_) = print_val_type {
-        let print_list_fun = compile_context.get_internal_function("__list_print");
-        let print_list_args = vec![print_val];
-        compile_context.builder.build_call(print_list_fun, &print_list_args, "print_list_internal").unwrap();
-        return get_void_val(compile_context.context);
-    }*/
 
     let printf_fun = compile_context.get_internal_function("__print_val");
     let format_str = get_format_string(print_val_type);

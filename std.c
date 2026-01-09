@@ -1125,7 +1125,6 @@ static void list_node_print(uint8_t tag, Val val){
             .capacity = 4,
         };
         uint32_t c = INTO_TYPE(uint32_t, val);
-        // TODO : assert valid codepoint ? (but already in format_char ?)
         format_char(&s, c);
         fwrite(buf, 1, s.len, stdout);
     } else if (tag == LIST_TYPE){
@@ -1153,20 +1152,9 @@ static void list_print_no_new_line(struct ListNode* list){
     fwrite(&close_square_bracket, 1, 1, stdout);
 }
 
-// TODO : remove this ?
-void __list_print(struct ListNode* list){
-    list_print_no_new_line(list);
-    const char new_line = '\n';
-    fwrite(&new_line, 1, 1, stdout);
-}
 
-
-
-// TODO : make this file agnostic ?
 // print with a \n
-void __print_val(const char* format, ...){
-    va_list va;
-    va_start(va, format);
+static void vwrite_val_file(const char* format, va_list va, FILE* f){
     if (*format == '%'){
         format++;
         switch (*format){
@@ -1181,7 +1169,7 @@ void __print_val(const char* format, ...){
                 };
                 format_int(&str_int, i);
                 // TODO : use something lower level than fwrite ?
-                fwrite(buf_int, 1, str_int.len, stdout);
+                fwrite(buf_int, 1, str_int.len, f);
                 break;
 
             case 'l':
@@ -1200,13 +1188,13 @@ void __print_val(const char* format, ...){
                 };
                 double d = va_arg(va, double);
                 format_float(&str_float, d);
-                fwrite(buf_float, 1, str_float.len, stdout);
+                fwrite(buf_float, 1, str_float.len, f);
                 break;
             case 's':
                 format++;
                 char* s = va_arg(va, char*);
                 size_t s_len = strlen(s);
-                fwrite(s, 1, s_len, stdout);
+                fwrite(s, 1, s_len, f);
                 break;
             case 'c':
                 format++;
@@ -1218,7 +1206,7 @@ void __print_val(const char* format, ...){
                     .capacity = 4,
                 };
                 format_char(&str_char, c);
-                fwrite(buf_char, 1, str_char.len, stdout);
+                fwrite(buf_char, 1, str_char.len, f);
                 break;
             case 'C':
                 format++;
@@ -1228,7 +1216,7 @@ void __print_val(const char* format, ...){
                     if (*format == '6' && format[1] == '4'){
                         format += 2;
                         // u64
-                        printf("%ld", va_arg(va, uint64_t)); // TODO ? (not use printf ?)
+                        fprintf(f, "%ld", va_arg(va, uint64_t)); // TODO ? (not use fprintf ?)
                     }
                 }
                 break;
@@ -1237,12 +1225,12 @@ void __print_val(const char* format, ...){
                 bool b = (bool)va_arg(va, uint32_t);
                 const char* bool_str = __bool_to_str(b);
                 size_t bool_str_len = strlen(bool_str);
-                fwrite(bool_str, 1, bool_str_len, stdout);
+                fwrite(bool_str, 1, bool_str_len, f);
                 break;
             case 'u':
                 format++;
                 const char* s_unit = "()";
-                fwrite(s_unit, 1, 2, stdout);
+                fwrite(s_unit, 1, 2, f);
                 break;
             
             case 'n':
@@ -1259,6 +1247,12 @@ void __print_val(const char* format, ...){
     }
     char c = '\n';
     fwrite(&c, 1, 1, stdout);
+}
+
+void __print_val(const char* format, ...){
+    va_list va;
+    va_start(va, format);
+    vwrite_val_file(format, va, stdout);
     va_end(va);
 }
 
