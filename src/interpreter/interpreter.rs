@@ -217,7 +217,7 @@ impl List {
     fn new_from(context: &mut InterpretContext, v : &[ASTRef]) -> ListRef {
         let mut list_ref = context.rustaml_context.list_node_pool.push(List::None);
         for e in v.iter().rev() {
-            let val = interpret_node(context, *e);;
+            let val = interpret_node(context, *e);
             list_ref = list_push_start(&mut context.rustaml_context.list_node_pool, val, list_ref);
         }
         

@@ -12,6 +12,7 @@ use crate::{debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, ru
 use debug_with_context::{DebugWithContext, DebugWrapContext};
 
 // TODO : add a guard clauses (create struct with an enum and guard clauses)
+// TODO : in all these files, replace pub with pub(crate)
 
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
@@ -286,6 +287,14 @@ pub struct Variant {
 pub struct SumType {
     pub name : Option<Box<str>>,
     pub variants : Box<[Variant]>,
+}
+
+impl SumType {
+    pub(crate) fn has_data(&self) -> bool {
+        self.variants.iter().any(|e|{
+            e.associated_type.is_some()
+        })
+    }
 }
 
 // TODO : add a type pool to remove boxes (test performance ? normally should be useful for lowering the type size, it would become only 64 bit and we could make it Copy, but we wouldn't use it everywhere there is Type like for other types, just in refence in the type to other types to lower the size while only indexing in the vector when it is really needed)

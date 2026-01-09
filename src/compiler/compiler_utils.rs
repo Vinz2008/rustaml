@@ -15,8 +15,9 @@ pub fn get_type_tag(t : &Type) -> u8 {
         Type::Str => 4,
         Type::List(_) => 5,
         Type::Char => 6,
-        // TODO : add a type tag for Unit ? Never ? SumType ?
-        Type::Any | Type::Unit | Type::Never | Type::CType(_) | Type::Generic(_) | Type::SumType(_) => panic!("no type tag for this type {:?} !!", t),
+        Type::Unit => 7,
+        // TODO : add a type tag for Never ? SumType ?
+        Type::Any | Type::Never | Type::CType(_) | Type::Generic(_) | Type::SumType(_) => panic!("no type tag for this type {:?} !!", t),
     }
 }
 
@@ -146,7 +147,6 @@ pub fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext
         None => builder.position_at_end(entry),
     }
 
-    //dbg!(alloca_type);
     builder.build_alloca(any_type_to_basic(compile_context.context, alloca_type), name).unwrap()
 }
 
@@ -159,14 +159,10 @@ pub fn create_entry_block_array_alloca<'llvm_ctx>(compile_context: &mut CompileC
         None => builder.position_at_end(entry),
     }
 
-    //dbg!(alloca_type);
     builder.build_array_alloca(any_type_to_basic(compile_context.context, alloca_type), size, name).unwrap()
 }
 
 pub fn create_var<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, name : StringRef, val : AnyValueEnum<'llvm_ctx>, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
-    /*if alloca_type.is_void_type(){
-        return compile_context.context.ptr_type(AddressSpace::default()).const_null(); // to represent a var containing a void, if it is written to, it is a bug
-    }*/
     let var_alloca = create_entry_block_alloca(compile_context, &name.get_str(&compile_context.rustaml_context.str_interner).to_owned(), alloca_type);
     compile_context.builder.build_store(var_alloca, TryInto::<BasicValueEnum>::try_into(val).unwrap()).unwrap();
     compile_context.var_vals.insert(name, var_alloca);
@@ -250,7 +246,7 @@ pub fn load_list_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     let list_type = get_list_type(compile_context.context);
     let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 1, "load_list_val_gep").unwrap();
     let elem_type_llvm = get_llvm_type(compile_context, elem_type);
-    let basic_type = TryInto::<BasicTypeEnum>::try_into(elem_type_llvm).unwrap();
+    //let basic_type = TryInto::<BasicTypeEnum>::try_into(elem_type_llvm).unwrap();
     let load_i64 = compile_context.builder.build_load(compile_context.context.i64_type(), gep_ptr, "load_val_gep").unwrap().into_int_value();
     from_val_in_list(compile_context, load_i64, elem_type)
 }
@@ -273,10 +269,16 @@ pub fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
         //Type::Never | Type::Unit => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_nothing_to_val").unwrap(),
         Type::Never | Type::Unit => { // TODO
             let void_val = get_void_val(compile_context.context);
-            compile_context.builder.build_bit_cast(TryInto::<BasicValueEnum>::try_into(void_val).unwrap(), compile_context.context.i64_type(), "bitcast_to_uint64_t").unwrap().into_int_value()
-            //i64_type.const_int(0, false)
+            compile_context.builder.build_bit_cast(TryInto::<BasicValueEnum>::try_into(void_val).unwrap(), i64_type, "bitcast_to_uint64_t").unwrap().into_int_value()
         }, 
-        Type::SumType(sumtype) => todo!(),
+        Type::SumType(sumtype) => {
+            if sumtype.has_data(){
+                todo!() // TODO
+            } else {
+                // for now an i64, can it be smaller ? (need it to be smaller in some cases, ex : for the data part)
+                val.into_int_value()
+            }
+        },
         Type::Any => encountered_any_type(),
         Type::Generic(_) | Type::CType(_) => unreachable!(),
     }
@@ -294,7 +296,13 @@ pub fn from_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
             // doesn't need to use the val
             get_void_val_basic(compile_context.context)
         }
-        Type::SumType(sumtype) => todo!(),
+        Type::SumType(sumtype) => {
+            if sumtype.has_data(){
+                todo!() // TODO
+            } else {
+                val.into()
+            }
+        },
         Type::Any => encountered_any_type(),
         Type::Generic(_) | Type::CType(_) => unreachable!(),
     }

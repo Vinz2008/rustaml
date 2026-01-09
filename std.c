@@ -209,6 +209,7 @@ enum TypeTag {
     STR_TYPE = 4,
     LIST_TYPE = 5,
     CHAR_TYPE = 6,
+    UNIT_TYPE = 7,
 };
 
 typedef uint64_t Val;
@@ -971,6 +972,11 @@ static void list_node_format(struct str* str, uint8_t tag, Val val){
         case CHAR_TYPE:
             format_char(str, INTO_TYPE(uint32_t, val));
             break;
+        case UNIT_TYPE:
+            ensure_size_string(str, 2);
+            const char* unit = "()";
+            memcpy(str->buf + str->len, unit, 2);
+            break;
         default:
             fprintf(stderr, "ERROR : WRONG TAGS IN LIST IN FORMAT (BUG IN COMPILER  \?\?)\n");
             exit(1);
@@ -1080,10 +1086,10 @@ const char* __char_to_str(uint32_t c){
     return s.buf;
 }
 
-static void list_print_no_new_line(struct ListNode* list);
+static void list_write_file_no_new_line(struct ListNode* list, FILE* f);
 
 // TODO : transform in the future into a print_val function
-static void list_node_print(uint8_t tag, Val val){
+static void list_node_write_file(uint8_t tag, Val val, FILE* f){
     // TODO : transform this into a switch ?
     if (tag == INT_TYPE) {
         char buf[MAX_INT_BUF_SIZE];
@@ -1094,7 +1100,7 @@ static void list_node_print(uint8_t tag, Val val){
         };
         int64_t i = INTO_TYPE(int64_t, val);
         format_int(&s, i);
-        fwrite(buf, 1, s.len, stdout);
+        fwrite(buf, 1, s.len, f);
     } else if (tag == FLOAT_TYPE){
         char buf[MAX_DOUBLE_BUF_SIZE];
         struct str s = (struct str){
@@ -1104,18 +1110,18 @@ static void list_node_print(uint8_t tag, Val val){
         };
         double d = INTO_TYPE(double, val);
         format_float(&s, d);
-        fwrite(buf, 1, s.len, stdout);
+        fwrite(buf, 1, s.len, f);
     } else if (tag == BOOL_TYPE){
         uint8_t b = INTO_TYPE(uint8_t, val);
         ASSERT_BOOL(b);
         const char* s = __bool_to_str((bool)b);
         size_t s_len = strlen(s);
-        fwrite(s, 1, s_len, stdout);
+        fwrite(s, 1, s_len, f);
     } else if (tag == STR_TYPE){
         const char* s = INTO_TYPE(char*, val);
         ASSERT_NOT_NULL(s);
         size_t s_len = strlen(s);
-        fwrite(s, 1, s_len, stdout);
+        fwrite(s, 1, s_len, f);
     } else if (tag == CHAR_TYPE){
         // use this instead of format_char to prevent useless heap allocations
         char buf[4];
@@ -1126,32 +1132,36 @@ static void list_node_print(uint8_t tag, Val val){
         };
         uint32_t c = INTO_TYPE(uint32_t, val);
         format_char(&s, c);
-        fwrite(buf, 1, s.len, stdout);
+        fwrite(buf, 1, s.len, f);
+    } else if (tag == UNIT_TYPE){
+        const char* unit = "()";
+        fwrite(unit, 1, 2, f);
     } else if (tag == LIST_TYPE){
-        list_print_no_new_line(INTO_TYPE(struct ListNode*, val));
+        struct ListNode* list = INTO_TYPE(struct ListNode*, val);
+        ASSERT_NOT_NULL(list);
+        list_write_file_no_new_line(list, f);
     } else {
         fprintf(stderr, "ERROR : WRONG TAGS IN LIST IN PRINT (BUG IN COMPILER  \?\?)\n");
         exit(1);
     }
 }
 
-static void list_print_no_new_line(struct ListNode* list){
+static void list_write_file_no_new_line(struct ListNode* list, FILE* f){
     bool first = true;
     const char open_square_bracket = '[';
-    fwrite(&open_square_bracket, 1, 1, stdout);
+    fwrite(&open_square_bracket, 1, 1, f);
     const char* comma = ", ";
     while (list != NULL){
         if (!first){
-            fwrite(comma, 1, 2, stdout);
+            fwrite(comma, 1, 2, f);
         } 
-        list_node_print(list->type_tag, list->val);
+        list_node_write_file(list->type_tag, list->val, f);
         list = list->next;
         first = false;
     }
     const char close_square_bracket = ']';
-    fwrite(&close_square_bracket, 1, 1, stdout);
+    fwrite(&close_square_bracket, 1, 1, f);
 }
-
 
 // print with a \n
 static void vwrite_val_file(const char* format, va_list va, FILE* f){
@@ -1175,7 +1185,7 @@ static void vwrite_val_file(const char* format, va_list va, FILE* f){
             case 'l':
                 format++;
                 struct ListNode* list = va_arg(va, struct ListNode*);
-                list_print_no_new_line(list);
+                list_write_file_no_new_line(list, f);
                 break;
 
             case 'f':

@@ -1,9 +1,9 @@
 use std::{fmt, ops::Range};
 
-use inkwell::{basic_block::BasicBlock, context::Context, debug_info::{AsDIScope, DICompileUnit, DILexicalBlock, DILocation, DISubprogram, DIType, DebugInfoBuilder, LLVMDWARFTypeEncoding}, llvm_sys::debuginfo::{LLVMDIFlagPrivate, LLVMDIFlagPublic}, values::{FunctionValue, PointerValue}, AddressSpace};
+use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{AsDIScope, DICompileUnit, DILexicalBlock, DILocation, DISubprogram, DIType, DebugInfoBuilder, LLVMDWARFTypeEncoding}, llvm_sys::debuginfo::{LLVMDIFlagPrivate, LLVMDIFlagPublic}, values::{AsValueRef, BasicValue, FunctionValue, InstructionValue, PointerValue}};
 use rustc_hash::FxHashMap;
 
-use crate::ast::Type;
+use crate::ast::{CType, Type};
 
 pub struct TargetInfos {
     ptr_size : u32,
@@ -59,6 +59,8 @@ pub struct DebugInfosInner<'llvm_ctx> {
 const DW_ATE_BOOLEAN: LLVMDWARFTypeEncoding = 0x02;
 const DW_ATE_FLOAT: LLVMDWARFTypeEncoding = 0x04;
 const DW_ATE_SIGNED: LLVMDWARFTypeEncoding = 0x05;
+const DW_ATE_UNSIGNED: LLVMDWARFTypeEncoding = 0x07;
+const DW_ATE_UNSIGNED_CHAR: LLVMDWARFTypeEncoding = 0x08;
 const DW_ATE_NUMERIC_STRING: LLVMDWARFTypeEncoding = 0x0b;
 
 struct TypeData {
@@ -75,6 +77,9 @@ fn init_type_data(ptr_size_in_bit : u32) -> FxHashMap<Type, TypeData> {
         // TODO : check size in bits of bool ?
         (Type::Bool, TypeData { name: "bool", size_in_bits: 8, encoding: DW_ATE_BOOLEAN }),
         (Type::Str, TypeData { name: "str", size_in_bits: ptr_size_in_bit as u64, encoding: DW_ATE_NUMERIC_STRING }),
+        (Type::Char, TypeData { name: "char", size_in_bits: 32, encoding: DW_ATE_UNSIGNED_CHAR}),
+        (Type::CType(CType::U64), TypeData { name: "Ctype_u64", size_in_bits: 64, encoding: DW_ATE_UNSIGNED }),
+        (Type::CType(CType::I32), TypeData { name: "Ctype_i32", size_in_bits: 32, encoding: DW_ATE_SIGNED }),
     ])
 }
 
@@ -303,12 +308,29 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
         }
     }
 
-    pub fn end_function(&mut self){
+    pub fn set_debug_location(&mut self, loc : DILocation<'llvm_ctx>){
         if let Some(i) = &mut self.inner {
-            i.last_func_scope.take();
+            i.current_debug_loc = Some(loc);
         }
     }
 
+    pub fn get_current_debug_location(&self, builder : &Builder<'llvm_ctx>) -> Option<DILocation<'llvm_ctx>> {
+        if let Some(i) = &self.inner {
+            builder.get_current_debug_location()
+        } else {
+            None
+        }
+    }
+
+    pub fn end_function(&mut self){
+        if let Some(i) = &mut self.inner {
+            i.last_func_scope.take();
+            //i.current_debug_loc.take()
+            self.end_lexical_block();
+        }
+    }
+
+    // TODO : remove current_bb
     pub fn declare_var(&mut self, name : &str, var_type : &Type, storage : PointerValue<'llvm_ctx>, current_bb : BasicBlock<'llvm_ctx>, content : &ContentLoc, range : Range<usize>){
         if let Some(i) = &mut self.inner {
             let scope = i.last_func_scope.unwrap().as_debug_info_scope();
@@ -320,11 +342,29 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
             let align_in_bits = 0; // TODO
             let var_info = Some(i.debug_builder.create_auto_variable(scope, name, file, debug_location_var.line_nb, var_ty_debug, always_preserve, flags, align_in_bits));
             let expr = None; // TODO
-
             let debug_loc = i.current_debug_loc.unwrap();
-
-            // TODO : at some point (when the inkwell release supports llvm 20), switch to debug record instead of this instrisic (because the intrisic is being dropped in llvm 20)
+            /*let debug_loc = i.debug_builder.create_debug_location(
+                context,
+                debug_location_var.line_nb,
+                debug_location_var.column,
+                scope,
+                None,
+            );
+            let alloca_inst = storage.as_instruction_value().expect("alloca must be an instruction");*/
             i.debug_builder.insert_declare_at_end(storage, var_info, expr, debug_loc, current_bb);
+            //i.debug_builder.insert_declare_before_instruction(storage, var_info, expr, debug_loc, alloca_inst);
+        }
+    }
+
+    pub fn declare_parameter(&mut self, name : &str, arg_no : u32, var_type : &Type, content : &ContentLoc, range : Range<usize>){
+        if let Some(i) = &mut self.inner {
+            let scope = i.last_func_scope.unwrap().as_debug_info_scope();
+            let file = i.debug_compile_unit.get_file();
+            let debug_location_var = get_debug_loc(content, range);
+            let var_ty_debug = get_debug_info_type(i, var_type);
+            let always_preserve = true; // TODO : will it affect optimizations
+            let flags = 0; // TODO
+            i.debug_builder.create_parameter_variable(scope, name, arg_no, file, debug_location_var.line_nb, var_ty_debug, always_preserve, flags);
         }
     }
 
