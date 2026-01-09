@@ -80,6 +80,7 @@ fn init_type_data(ptr_size_in_bit : u32) -> FxHashMap<Type, TypeData> {
         (Type::Char, TypeData { name: "char", size_in_bits: 32, encoding: DW_ATE_UNSIGNED_CHAR}),
         (Type::CType(CType::U64), TypeData { name: "Ctype_u64", size_in_bits: 64, encoding: DW_ATE_UNSIGNED }),
         (Type::CType(CType::I32), TypeData { name: "Ctype_i32", size_in_bits: 32, encoding: DW_ATE_SIGNED }),
+        // TODO : add more
     ])
 }
 
