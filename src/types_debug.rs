@@ -5,7 +5,7 @@ use debug_with_context::{DebugWithContext, DebugWrapContext};
 
 use crate::{ast::{ASTNode, ASTRef, PatternRef, Type}, rustaml::RustamlContext, string_intern::StringRef};
 
-pub struct PrintTypedContext {
+pub(crate) struct PrintTypedContext {
     rustaml_context : RustamlContext,
 }
 
@@ -46,7 +46,7 @@ impl DebugWithContext<PrintTypedContext> for StringRef {
 
 // need to prevent not used warning because only called in main.rs but need the struct PrintTypedContext for derives
 #[allow(dead_code)]
-pub fn dump_typed_ast(rustaml_context : &RustamlContext, ast : ASTRef) -> io::Result<()> {
+pub(crate) fn dump_typed_ast(rustaml_context : &RustamlContext, ast : ASTRef) -> io::Result<()> {
     let context = PrintTypedContext {
         rustaml_context: rustaml_context.clone(), // TODO : remove this clone ?
     };

@@ -11,7 +11,7 @@ use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, print_warnings::{
 // TODO : add an error (here ? in the parsing ?) when there is two sum type variant with the same name
 
 // for analyzing the ranges of match (make it smarter ?)
-pub fn match_is_all_range(rustaml_context : &RustamlContext, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
+pub(crate) fn match_is_all_range(rustaml_context : &RustamlContext, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
     match matched_val_type {
         Type::Bool => {
             let has_true = patterns.iter().any(|e| matches!(e.0.get(&rustaml_context.pattern_pool), Pattern::Bool(true)));
@@ -63,7 +63,7 @@ pub fn match_is_all_range(rustaml_context : &RustamlContext, matched_val_type : 
                 let has_found_variant = patterns.iter().any(|(p, _)| {
                     match p.get(&rustaml_context.pattern_pool) {
                         Pattern::SumTypeVariant(v_name) => {
-                            if v_name.get_str(&rustaml_context.str_interner) == v.name.as_ref(){
+                            if v_name.get_str(&rustaml_context.str_interner) == v.get_name(){
                                 return true;
                             }
                         },
@@ -103,26 +103,26 @@ pub fn match_is_all_range(rustaml_context : &RustamlContext, matched_val_type : 
 }
 
 #[derive(Tag)]
-pub enum CheckErrorData {
+pub(crate) enum CheckErrorData {
     IntegerOutOfRange {
         nb : i128,
     }
 }
 
 
-pub struct CheckError {
-    pub err_data : CheckErrorData,
-    pub range: Range<usize>,
+pub(crate) struct CheckError {
+    pub(crate) err_data : CheckErrorData,
+    pub(crate) range: Range<usize>,
 }
 
 impl CheckError {
-    pub const INT_LITERAL_RANGE : Range<i128> = {
+    pub(crate) const INT_LITERAL_RANGE : Range<i128> = {
         let min_nb = i64::MIN as i128; // can technically never be negative because the - is an unary op that is applied after on the integer literal, but you can never be too careful
         let max = -(i64::MIN as i128);
         min_nb..max
     };
 
-    pub fn new(err_data : CheckErrorData, range: Range<usize>) -> CheckError {
+    pub(crate) fn new(err_data : CheckErrorData, range: Range<usize>) -> CheckError {
         CheckError { 
             err_data, 
             range 
@@ -131,7 +131,7 @@ impl CheckError {
 }
 
 // TODO : if needs for more complex things with this function (which is used at multiple places), return the iter directly instead ?
-pub fn match_fallback_match_nb(rustaml_context : &RustamlContext, patterns : &[(PatternRef, ASTRef)]) -> usize {
+pub(crate) fn match_fallback_match_nb(rustaml_context : &RustamlContext, patterns : &[(PatternRef, ASTRef)]) -> usize {
     patterns.iter().filter(|(p, _)| matches!(p.get(&rustaml_context.pattern_pool), Pattern::VarName(_) | Pattern::Underscore)).count()
 }
 
@@ -144,7 +144,7 @@ fn is_exhaustive_match(rustaml_context : &RustamlContext, matched_val_type : &Ty
 struct CheckContext<'a> {
     rustaml_context : &'a RustamlContext,
     filename : &'a Path,
-    content : &'a String
+    content : &'a str
 }
 
 fn check<'a>(check_context : &CheckContext<'a>, ast : ASTRef) -> Result<(), CheckError> {
@@ -212,7 +212,7 @@ fn check<'a>(check_context : &CheckContext<'a>, ast : ASTRef) -> Result<(), Chec
     Ok(())
 }
 
-pub fn check_ast(rustaml_context : &RustamlContext, filename : &Path, content : &String, ast : ASTRef) -> Result<(), CheckError> {
+pub(crate) fn check_ast(rustaml_context : &RustamlContext, filename : &Path, content : &str, ast : ASTRef) -> Result<(), CheckError> {
     let check_context = CheckContext {
         rustaml_context,
         filename,

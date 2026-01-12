@@ -91,7 +91,7 @@ fn print_not_complete_end_of_expr(error_basic_infos : ErrorBasicInfos) -> ErrorP
     }
 }
 
-pub fn print_lexer_error(lexer_error : LexerErr, filename : &Path, content : &str) {
+pub(crate) fn print_lexer_error(lexer_error : LexerErr, filename : &Path, content : &str) {
     // println!("Parsing error : {:?}", parser_error);
 
     let error_nb = lexer_error.lexer_err_data.tag() as u32;
@@ -163,7 +163,7 @@ fn print_not_function_type_in_let<'a>(error_basic_infos : ErrorBasicInfos<'a>, n
     }
 }
 
-pub fn print_parser_error(parser_error : ParserErr, filename : &Path, content : &str) {
+pub(crate) fn print_parser_error(parser_error : ParserErr, filename : &Path, content : &str) {
     
     // println!("Parsing error : {:?}", parser_error);
 
@@ -265,7 +265,7 @@ fn print_wrong_type_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, expected_
     }
 }
 
-pub fn print_type_error(type_error : TypesErr, filename : &Path, content : &str){
+pub(crate) fn print_type_error(type_error : TypesErr, filename : &Path, content : &str){
 
     let error_nb =  TYPE_ERROR_OFFSET + type_error.err_data.tag() as u32;
     let range = type_error.range;
@@ -305,7 +305,7 @@ fn print_integer_out_of_range_check_error<'a>(error_basic_infos : ErrorBasicInfo
     }
 }
 
-pub fn print_check_error(check_error : CheckError, filename : &Path, content : &str){
+pub(crate) fn print_check_error(check_error : CheckError, filename : &Path, content : &str){
 
     let error_nb =  CHECK_ERROR_OFFSET + check_error.err_data.tag() as u32;
     let range = check_error.range;

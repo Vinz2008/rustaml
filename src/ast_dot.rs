@@ -6,7 +6,7 @@ use petgraph::{Graph, dot::Dot, graph::NodeIndex};
 
 use crate::{ast::{ASTNode, ASTRef}, rustaml::RustamlContext};
 
-pub fn _generate_ast_dot(graph : &mut Graph<String, String>, rustaml_context : &RustamlContext, ast : ASTRef) -> NodeIndex {
+pub(crate) fn _generate_ast_dot(graph : &mut Graph<String, String>, rustaml_context : &RustamlContext, ast : ASTRef) -> NodeIndex {
     match ast.get(&rustaml_context.ast_pool){
         
         ASTNode::FunctionDefinition { name, args, body, type_annotation } => {
@@ -148,7 +148,7 @@ pub fn _generate_ast_dot(graph : &mut Graph<String, String>, rustaml_context : &
     }
 }
 
-pub fn generate_ast_dot(rustaml_context : &RustamlContext, ast : ASTRef) -> io::Result<()>{
+pub(crate) fn generate_ast_dot(rustaml_context : &RustamlContext, ast : ASTRef) -> io::Result<()>{
     let mut graph = Graph::<_, String>::new();
     _generate_ast_dot(&mut graph, rustaml_context, ast);
     let dot = Dot::with_config(&graph, &[]);

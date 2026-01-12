@@ -16,13 +16,13 @@ use inkwell::support::LLVMString;
 
 // TODO : only declare these structs when cache feature is enabled (so the we don't generate a useless implementation of Seralize and Deserialize)
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct CachedCompMeta {
-    pub shared_libs : Vec<String>,
+pub(crate) struct CachedCompMeta {
+    pub(crate) shared_libs : Vec<String>,
 }
 
-pub struct CachedCompilation {
-    pub bitcode_path : PathBuf,
-    pub metadata : CachedCompMeta,
+pub(crate) struct CachedCompilation {
+    pub(crate) bitcode_path : PathBuf,
+    pub(crate) metadata : CachedCompMeta,
 }
 
 
@@ -37,32 +37,32 @@ cfg_if! {
     }
 }
 
-pub struct CompileContext<'context, 'refs, 'llvm_ctx> {
-    pub rustaml_context : &'context mut RustamlContext,
-    pub context : &'llvm_ctx Context,
-    pub module : &'refs Module<'llvm_ctx>,
-    pub builder : &'refs Builder<'llvm_ctx>,
-    pub debug_info : DebugInfo<'llvm_ctx>,
-    pub typeinfos : TypeInfos,
+pub(crate) struct CompileContext<'context, 'refs, 'llvm_ctx> {
+    pub(crate) rustaml_context : &'context mut RustamlContext,
+    pub(crate) context : &'llvm_ctx Context,
+    pub(crate) module : &'refs Module<'llvm_ctx>,
+    pub(crate) builder : &'refs Builder<'llvm_ctx>,
+    pub(crate) debug_info : DebugInfo<'llvm_ctx>,
+    pub(crate) typeinfos : TypeInfos,
     functions : FxHashMap<StringRef, FunctionValue<'llvm_ctx>>,
     main_function : FunctionValue<'llvm_ctx>,
-    pub var_vals : FxHashMap<StringRef, PointerValue<'llvm_ctx>>,
-    pub external_symbols_declared : FxHashSet<&'static str>,
+    pub(crate) var_vals : FxHashMap<StringRef, PointerValue<'llvm_ctx>>,
+    pub(crate) external_symbols_declared : FxHashSet<&'static str>,
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>, // TODO : replace this with a hashmap ?
-    pub global_strs : FxHashMap<String, PointerValue<'llvm_ctx>>,
-    pub is_optimized : bool,
+    pub(crate) global_strs : FxHashMap<String, PointerValue<'llvm_ctx>>,
+    pub(crate) is_optimized : bool,
     shared_libs : Vec<String>,
 
     closure_idx : Cell<u32>,
 
-    pub target_data : TargetData,
+    pub(crate) target_data : TargetData,
 
     // TODO : put these in a separate struct
     generic_functions : FxHashMap<(StringRef, Vec<Type>, Type), FunctionValue<'llvm_ctx>>,
-    pub generic_map : FxHashMap<u32, Type>,
+    pub(crate) generic_map : FxHashMap<u32, Type>,
     generic_func_def_ast_node : FxHashMap<StringRef, ASTRef>,
 
-    pub monomorphized_internal_fun : FxHashMap<&'static str, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>>, // (Type A, Type B) = function List A -> List B
+    pub(crate) monomorphized_internal_fun : FxHashMap<&'static str, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>>, // (Type A, Type B) = function List A -> List B
 }
 
 
@@ -212,7 +212,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
 }
 
 impl<'context, 'refs, 'llvm_ctx> CompileContext<'context, 'refs, 'llvm_ctx> {
-    pub fn get_internal_function(&mut self, name : &'static str) -> FunctionValue<'llvm_ctx> {
+    pub(crate) fn get_internal_function(&mut self, name : &'static str) -> FunctionValue<'llvm_ctx> {
         if self.external_symbols_declared.contains(name){
             self.module.get_function(name).unwrap()
         } else {
@@ -231,7 +231,7 @@ impl<'context, 'refs, 'llvm_ctx> CompileContext<'context, 'refs, 'llvm_ctx> {
 
     // TODO : if this function become more used, make a list like the internal function for builtin_global_vars types
     // or use an enum for name because it is static
-    pub fn get_internal_global_var(&mut self, name : &'static str, type_var : BasicTypeEnum<'llvm_ctx>) -> GlobalValue<'llvm_ctx> {
+    pub(crate) fn get_internal_global_var(&mut self, name : &'static str, type_var : BasicTypeEnum<'llvm_ctx>) -> GlobalValue<'llvm_ctx> {
         if self.external_symbols_declared.contains(name){
             self.module.get_global(name).unwrap()
         } else {
@@ -974,7 +974,7 @@ fn compile_short_circuiting_or<'llvm_ctx>(compile_context: &mut CompileContext<'
     phi_and.as_basic_value().into_int_value()
 }
 
-fn compile_binop_bool_logical<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs : ASTRef, rhs : ASTRef, name : String) -> IntValue<'llvm_ctx> {
+fn compile_binop_bool_logical<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs : ASTRef, rhs : ASTRef) -> IntValue<'llvm_ctx> {
     match op {
         Operator::And => compile_short_circuiting_and(compile_context, lhs, rhs),
         Operator::Or => compile_short_circuiting_or(compile_context, lhs, rhs),
@@ -985,7 +985,7 @@ fn compile_binop_bool_logical<'llvm_ctx>(compile_context: &mut CompileContext<'_
 fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, op : Operator, lhs : ASTRef, rhs : ASTRef, range : Range<usize>) -> AnyValueEnum<'llvm_ctx> {
     let name = format!("{:?}", op).to_lowercase();
     if matches!(op, Operator::And | Operator::Or){
-        return compile_binop_bool_logical(compile_context, op, lhs, rhs, name).as_any_value_enum();
+        return compile_binop_bool_logical(compile_context, op, lhs, rhs).as_any_value_enum();
     }
 
     let lhs_val = compile_expr(compile_context, lhs);
@@ -1187,7 +1187,7 @@ fn compile_anon_func<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'll
     // TODO : need a way to reset vars (for example swap the current vars with an empty one, then put it back)
     for ((((arg_idx, arg_name), arg_val), arg_type_llvm), arg_type) in args.iter().enumerate().zip(function.get_param_iter()).zip(&arg_types_llvm).zip(arg_types) {
         // TODO : default parameters like in function def
-        let var_ptr = create_var(compile_context, *arg_name, arg_val.as_any_value_enum(), *arg_type_llvm);
+        create_var(compile_context, *arg_name, arg_val.as_any_value_enum(), *arg_type_llvm);
         compile_context.debug_info.declare_parameter(arg_name.get_str(&compile_context.rustaml_context.str_interner), arg_idx.try_into().unwrap(), &arg_type, compile_context.rustaml_context.content.as_ref().unwrap(), range.clone());
         //compile_context.debug_info.declare_var(arg_name.get_str(&compile_context.rustaml_context.str_interner), &arg_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), range.clone());
     }
@@ -1236,7 +1236,7 @@ fn compile_variant<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm
 }
 
 // TODO : replace AnyValueEnum with BasicMetadataValueEnum in compile_expr and other functions ?
-pub fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef) -> AnyValueEnum<'llvm_ctx> {
+pub(crate) fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, ast_node : ASTRef) -> AnyValueEnum<'llvm_ctx> {
     let range = ast_node.get_range(&compile_context.rustaml_context.ast_pool);
     match ast_node.get(&compile_context.rustaml_context.ast_pool).clone(){
         ASTNode::Integer { nb } => create_int(compile_context, nb).into(), // TODO : sign extend or not ?
@@ -1332,7 +1332,7 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
 
     for ((((arg_idx, arg_name), arg_val), arg_type_llvm), arg_type) in args.iter().enumerate().zip(function.get_param_iter()).zip(param_types_llvm).zip(param_types) {
         default_attributes_type(compile_context.context, arg_type, AttributeLoc::Param(arg_idx.try_into().unwrap()), function);
-        let var_ptr = create_var(compile_context, *arg_name, arg_val.as_any_value_enum(), arg_type_llvm);
+        create_var(compile_context, *arg_name, arg_val.as_any_value_enum(), arg_type_llvm);
         compile_context.debug_info.declare_parameter(arg_name.get_str(&compile_context.rustaml_context.str_interner), arg_idx.try_into().unwrap(), arg_type, compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone());
         //compile_context.debug_info.declare_var(arg_name.get_str(&compile_context.rustaml_context.str_interner), arg_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone());
     }
@@ -1541,7 +1541,7 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
 
 const DEBUGINFO_VERSION: u64 = 3;
 
-pub struct OptionalArgs {
+pub(crate) struct OptionalArgs {
     optimization_level : u8,
     keep_temp : bool,
     disable_gc : bool, 
@@ -1553,7 +1553,8 @@ pub struct OptionalArgs {
 
 impl OptionalArgs {
     // TODO : make this a builder pattern ?
-    pub fn new(optimization_level : Option<u8>, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, freestanding : bool, lib_search_paths : Vec<String>) -> OptionalArgs {
+    #[allow(unused)]
+    pub(crate) fn new(optimization_level : Option<u8>, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, freestanding : bool, lib_search_paths : Vec<String>) -> OptionalArgs {
         OptionalArgs { 
             optimization_level: optimization_level.unwrap_or(0), 
             keep_temp, 
@@ -1567,7 +1568,8 @@ impl OptionalArgs {
 }
 
 // TODO : add also a std.rml for std functions that are written in rustaml which will also be included in the executable 
-pub fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optional_args : OptionalArgs) {
+#[allow(unused)]
+pub(crate) fn compile(frontend_output : FrontendOutput, rustaml_context: &mut RustamlContext, filename : &Path, filename_out : Option<&Path>, optional_args : OptionalArgs) {
     let optimization_level = match optional_args.optimization_level {
         0 => OptimizationLevel::None,
         1 => OptimizationLevel::Less,

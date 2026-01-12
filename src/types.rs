@@ -8,9 +8,9 @@ use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, debug_println, le
 
 // TODO : make this part generic for every err (something like Ranged<TypesErr>)
 #[derive(Debug)]
-pub struct TypesErr {
-    pub err_data: Box<TypesErrData>,
-    pub range : Range<usize>,
+pub(crate) struct TypesErr {
+    pub(crate) err_data: Box<TypesErrData>,
+    pub(crate) range : Range<usize>,
 }
 
 impl TypesErr {
@@ -20,7 +20,7 @@ impl TypesErr {
 }
 
 #[derive(Debug, Tag)]
-pub enum TypesErrData {
+pub(crate) enum TypesErrData {
     VarNotFound {
         name : String,
         nearest_var_name : Option<String>,
@@ -60,13 +60,13 @@ pub enum TypesErrData {
 // TODO : test to use typerefs to interned types instead of types to speed up type comparisons ? (ex : could store somewhere the Type::Any index to compare it for the merge type ?)
 
 #[derive(Default)]
-pub struct TypeInfos {
-    pub vars_env : FxHashMap<VarId, Type>,
-    pub ast_var_ids : FxHashMap<ASTRef, VarId>
+pub(crate) struct TypeInfos {
+    pub(crate) vars_env : FxHashMap<VarId, Type>,
+    pub(crate) ast_var_ids : FxHashMap<ASTRef, VarId>
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VarId(u32);
+pub(crate) struct VarId(u32);
 
 impl DebugWithContext<RustamlContext> for VarId {
     // just print the var id
@@ -88,8 +88,8 @@ impl Var {
     }
 }
 
-pub struct TypeContext<'a> {
-    pub rustaml_context : &'a mut RustamlContext,
+pub(crate) struct TypeContext<'a> {
+    pub(crate) rustaml_context : &'a mut RustamlContext,
     type_infos : TypeInfos,
 
     table : TypeVarTable,
@@ -107,7 +107,7 @@ pub struct TypeContext<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct GenericIdx(u32);
+pub(crate) struct GenericIdx(u32);
 
 impl<'a> TypeContext<'a> {
 
@@ -287,7 +287,7 @@ fn get_variant_type(rustaml_context: &RustamlContext, name : StringRef) -> Type 
         match t {
             Type::SumType(sum_type) => {
                 let s = name.get_str(&rustaml_context.str_interner);
-                sum_type.variants.iter().any(|v| v.name.as_ref() == s)
+                sum_type.variants.iter().any(|v| v.get_name() == s)
             },
             _ => false,
         }
@@ -999,7 +999,7 @@ fn std_functions_constraints_types(context : &mut TypeContext) {
     // TODO : add a rand_f ? or make the rand function generic with its return ?
 }
 
-pub fn resolve_and_typecheck(rustaml_context: &mut RustamlContext, ast : ASTRef) -> Result<TypeInfos, TypesErr> {
+pub(crate) fn resolve_and_typecheck(rustaml_context: &mut RustamlContext, ast : ASTRef) -> Result<TypeInfos, TypesErr> {
     let mut context = TypeContext {
         rustaml_context,
         type_infos: TypeInfos::default(),

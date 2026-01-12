@@ -20,7 +20,7 @@ fn get_llvm_ir_hash(content : &str, opt_level : OptimizationLevel) -> Hash {
     hasher.finalize()
 }
 
-pub fn get_cached_llvm_ir(content : &str, opt_level : OptimizationLevel) -> Option<CachedCompilation> {
+pub(crate) fn get_cached_llvm_ir(content : &str, opt_level : OptimizationLevel) -> Option<CachedCompilation> {
     let cache_dir = cache_dir()?;
     let ast_cache_dir = pathbuf![&cache_dir, "rustaml", "llvm-ir"];
     if !ast_cache_dir.exists(){
@@ -46,7 +46,7 @@ pub fn get_cached_llvm_ir(content : &str, opt_level : OptimizationLevel) -> Opti
     })
 }
 
-pub fn write_cached_llvm_ir(bitcode_path : &Path, opt_level : OptimizationLevel, content : &str, shared_libs : &[String]){
+pub(crate) fn write_cached_llvm_ir(bitcode_path : &Path, opt_level : OptimizationLevel, content : &str, shared_libs : &[String]){
     let cache_dir = if let Some(cache_dir) = cache_dir() {
         cache_dir
     } else {

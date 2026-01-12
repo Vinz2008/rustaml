@@ -5,7 +5,7 @@ use rustc_hash::FxHashMap;
 
 use crate::ast::{CType, Type};
 
-pub struct TargetInfos {
+pub(crate) struct TargetInfos {
     ptr_size : u32,
     ptr_alignement : u32,
     list_size : u64,
@@ -13,7 +13,7 @@ pub struct TargetInfos {
 }
 
 impl TargetInfos {
-    pub fn new(ptr_size : u32, ptr_alignement : u32, list_size : u64, list_alignement : u32) -> TargetInfos {
+    pub(crate) fn new(ptr_size : u32, ptr_alignement : u32, list_size : u64, list_alignement : u32) -> TargetInfos {
         TargetInfos {
             ptr_size,
             ptr_alignement,
@@ -39,7 +39,7 @@ impl TargetInfos {
     }
 }
 
-pub struct DebugInfosInner<'llvm_ctx> {
+pub(crate) struct DebugInfosInner<'llvm_ctx> {
     debug_builder : DebugInfoBuilder<'llvm_ctx>,
     debug_compile_unit : DICompileUnit<'llvm_ctx>,
     target_infos : TargetInfos,
@@ -106,7 +106,7 @@ fn create_main_func_lexical_block<'llvm_ctx>(debug_builder: &DebugInfoBuilder<'l
 }
 
 impl<'llvm_ctx> DebugInfosInner<'llvm_ctx>{
-    pub fn new(target_infos : TargetInfos, is_optimized : bool, debug_builder : DebugInfoBuilder<'llvm_ctx>, debug_compile_unit : DICompileUnit<'llvm_ctx>) -> DebugInfosInner<'llvm_ctx> {
+    pub(crate) fn new(target_infos : TargetInfos, is_optimized : bool, debug_builder : DebugInfoBuilder<'llvm_ctx>, debug_compile_unit : DICompileUnit<'llvm_ctx>) -> DebugInfosInner<'llvm_ctx> {
         let type_data = init_type_data(target_infos.get_ptr_size_in_bits());
         let main_func = create_main_function(&target_infos, &debug_builder, &debug_compile_unit, is_optimized);
         let main_lexical_block = create_main_func_lexical_block(&debug_builder, &debug_compile_unit, main_func);
@@ -126,18 +126,18 @@ impl<'llvm_ctx> DebugInfosInner<'llvm_ctx>{
 }
 
 #[derive(Clone)]
-pub struct LineColLoc {
-    pub line_nb : u32,
-    pub column : u32,
+pub(crate) struct LineColLoc {
+    pub(crate) line_nb : u32,
+    pub(crate) column : u32,
 }
 
 #[derive(Clone)]
-pub struct ContentLoc {
+pub(crate) struct ContentLoc {
     newlines_idx : Vec<usize>,
 }
 
 impl ContentLoc {
-    pub fn new(content_chars : &[char]) -> ContentLoc {
+    pub(crate) fn new(content_chars : &[char]) -> ContentLoc {
         let newlines_idx = content_chars.iter().enumerate().filter(|(_, e)| **e == '\n').map(|(idx, _)| idx).collect();
 
         ContentLoc { 
@@ -148,7 +148,7 @@ impl ContentLoc {
 }
 
 // TODO : add better way (for example when generating ranges, when lexing, add it in a hashmap ?)
-pub fn get_debug_loc(content_loc : &ContentLoc, range : Range<usize>) -> LineColLoc {
+pub(crate) fn get_debug_loc(content_loc : &ContentLoc, range : Range<usize>) -> LineColLoc {
     let newline_idx = content_loc.newlines_idx.partition_point(|e| *e <= range.start);
 
     let new_line_before_line_offset = if let Some(i) = newline_idx.checked_sub(1) {
@@ -241,13 +241,13 @@ fn get_debug_info_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>, t : &
     }    
 }
 
-pub struct DebugInfo<'llvm_ctx> {
+pub(crate) struct DebugInfo<'llvm_ctx> {
     pub(crate) inner : Option<DebugInfosInner<'llvm_ctx>>
 }
 
 impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
 
-    pub fn add_function(&mut self, function_name : &str, param_types : &[Type], ret_type : &Type, content_loc : &ContentLoc, range : Range<usize>, is_optimized : bool) -> Option<DISubprogram<'llvm_ctx>> {
+    pub(crate) fn add_function(&mut self, function_name : &str, param_types : &[Type], ret_type : &Type, content_loc : &ContentLoc, range : Range<usize>, is_optimized : bool) -> Option<DISubprogram<'llvm_ctx>> {
         if let Some(i) = &mut self.inner {
             
             let ditype = get_debug_info_type(i, ret_type);
@@ -272,7 +272,7 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
         
     }
 
-    pub fn create_lexical_block(&mut self) -> Option<DILexicalBlock<'llvm_ctx>> {
+    pub(crate) fn create_lexical_block(&mut self) -> Option<DILexicalBlock<'llvm_ctx>> {
         if let Some(i) = &mut self.inner {
             let func_scope = i.last_func_scope.unwrap().as_debug_info_scope();
             i.current_lexical_block = Some(i.debug_builder.create_lexical_block(func_scope, i.debug_compile_unit.get_file(), 0, 0));
@@ -282,20 +282,20 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
         }
     }
 
-    pub fn end_lexical_block(&mut self){
+    pub(crate) fn end_lexical_block(&mut self){
         if let Some(i) = &mut self.inner {
             i.current_lexical_block.take();
         }
     }
 
-    pub fn enter_top_level(&mut self){
+    pub(crate) fn enter_top_level(&mut self){
         if let Some(i) = &mut self.inner {
             i.last_func_scope = Some(i.main_func_scope);
             i.current_lexical_block = Some(i.main_lexical_block);
         }
     }
 
-    pub fn create_debug_location(&mut self, context : &'llvm_ctx Context, content : &ContentLoc, range : Range<usize>) -> Option<DILocation<'llvm_ctx>>{
+    pub(crate) fn create_debug_location(&mut self, context : &'llvm_ctx Context, content : &ContentLoc, range : Range<usize>) -> Option<DILocation<'llvm_ctx>>{
         // add real lexical blocks instead of creating one for each function call (put them in self)
         
         // TODO : move to a set_function_call_dbg
@@ -309,21 +309,21 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
         }
     }
 
-    pub fn set_debug_location(&mut self, loc : DILocation<'llvm_ctx>){
+    pub(crate) fn set_debug_location(&mut self, loc : DILocation<'llvm_ctx>){
         if let Some(i) = &mut self.inner {
             i.current_debug_loc = Some(loc);
         }
     }
 
-    pub fn get_current_debug_location(&self, builder : &Builder<'llvm_ctx>) -> Option<DILocation<'llvm_ctx>> {
-        if let Some(i) = &self.inner {
+    pub(crate) fn get_current_debug_location(&self, builder : &Builder<'llvm_ctx>) -> Option<DILocation<'llvm_ctx>> {
+        if let Some(_) = &self.inner {
             builder.get_current_debug_location()
         } else {
             None
         }
     }
 
-    pub fn end_function(&mut self){
+    pub(crate) fn end_function(&mut self){
         if let Some(i) = &mut self.inner {
             i.last_func_scope.take();
             //i.current_debug_loc.take()
@@ -332,7 +332,7 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
     }
 
     // TODO : remove current_bb
-    pub fn declare_var(&mut self, name : &str, var_type : &Type, storage : PointerValue<'llvm_ctx>, current_bb : BasicBlock<'llvm_ctx>, content : &ContentLoc, range : Range<usize>){
+    pub(crate) fn declare_var(&mut self, name : &str, var_type : &Type, storage : PointerValue<'llvm_ctx>, current_bb : BasicBlock<'llvm_ctx>, content : &ContentLoc, range : Range<usize>){
         if let Some(i) = &mut self.inner {
             let scope = i.last_func_scope.unwrap().as_debug_info_scope();
             let file = i.debug_compile_unit.get_file();
@@ -357,7 +357,7 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
         }
     }
 
-    pub fn declare_parameter(&mut self, name : &str, arg_no : u32, var_type : &Type, content : &ContentLoc, range : Range<usize>){
+    pub(crate) fn declare_parameter(&mut self, name : &str, arg_no : u32, var_type : &Type, content : &ContentLoc, range : Range<usize>){
         if let Some(i) = &mut self.inner {
             let scope = i.last_func_scope.unwrap().as_debug_info_scope();
             let file = i.debug_compile_unit.get_file();
@@ -371,7 +371,7 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
 
     
 
-    pub fn finalize(&self, function_value : &mut FunctionValue<'llvm_ctx>){
+    pub(crate) fn finalize(&self, function_value : &mut FunctionValue<'llvm_ctx>){
         if let Some(i) = &self.inner {
             function_value.set_subprogram(i.main_func_scope);
             i.debug_builder.finalize();

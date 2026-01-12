@@ -9,13 +9,13 @@ use crate::{interpreter::gc::Gc, rustaml::RustamlContext};
 // TODO : optimize this (https://matklad.github.io/2020/03/22/fast-simple-rust-interner.html)
 
 #[derive(Clone)]
-pub struct StrInterner {
+pub(crate) struct StrInterner {
     map : FxHashMap<String, u32>,
-    pub strs : Vec<StrInterned>,
+    pub(crate) strs : Vec<StrInterned>,
 }
 
 #[derive(Debug, Clone)]
-pub enum StrInterned {
+pub(crate) enum StrInterned {
     Compiler(String),
     Runtime(Option<Gc<String>>)
 }
@@ -40,39 +40,39 @@ impl StrInterned {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
-pub struct StringRef(u32);
+pub(crate) struct StringRef(u32);
 
 impl StringRef {
 
-    pub unsafe fn new_unchecked(idx : u32) -> StringRef {
+    pub(crate) unsafe fn new_unchecked(idx : u32) -> StringRef {
         StringRef(idx)
     }
 
-    pub fn get_str(self, str_interner : &StrInterner) -> &str {
+    pub(crate) fn get_str(self, str_interner : &StrInterner) -> &str {
         str_interner.lookup(self)
     }
 
-    pub fn get_gc_mut(self, str_interner : &mut StrInterner) -> &mut Gc<String> {
+    pub(crate) fn get_gc_mut(self, str_interner : &mut StrInterner) -> &mut Gc<String> {
         str_interner.lookup_gc_mut(self)
     }
 
-    pub fn is_compiler(self, str_interner : &StrInterner) -> bool {
+    pub(crate) fn is_compiler(self, str_interner : &StrInterner) -> bool {
         str_interner.is_str_compiler(self)
     }
 
     // create a new string
-    pub fn add(self, rhs : StringRef, str_interner : &mut StrInterner) -> StringRef {
+    pub(crate) fn add(self, rhs : StringRef, str_interner : &mut StrInterner) -> StringRef {
         let lhs_str = str_interner.lookup(self);
         let rhs_str = str_interner.lookup(rhs);
         let new_str = lhs_str.to_owned() + rhs_str;
         str_interner.intern_runtime(&new_str)
     }
 
-    pub fn len(self, str_interner : &StrInterner) -> usize {
+    pub(crate) fn len(self, str_interner : &StrInterner) -> usize {
         str_interner.lookup(self).len()
     }
 
-    pub fn free(self, str_interner : &mut StrInterner){
+    pub(crate) fn free(self, str_interner : &mut StrInterner){
         str_interner.free(self);
     }
 }
@@ -87,7 +87,7 @@ impl DebugWithContext<RustamlContext> for StringRef {
 
 
 impl StrInterner {
-    pub fn new() -> StrInterner {
+    pub(crate) fn new() -> StrInterner {
         StrInterner { 
             map: FxHashMap::default(), 
             strs: Vec::new() 
@@ -112,11 +112,11 @@ impl StrInterner {
         StringRef(idx)
     }
 
-    pub fn intern_compiler(&mut self, name : &str) -> StringRef {
+    pub(crate) fn intern_compiler(&mut self, name : &str) -> StringRef {
         self.intern(name, false)
     }
 
-    pub fn intern_runtime(&mut self, name : &str) -> StringRef {
+    pub(crate) fn intern_runtime(&mut self, name : &str) -> StringRef {
         self.intern(name, true)
     }
 
@@ -128,11 +128,11 @@ impl StrInterner {
         &mut self.strs[idx.0 as usize]
     }
 
-    pub fn lookup(&self, idx : StringRef) -> &str {
+    pub(crate) fn lookup(&self, idx : StringRef) -> &str {
         self.lookup_interned(idx).as_str()
     }
 
-    pub fn lookup_gc_mut(&mut self, idx : StringRef) -> &mut Gc<String> {
+    pub(crate) fn lookup_gc_mut(&mut self, idx : StringRef) -> &mut Gc<String> {
         match self.lookup_interned_mut(idx){
             StrInterned::Runtime(o) => {
                 match o {
@@ -144,38 +144,38 @@ impl StrInterner {
         }
     }
 
-    pub fn is_str_present(&self, s : &str) -> bool {
+    pub(crate) fn is_str_present(&self, s : &str) -> bool {
         self.map.contains_key(s)
     }
 
-    pub fn is_str_compiler(&self, idx : StringRef) -> bool {
+    pub(crate) fn is_str_compiler(&self, idx : StringRef) -> bool {
         matches!(self.lookup_interned(idx), StrInterned::Compiler(_))
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.strs.len()
     }
 
     #[cfg(feature = "gc-test-print")]
-    pub fn runtime_nb(&self) -> usize {
+    pub(crate) fn runtime_nb(&self) -> usize {
         self.strs.iter().filter(|s| matches!(s, StrInterned::Runtime(Some(_)))).count()
     }
 
-    pub fn compiler_nb(&self) -> usize {
+    pub(crate) fn compiler_nb(&self) -> usize {
         self.strs.iter().filter(|s| !s.is_runtime()).count()
     }
 
     #[cfg(feature = "gc-test-print")]
-    pub fn free_nb(&self) -> usize {
+    pub(crate) fn free_nb(&self) -> usize {
         self.strs.iter().filter(|s| matches!(s, StrInterned::Runtime(None))).count()
     }
 
     #[cfg(feature = "gc-test-print")]
-    pub fn capacity(&self) -> usize {
+    pub(crate) fn capacity(&self) -> usize {
         self.strs.capacity()
     }
 
-    pub fn shrink_end(&mut self, free_at_end : usize){
+    pub(crate) fn shrink_end(&mut self, free_at_end : usize){
         let old_len = self.len();
         let end_length = max(old_len - free_at_end, 10 + self.compiler_nb());
         if end_length == 0 {
@@ -188,7 +188,7 @@ impl StrInterner {
         }
     }
 
-    pub fn nb_free_at_end(&self) -> usize {
+    pub(crate) fn nb_free_at_end(&self) -> usize {
         self.strs.iter().rev().take_while(|e| {
             match e {
                 StrInterned::Runtime(s) => {
@@ -199,7 +199,7 @@ impl StrInterner {
         }).count()
     }
 
-    pub fn free(&mut self, idx : StringRef){
+    pub(crate) fn free(&mut self, idx : StringRef){
         match self.lookup_interned_mut(idx) {
             StrInterned::Runtime(s) =>  {
                 let freed_str = s.take();

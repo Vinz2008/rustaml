@@ -8,7 +8,7 @@ use libloading::Library;
 use pathbuf::pathbuf;
 
 #[derive(Clone)]
-pub struct FFIFunc {
+pub(crate) struct FFIFunc {
     _lib : Option<Rc<Library>>, // never read it, just put it there to prevent drop, optional for functions returned from a function where we don't know the library
     code_ptr : CodePtr,
     cif : Cif,
@@ -53,7 +53,7 @@ fn get_ffi_type(t : &Type) -> FFIType {
 }
 
 // TODO : return a result and do better error handling
-pub fn get_ffi_func(context : &mut InterpretContext, name: StringRef, func_type : Type, external_lang : ExternLang, so_str : Option<StringRef>) -> FFIFunc {
+pub(crate) fn get_ffi_func(context : &mut InterpretContext, name: StringRef, func_type : Type, external_lang : ExternLang, so_str : Option<StringRef>) -> FFIFunc {
     let mangled_name = mangle_name_external(name.get_str(&context.rustaml_context.str_interner), &func_type, external_lang);
 
 
@@ -460,7 +460,7 @@ fn get_ffi_args<'a>(ffi_context : &'a FFIContext, args : &'a [Val]) -> Vec<Arg<'
     }
 }*/
 
-pub fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFIFunc, args : &[Val]) -> Val {
+pub(crate) fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFIFunc, args : &[Val]) -> Val {
     let mut ffi_context = FFIContext::new(args.len());
 
     unsafe  {

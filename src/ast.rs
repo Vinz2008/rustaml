@@ -12,12 +12,11 @@ use crate::{debug_println, lexer::{Operator, Token, TokenData, TokenDataTag}, ru
 use debug_with_context::{DebugWithContext, DebugWrapContext};
 
 // TODO : add a guard clauses (create struct with an enum and guard clauses)
-// TODO : in all these files, replace pub with pub(crate)
 
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 #[debug_context(PrintTypedContext)]
-pub enum Pattern {
+pub(crate) enum Pattern {
     // TODO : should the VarName and SumTypeVariant be differentiated here in the AST or after ?
     VarName(StringRef), // | x pattern
     SumTypeVariant(StringRef), // | Test1 pattern // TODO : put also the index of the variant to optimize ?
@@ -36,25 +35,25 @@ pub enum Pattern {
 // TODO : add a warning for recursive functions without base case (ex : just a function call directly)
 
 #[derive(Default, Clone)]
-pub struct PatternPool {
+pub(crate) struct PatternPool {
     pattern_vec : Vec<Pattern>,
     pattern_ranges : Vec<Range<usize>>,
 }
 
 impl PatternPool {
-    pub fn new () -> PatternPool {
+    pub(crate) fn new () -> PatternPool {
         PatternPool::default()
     }
 
-    pub fn get(&self, pat : PatternRef) -> &Pattern {
+    pub(crate) fn get(&self, pat : PatternRef) -> &Pattern {
         &self.pattern_vec[pat.0 as usize]
     }
 
-    pub fn get_range(&self, pat : PatternRef) -> Range<usize> {
+    pub(crate) fn get_range(&self, pat : PatternRef) -> Range<usize> {
         self.pattern_ranges[pat.0 as usize].clone()
     }
 
-    pub fn push(&mut self, pat : Pattern, range : Range<usize>) -> PatternRef {
+    pub(crate) fn push(&mut self, pat : Pattern, range : Range<usize>) -> PatternRef {
         let idx = self.pattern_vec.len();
         self.pattern_vec.push(pat);
         self.pattern_ranges.push(range);
@@ -63,16 +62,16 @@ impl PatternPool {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub struct PatternRef(u32);
+pub(crate) struct PatternRef(u32);
 
 impl PatternRef {
     #[inline]
-    pub fn get(self, pattern_pool : &PatternPool) -> &Pattern {
+    pub(crate) fn get(self, pattern_pool : &PatternPool) -> &Pattern {
         pattern_pool.get(self)
     }
 
     #[inline]
-    pub fn get_range(self, pattern_pool : &PatternPool) -> Range<usize> {
+    pub(crate) fn get_range(self, pattern_pool : &PatternPool) -> Range<usize> {
         pattern_pool.get_range(self)
     }
 }
@@ -85,43 +84,42 @@ impl DebugWithContext<RustamlContext> for PatternRef {
 
 
 #[derive(Default, Clone)]
-pub struct ASTPool {
+pub(crate) struct ASTPool {
     ast_pool_vec : Vec<ASTNode>,
-    pub ast_node_types : Vec<Type>,
+    pub(crate) ast_node_types : Vec<Type>,
     ast_node_ranges : Vec<Range<usize>>, // TODO : replace these ranges with FilePlace (or smth like that) with Range and the filename (that is interned ?)
 }
 
 impl ASTPool {
-    pub fn new() -> ASTPool {
+    pub(crate) fn new() -> ASTPool {
         ASTPool::default()
     }
 
-    pub fn get(&self, expr : ASTRef) -> &ASTNode {
+    pub(crate) fn get(&self, expr : ASTRef) -> &ASTNode {
         &self.ast_pool_vec[expr.0 as usize]
     }
 
-    /*pub fn get_mut(&mut self, expr : ASTRef) -> &mut ASTNode {
+    /*pub(crate) fn get_mut(&mut self, expr : ASTRef) -> &mut ASTNode {
         &mut self.ast_pool_vec[expr.0 as usize]
     }*/
 
-    pub fn get_type(&self, expr : ASTRef) -> &Type {
+    pub(crate) fn get_type(&self, expr : ASTRef) -> &Type {
         &self.ast_node_types[expr.0 as usize]
     }
 
-    pub fn set_type(&mut self, expr : ASTRef, t: Type) {
+    pub(crate) fn set_type(&mut self, expr : ASTRef, t: Type) {
         self.ast_node_types[expr.0 as usize] = t;
     }
 
-    pub fn get_range(&self, node : ASTRef) -> Range<usize> {
+    pub(crate) fn get_range(&self, node : ASTRef) -> Range<usize> {
         self.ast_node_ranges[node.0 as usize].clone()
     }
 
-    pub fn push(&mut self, node : ASTNode, range : Range<usize>) -> ASTRef {
+    pub(crate) fn push(&mut self, node : ASTNode, range : Range<usize>) -> ASTRef {
         self.push_with_type(node, Type::Any, range)
     }
 
-    #[inline]
-    pub fn push_with_type(&mut self, node: ASTNode, t : Type, range : Range<usize>) -> ASTRef {
+    pub(crate) fn push_with_type(&mut self, node: ASTNode, t : Type, range : Range<usize>) -> ASTRef {
         let idx = self.ast_pool_vec.len();
         self.ast_pool_vec.push(node);
         self.ast_node_types.push(t);
@@ -132,30 +130,30 @@ impl ASTPool {
 
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ASTRef(u32);
+pub(crate) struct ASTRef(u32);
 
 impl ASTRef {
     #[inline]
-    pub fn get(self, ast_pool : &ASTPool) -> &ASTNode {
+    pub(crate) fn get(self, ast_pool : &ASTPool) -> &ASTNode {
         ast_pool.get(self)
     }
 
-    /*pub fn get_mut(self, ast_pool : &mut ASTPool) -> &mut ASTNode {
+    /*pub(crate) fn get_mut(self, ast_pool : &mut ASTPool) -> &mut ASTNode {
         ast_pool.get_mut(self)
     }*/
 
     #[inline]
-    pub fn get_type(self, ast_pool : &ASTPool) -> &Type {
+    pub(crate) fn get_type(self, ast_pool : &ASTPool) -> &Type {
         ast_pool.get_type(self)
     }
 
     #[inline]
-    pub fn get_range(self, ast_pool : &ASTPool) -> Range<usize> {
+    pub(crate) fn get_range(self, ast_pool : &ASTPool) -> Range<usize> {
         ast_pool.get_range(self)
     }
 
     #[inline]
-    pub fn set_type(self, ast_pool : &mut ASTPool, t: Type){
+    pub(crate) fn set_type(self, ast_pool : &mut ASTPool, t: Type){
         ast_pool.set_type(self, t);
     }
 }
@@ -168,7 +166,7 @@ impl DebugWithContext<RustamlContext> for ASTRef {
 
 
 #[derive(Clone, Copy, PartialEq, DebugWithContext)]
-pub enum ExternLang {
+pub(crate) enum ExternLang {
     C,
     Cpp,
 }
@@ -176,7 +174,7 @@ pub enum ExternLang {
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 #[debug_context(PrintTypedContext)]
-pub enum ASTNode {
+pub(crate) enum ASTNode {
     TopLevel {
         nodes: Box<[ASTRef]>,
     },
@@ -264,7 +262,7 @@ pub enum ASTNode {
 
 // TODO : add alias for these (be able to use float, double, int, long in code)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum CType {
+pub(crate) enum CType {
     U8,
     I8,
     U16,
@@ -278,15 +276,21 @@ pub enum CType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Variant {
-    pub name: Box<str>, // TODO : should it be this (probably not StringRef to not need context to print types ? or should it ?)
-    pub associated_type : Option<Type>,
+pub(crate) struct Variant {
+    name: Box<str>, // TODO : should it be this (probably not StringRef to not need context to print types ? or should it ?)
+    pub(crate) associated_type : Option<Type>,
+}
+
+impl Variant {
+    pub(crate) fn get_name(&self) -> &str {
+        &self.name
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SumType {
-    pub name : Option<Box<str>>,
-    pub variants : Box<[Variant]>,
+pub(crate) struct SumType {
+    name : Option<Box<str>>,
+    pub(crate) variants : Box<[Variant]>,
 }
 
 impl SumType {
@@ -300,7 +304,7 @@ impl SumType {
 // TODO : add a type pool to remove boxes (test performance ? normally should be useful for lowering the type size, it would become only 64 bit and we could make it Copy, but we wouldn't use it everywhere there is Type like for other types, just in refence in the type to other types to lower the size while only indexing in the vector when it is really needed)
 // THE PROBLEM : would need to make the type system only have functions with only one args, but could do it by returning type of function types, which could even help for currying
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Tag)]
-pub enum Type {
+pub(crate) enum Type {
     Integer,
     Float,
     Bool,
@@ -357,7 +361,7 @@ impl Display for Type {
 }
 
 impl Type {
-    pub fn contains_generic(&self) -> bool {
+    pub(crate) fn contains_generic(&self) -> bool {
         match self {
             Type::Generic(_) => true,
             Type::List(l) => l.contains_generic(),
@@ -400,22 +404,22 @@ fn init_precedences() -> FxHashMap<Operator, (i32, Associativity)> {
 
 
 #[derive(Clone, Copy)]
-pub enum Associativity {
+pub(crate) enum Associativity {
     Left, // most operators
     Right, // ::
 }
 
-pub struct Parser<'context> {
+pub(crate) struct Parser<'context> {
     tokens: Box<[Token]>,
     pos: usize,
     precedences : FxHashMap<Operator, (i32, Associativity)>,
     filename : PathBuf,
-    pub rustaml_context : &'context mut RustamlContext,
+    pub(crate) rustaml_context : &'context mut RustamlContext,
     imported_files : &'context mut FxHashSet<PathBuf>,
 }
 
 #[derive(Debug, Tag)]
-pub enum ParserErrData {
+pub(crate) enum ParserErrData {
     UnexpectedEOF,
     UnexpectedTok {
         tok : TokenData,
@@ -435,13 +439,13 @@ pub enum ParserErrData {
 
 
 #[derive(Debug)]
-pub struct ParserErr {
-    pub parser_err_data : Box<ParserErrData>,
-    pub range : Range<usize>,
+pub(crate) struct ParserErr {
+    pub(crate) parser_err_data : Box<ParserErrData>,
+    pub(crate) range : Range<usize>,
 }
 
 impl ParserErr {
-    pub fn new(parser_err_data : ParserErrData, range : Range<usize>) -> ParserErr {
+    pub(crate) fn new(parser_err_data : ParserErrData, range : Range<usize>) -> ParserErr {
         ParserErr { parser_err_data: Box::new(parser_err_data), range }
     }
 }
@@ -1363,7 +1367,7 @@ fn parse_top_level_node(parser: &mut Parser) -> Result<ASTRef, ParserErr> {
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::TopLevel { nodes: nodes.into_boxed_slice() }, range))
 }
 
-pub fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext, filename : PathBuf, already_added_filenames : Option<&mut FxHashSet<PathBuf>>) -> Result<ASTRef, ParserErr> {
+pub(crate) fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext, filename : PathBuf, already_added_filenames : Option<&mut FxHashSet<PathBuf>>) -> Result<ASTRef, ParserErr> {
 
     let filename_complete_path = filename.canonicalize().unwrap_or_default().clone();
     let imported_files = if let Some(already_added_filenames) = already_added_filenames {

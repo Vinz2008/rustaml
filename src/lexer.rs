@@ -8,7 +8,7 @@ use enum_tags::Tag;
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 #[debug_context(PrintTypedContext)]
-pub enum Operator {
+pub(crate) enum Operator {
     Plus,
     Minus,
     Mult,
@@ -34,8 +34,8 @@ pub enum Operator {
 }
 
 impl Operator {
-    pub const OPERATORS: [&'static str; 22] = ["+", "-", "*", "/", "%", "+.", "-.", "*.", "/.", "%.", "==", "!=", ">=", "<=", ">", "<", "&&", "||", "^", "::", "!", "@"];
-    pub fn get_type(&self) -> Type {
+    pub(crate) const OPERATORS: [&'static str; 22] = ["+", "-", "*", "/", "%", "+.", "-.", "*.", "/.", "%.", "==", "!=", ">=", "<=", ">", "<", "&&", "||", "^", "::", "!", "@"];
+    pub(crate) fn get_type(&self) -> Type {
         match self {
             Self::Plus | Self::Minus | Self::Mult | Self::Div | Self::Rem => Type::Integer,
             Self::PlusFloat | Self::MinusFloat | Self::MultFloat | Self::DivFloat | Self::RemFloat => Type::Float,
@@ -50,7 +50,7 @@ impl Operator {
         matches!(c, '+' | '-' | '*' | '/' | '%' | '=' | '<' | '>' | '^' | ':' | '!' | '.' | '&' | '|' | '@')
     }
 
-    pub fn str_to_op(s: &str, range : &Range<usize>) -> Result<Operator, LexerErr> {
+    pub(crate) fn str_to_op(s: &str, range : &Range<usize>) -> Result<Operator, LexerErr> {
         let op = match s {
             "+" => Operator::Plus,
             "-" => Operator::Minus,
@@ -82,7 +82,7 @@ impl Operator {
 
 // TODO : replace all the Box<[char]> with borrowed slices
 #[derive(Debug, Clone, Tag, PartialEq)]
-pub enum TokenData {
+pub(crate) enum TokenData {
     Identifier(Box<[char]>),
     String(Box<[char]>),
     Char(char),
@@ -119,13 +119,13 @@ pub enum TokenData {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Token {
-    pub tok_data : TokenData,
-    pub range : Range<usize>,
+pub(crate) struct Token {
+    pub(crate) tok_data : TokenData,
+    pub(crate) range : Range<usize>,
 }
 
 impl Token {
-    pub fn new(tok_data : TokenData, range : Range<usize>) -> Token {
+    pub(crate) fn new(tok_data : TokenData, range : Range<usize>) -> Token {
         Token { tok_data, range }
     }
 }
@@ -137,13 +137,13 @@ struct Lexer {
 }
 
 #[derive(Debug)]
-pub enum NbTypeError {
+pub(crate) enum NbTypeError {
     Float,
     Integer,
 }
 
 #[derive(Debug, Tag)]
-pub enum LexerErrData {
+pub(crate) enum LexerErrData {
     NumberParsingFailure(Box<[char]>, NbTypeError),
     InvalidOp(String),
     UnexpectedChar(char),
@@ -153,9 +153,9 @@ pub enum LexerErrData {
 
 
 #[derive(Debug)]
-pub struct LexerErr {
-    pub lexer_err_data : Box<LexerErrData>,
-    pub range : Range<usize>,
+pub(crate) struct LexerErr {
+    pub(crate) lexer_err_data : Box<LexerErrData>,
+    pub(crate) range : Range<usize>,
 }
 
 impl LexerErr {
@@ -173,21 +173,21 @@ impl Lexer {
         self.pos < self.content.len()
     }
 
-    pub fn peek(&self) -> Option<char> {
+    /*pub(crate) fn peek(&self) -> Option<char> {
         if self.pos + 1 >= self.content.len() {
             return None;
         }
         Some(self.content[self.pos + 1])
-    }
+    }*/
 
-    pub fn current_char(&self) -> Option<char> {
+    pub(crate) fn current_char(&self) -> Option<char> {
         if self.pos >= self.content.len() {
             return None;
         }
         Some(self.content[self.pos])
     }
 
-    pub fn read_char(&mut self) -> Option<char> {
+    pub(crate) fn read_char(&mut self) -> Option<char> {
         if !self.has_char_left() {
             return None;
         }
@@ -197,7 +197,7 @@ impl Lexer {
     }
     
     // not advised to use very often
-    pub fn go_back_pos(&mut self, count : usize){
+    pub(crate) fn go_back_pos(&mut self, count : usize){
         self.pos -= count;
     }
 }
@@ -363,7 +363,7 @@ fn lex_string(lexer: &mut Lexer) -> Result<Token, LexerErr> {
     Ok(Token::new(TokenData::String(buf.into_boxed_slice()), range))
 }
 
-pub fn lex(content: Vec<char>, is_debug_print : bool) -> Result<Vec<Token>, LexerErr> {
+pub(crate) fn lex(content: Vec<char>, is_debug_print : bool) -> Result<Vec<Token>, LexerErr> {
     //dbg!(&content);
     let mut lexer = Lexer { content, pos: 0 };
 

@@ -3,7 +3,7 @@ use rustc_hash::FxHashMap;
 
 use crate::{ast::Type, compiler::{compiler_utils::{any_val_to_metadata, as_val_in_list, create_entry_block_alloca, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current}, CompileContext}};
 
-pub fn init_monomorphized_internal_fun<'llvm_ctx>() -> FxHashMap<&'static str, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>> {
+pub(crate) fn init_monomorphized_internal_fun<'llvm_ctx>() -> FxHashMap<&'static str, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>> {
     let mut ret = FxHashMap::default();
     ret.insert("map", FxHashMap::default());
     ret.insert("filter", FxHashMap::default());
@@ -33,7 +33,7 @@ pub fn init_monomorphized_internal_fun<'llvm_ctx>() -> FxHashMap<&'static str, F
 
 // TODO : use a list builder with a preallocated buffer to improve cache locality
 
-pub fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, elem_type : &Type, ret_elem_type : &Type) -> FunctionValue<'llvm_ctx> {
+pub(crate) fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, elem_type : &Type, ret_elem_type : &Type) -> FunctionValue<'llvm_ctx> {
     if let Some(f) = compile_context.monomorphized_internal_fun.get("map").unwrap().get(&(elem_type.clone(), ret_elem_type.clone())){
         return *f;
     }
@@ -145,7 +145,7 @@ pub fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut CompileContext
 
 //     return ret;
 // }
-pub fn compile_monomorphized_filter<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, elem_type : &Type) -> FunctionValue<'llvm_ctx> {
+pub(crate) fn compile_monomorphized_filter<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, elem_type : &Type) -> FunctionValue<'llvm_ctx> {
     if let Some(f) = compile_context.monomorphized_internal_fun.get("filter").unwrap().get(&(elem_type.clone(), Type::Bool)){
         return *f;
     }

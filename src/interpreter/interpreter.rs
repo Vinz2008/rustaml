@@ -48,10 +48,10 @@ cfg_if! {
 
 // None values are freed lists that can be reused
 #[derive(Clone)]
-pub struct ListPool(pub Vec<Option<Gc<List>>>);
+pub(crate) struct ListPool(pub(crate) Vec<Option<Gc<List>>>);
 
 impl ListPool {
-    pub fn new() -> ListPool {
+    pub(crate) fn new() -> ListPool {
         ListPool(Vec::new())
     }
 
@@ -99,20 +99,20 @@ impl ListPool {
     }
 
 
-    pub fn nb_used_nodes(&self) -> usize {
+    pub(crate) fn nb_used_nodes(&self) -> usize {
         return self.0.iter().filter(|e| e.is_some()).count();
     }
 
-    pub fn nb_free_nodes(&self) -> usize {
+    pub(crate) fn nb_free_nodes(&self) -> usize {
         return self.0.len() - self.nb_used_nodes();
     }
 
-    pub fn nb_free_at_end(&self) -> usize {
+    pub(crate) fn nb_free_at_end(&self) -> usize {
         return self.0.iter().rev().take_while(|l| l.is_none()).count();
     }
 
     // TODO : heuristics for this
-    pub fn shrink_end(&mut self, free_at_end : usize){
+    pub(crate) fn shrink_end(&mut self, free_at_end : usize){
         let old_len = self.0.len();
         // TODO : multiply this by a factor(1.2 ? 1.5) to keep a certain capacity more than the length
         let end_length = max(old_len - free_at_end, 20);
@@ -157,33 +157,33 @@ impl DebugWithContext<RustamlContext> for ListPool {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub struct ListRef(u32);
+pub(crate) struct ListRef(u32);
 
 impl ListRef {
     /// # Safety
     ///
     /// This function should only be called with known good indexes from the list pool
-    pub unsafe fn new_unchecked(idx : u32) -> ListRef {
+    pub(crate) unsafe fn new_unchecked(idx : u32) -> ListRef {
         ListRef(idx)
     }
 
-    pub fn get(self, list_pool : &ListPool) -> &List {
+    pub(crate) fn get(self, list_pool : &ListPool) -> &List {
         list_pool.get(self)
     }
 
-    pub fn get_mut(self, list_pool : &mut ListPool) -> &mut List {
+    pub(crate) fn get_mut(self, list_pool : &mut ListPool) -> &mut List {
         list_pool.get_mut(self)
     }
 
-    /*pub fn get_gc(self, list_pool : &ListPool) -> &Gc<List> {
+    /*pub(crate) fn get_gc(self, list_pool : &ListPool) -> &Gc<List> {
         list_pool.get_gc(self)
     }*/
     
-    pub fn get_gc_mut(self, list_pool : &mut ListPool) -> &mut Gc<List> {
+    pub(crate) fn get_gc_mut(self, list_pool : &mut ListPool) -> &mut Gc<List> {
         list_pool.get_gc_mut(self)
     }
 
-    pub fn free(self, list_pool : &mut ListPool) {
+    pub(crate) fn free(self, list_pool : &mut ListPool) {
         list_pool.free(self)
     }
 }
@@ -197,7 +197,7 @@ impl DebugWithContext<RustamlContext> for ListRef {
 
 // TODO : rework the layout ? (see https://rust-unofficial.github.io/too-many-lists/)
 #[derive(Clone)]
-pub enum List {
+pub(crate) enum List {
     None,
     Node(Val, ListRef)
 }
@@ -256,13 +256,13 @@ impl List {
     }
 
     // TODO : remove this ?
-    fn append(&mut self, list_pool: &mut ListPool, val : Val){
+    /*fn append(&mut self, list_pool: &mut ListPool, val : Val){
         let tail = list_pool.push(List::None);
         let new_node = list_pool.push(List::Node(val, tail));
         self.add_list_at_end(list_pool, new_node);
-    }
+    }*/
 
-    pub fn iter<'a>(&'a self, list_pool : &'a ListPool) -> ListIter<'a> {
+    pub(crate) fn iter<'a>(&'a self, list_pool : &'a ListPool) -> ListIter<'a> {
         ListIter { current: self, list_pool }
     }
 
@@ -285,7 +285,7 @@ impl List {
     }
 
     // TODO : make this more iterative
-    pub fn deep_clone(&self, list_pool : &mut ListPool) -> List {
+    pub(crate) fn deep_clone(&self, list_pool : &mut ListPool) -> List {
         match self {
             List::Node(val, l) => {
                 let cloned_tail = l.get(list_pool).clone().deep_clone(list_pool);
@@ -297,7 +297,7 @@ impl List {
 }
 
 
-pub struct ListIter<'a> {
+pub(crate) struct ListIter<'a> {
     current : &'a List,
     list_pool : &'a ListPool,
 }
@@ -339,7 +339,7 @@ impl DebugWithContext<RustamlContext> for List {
 
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
-pub struct SumTypeVal {
+pub(crate) struct SumTypeVal {
     // TODO : are there other ways to represent this ? (do I really need the sum_type_name and variant_nb ?)
     sum_type_name : StringRef,
     variant_nb : usize,
@@ -348,7 +348,7 @@ pub struct SumTypeVal {
 }
 
 #[derive(Clone)]
-pub struct RegexWrapper(Regex);
+pub(crate) struct RegexWrapper(Regex);
 
 impl RegexWrapper {
     fn new(re : &str) -> Result<RegexWrapper, regex::Error> {
@@ -370,7 +370,7 @@ impl DebugWithContext<RustamlContext> for RegexWrapper {
 
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
-pub enum Val {
+pub(crate) enum Val {
     Integer(i64),
     Float(f64),
     Bool(bool),
@@ -394,7 +394,7 @@ impl PartialOrd for Val {
     }
 }
 
-pub struct ValWrapDisplay<'a> {
+pub(crate) struct ValWrapDisplay<'a> {
     val : &'a Val,
     rustaml_context: &'a RustamlContext,
 }
@@ -447,7 +447,7 @@ impl Display for ValWrapDisplay<'_> {
 }
 
 impl Val {
-    pub fn display<'a>(&'a self, rustaml_context: &'a RustamlContext) -> ValWrapDisplay<'a> {
+    pub(crate) fn display<'a>(&'a self, rustaml_context: &'a RustamlContext) -> ValWrapDisplay<'a> {
         ValWrapDisplay { 
             val: self, 
             rustaml_context  
@@ -457,22 +457,22 @@ impl Val {
 
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
-pub enum FunctionBody {
+pub(crate) enum FunctionBody {
     Ast(ASTRef),
     Ffi(FFIFunc), // TODO : should it be a Rc to prevent cloning it from being very costly and to reduce the size of the enum
 }
 
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
-pub struct FunctionDef {
+pub(crate) struct FunctionDef {
     name : StringRef,
     args : Box<[StringRef]>,
-    pub body : FunctionBody,
-    pub function_def_ast : Option<ASTRef>,
+    pub(crate) body : FunctionBody,
+    pub(crate) function_def_ast : Option<ASTRef>,
 }
 
 impl FunctionDef {
-    pub fn new_ffi(context : &mut InterpretContext, ffi_func : FFIFunc) -> FunctionDef {
+    pub(crate) fn new_ffi(context : &mut InterpretContext, ffi_func : FFIFunc) -> FunctionDef {
         FunctionDef { 
             name: context.rustaml_context.str_interner.intern_runtime("<FFI function>"), 
             args: vec![].into_boxed_slice(), // TODO ? 
@@ -482,11 +482,10 @@ impl FunctionDef {
     }
 }
 
-pub struct InterpretContext<'context> {
-    //functions : FxHashMap<StringRef, FunctionDef>,
-    pub vars: FxHashMap<StringRef, Val>,
-    pub rustaml_context : &'context mut RustamlContext,
-    pub gc_context : GcContext,
+pub(crate) struct InterpretContext<'context> {
+    pub(crate) vars: FxHashMap<StringRef, Val>,
+    pub(crate) rustaml_context : &'context mut RustamlContext,
+    pub(crate) gc_context : GcContext,
     rng : ThreadRng
 }
 
@@ -1031,7 +1030,7 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_bo
     }
 }
 
-pub fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val>) -> Val {
+pub(crate) fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val>) -> Val {
     match &func_def.body {
         FunctionBody::Ast(a) => {
             let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
@@ -1266,7 +1265,7 @@ fn interpret_variant(context : &mut InterpretContext, name : StringRef, _arg : O
         match t {
             Type::SumType(sum_type) => {
                 for (idx, v) in sum_type.variants.iter().enumerate() {
-                    if v.name.as_ref() == name.get_str(&context.rustaml_context.str_interner){
+                    if v.get_name() == name.get_str(&context.rustaml_context.str_interner){
                         sum_type_name_variant_nb = Some((*k, idx));
                     }
                 }
@@ -1285,7 +1284,7 @@ fn interpret_variant(context : &mut InterpretContext, name : StringRef, _arg : O
 
 // TODO: add a real call to collect_gc
 
-pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
+pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
     let ast_node = ast.get(&context.rustaml_context.ast_pool).clone(); // remove the clone ? (because there are indexes in the ast node, the clone is not a deep copy)
     match ast_node {
         ASTNode::TopLevel { nodes } => {
@@ -1373,7 +1372,7 @@ pub fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
     }
 }
 
-pub fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlContext) -> Val {
+pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlContext) -> Val {
     let mut context = InterpretContext {
         vars: FxHashMap::default(),
         // functions: FxHashMap::default(),
@@ -1391,7 +1390,7 @@ pub fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlContext) -> 
     v
 }
 
-pub fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext){
+pub(crate) fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext){
     rustaml_context.start_section("interpreter");
     interpret_with_val(ast, rustaml_context);
     rustaml_context.end_section("interpreter");

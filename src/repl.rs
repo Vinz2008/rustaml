@@ -25,7 +25,7 @@ fn interpret_repl_code(rustaml_context : &mut RustamlContext, code : String){
 }
 
 // TODO : make ctr-c work in long run function
-pub fn repl(rustaml_context : &mut RustamlContext){
+pub(crate) fn repl(rustaml_context : &mut RustamlContext){
     let mut rl = DefaultEditor::new().unwrap();
     loop {
         let readline = rl.readline("> ");

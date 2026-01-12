@@ -6,20 +6,20 @@ use enum_tags::{Tag, TaggedEnum};
 use crate::ast::Type;
 
 #[derive(Tag)]
-pub enum WarningData {
+pub(crate) enum WarningData {
     MatchNotExhaustive {
         matched_type : Type,
         // TODO : add some Range struct to track what is the current range and what is missing (this range can be strings or numbers or etc)
     },
 }
 
-pub struct Warning {
+pub(crate) struct Warning {
     warning_data : WarningData,
     range: Range<usize>,
 }
 
 impl Warning {
-    pub fn new(warning_data : WarningData, range: Range<usize>) -> Warning {
+    pub(crate) fn new(warning_data : WarningData, range: Range<usize>) -> Warning {
         Warning {
             warning_data,
             range
@@ -67,7 +67,7 @@ fn print_match_not_exhaustive_warning(warning_basic_infos : WarningBasicInfos, m
     }
 }
 
-pub fn print_warning(warning : Warning, filename : &Path, content : &str){
+pub(crate) fn print_warning(warning : Warning, filename : &Path, content : &str){
     let filename_str = filename.to_str().unwrap();
 
     let mut colors = ColorGenerator::new(); // TODO : not generate one at each warning ?

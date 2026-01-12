@@ -1,6 +1,6 @@
-pub mod interpreter;
-pub mod gc;
+pub(crate) mod interpreter;
+pub(crate) mod gc;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod ffi;
+pub(crate) mod ffi;
 
-pub use interpreter::*; 
+pub(crate) use interpreter::*; 

@@ -6,7 +6,7 @@ use debug_with_context::DebugWrapContext;
 
 use crate::{interpreter::{InterpretContext, List, ListPool, ListRef, Val}, rustaml::RustamlContext, string_intern::{StrInterned, StrInterner, StringRef}};
 
-pub struct GcContext {
+pub(crate) struct GcContext {
     bytes_allocated : usize,
     bytes_for_next_gc : usize,
 }
@@ -14,27 +14,27 @@ pub struct GcContext {
 impl GcContext {
     const GC_HEAP_GROW_FACTOR : usize = 2; // TODO : change ?
 
-    pub const fn new() -> GcContext {
+    pub(crate)const fn new() -> GcContext {
         GcContext { 
             bytes_allocated: 0, 
             bytes_for_next_gc: 1024, // TODO : change ?
         }
     }
 
-    pub fn add_allocation(&mut self, allocated_size : usize){
+    pub(crate) fn add_allocation(&mut self, allocated_size : usize){
         self.bytes_allocated += allocated_size;
     }
 }
 
 #[derive(Debug, Clone, DebugWithContext)]
 #[debug_context(RustamlContext)]
-pub struct Gc<T> {
-    pub data : T,
-    pub is_marked : bool,
+pub(crate) struct Gc<T> {
+    pub(crate) data : T,
+    pub(crate) is_marked : bool,
 }
 
 impl<T> Gc<T> {
-    pub fn new(data : T) -> Gc<T> {
+    pub(crate) fn new(data : T) -> Gc<T> {
         Gc {
             data,
             is_marked: false,
@@ -42,7 +42,7 @@ impl<T> Gc<T> {
     }
 }
 
-pub fn collect_gc(context : &mut InterpretContext, update_next_limit : bool){
+pub(crate) fn collect_gc(context : &mut InterpretContext, update_next_limit : bool){
     #[cfg(feature = "gc-test-print")]
     println!("-- COLLECT GC START (done at {} Mb allocated)", context.gc_context.bytes_allocated/1_000_000);
 
@@ -230,7 +230,7 @@ fn mark_and_sweep_strings(context : &mut InterpretContext){
     helper_print_strings(&context.rustaml_context.str_interner, false);
 }
 
-pub fn try_gc_collect(context : &mut InterpretContext){
+pub(crate) fn try_gc_collect(context : &mut InterpretContext){
     if context.gc_context.bytes_allocated > context.gc_context.bytes_for_next_gc {
         collect_gc(context, true);
     }

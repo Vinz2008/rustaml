@@ -14,9 +14,9 @@ cfg_if! {
         use crate::compiler::OptionalArgs;
     } else {
         use crate::rustaml::FrontendOutput;
-        pub struct OptionalArgs;
+        pub(crate) struct OptionalArgs;
         impl OptionalArgs {
-            pub fn new(_optimization_level : Option<u8>, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer : bool, _enable_debuginfos : bool, _freestanding : bool, _lib_search_paths : Vec<String>) -> OptionalArgs {
+            pub(crate) fn new(_optimization_level : Option<u8>, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer : bool, _enable_debuginfos : bool, _freestanding : bool, _lib_search_paths : Vec<String>) -> OptionalArgs {
                 OptionalArgs
             }
         }
@@ -74,7 +74,7 @@ cfg_if! {
     } else {
         use crate::ast::ASTRef;
         use std::io;
-        pub fn generate_ast_dot(_rustaml_context : &RustamlContext, _ast : ASTRef) -> io::Result<()>{
+        pub(crate) fn generate_ast_dot(_rustaml_context : &RustamlContext, _ast : ASTRef) -> io::Result<()>{
             Ok(())
         }
     }
@@ -194,12 +194,12 @@ struct Args {
 }
 
 #[cfg(not(feature = "native"))]
-pub fn compile(_frontend_output : FrontendOutput, _rustaml_context: &mut RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optional_args : OptionalArgs){
+pub(crate) fn compile(_frontend_output : FrontendOutput, _rustaml_context: &mut RustamlContext, _filename : &Path, _filename_out : Option<&Path>, _optional_args : OptionalArgs){
     panic!("the compiler feature was not enabled");
 }
 
 #[cfg(not(feature = "repl"))]
-pub fn repl(_rustaml_context : &mut RustamlContext){
+pub(crate) fn repl(_rustaml_context : &mut RustamlContext){
     panic!("the repl feature was not enabled");
 }
 
@@ -236,7 +236,7 @@ fn main() -> ExitCode {
                 Err(()) => return ExitCode::FAILURE,
             };
 
-            // after removing this, remove pub at the ast_pool.1
+            // after removing this, remove pub(crate)at the ast_pool.1
             debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&rustaml_context.ast_pool.ast_node_types, &rustaml_context));
 
             interpreter::interpret(frontend_output.ast, &mut rustaml_context);

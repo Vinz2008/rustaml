@@ -10,7 +10,7 @@ cfg_if! {
         use crate::compiler::debuginfo::ContentLoc;
     } else {
         #[derive(Clone)]
-        pub struct ContentLoc;
+        pub(crate) struct ContentLoc;
 
         impl ContentLoc {
             fn new(_v : &[char]) -> ContentLoc { ContentLoc }
@@ -22,20 +22,21 @@ cfg_if! {
 
 // TODO : remove the clone and recursively in every types in it after removing the clone it types_debug
 #[derive(Clone)]
-pub struct RustamlContext {
-    pub str_interner : StrInterner,
-    pub ast_pool : ASTPool,
-    pub pattern_pool : PatternPool,
-    pub list_node_pool : ListPool,
-    pub type_aliases : FxHashMap<StringRef, Type>,
+pub(crate) struct RustamlContext {
+    pub(crate) str_interner : StrInterner,
+    pub(crate) ast_pool : ASTPool,
+    pub(crate) pattern_pool : PatternPool,
+    pub(crate) list_node_pool : ListPool,
+    pub(crate) type_aliases : FxHashMap<StringRef, Type>,
 
-    pub is_debug_print : bool,
-    pub self_profiler : Option<Profiler>, // TODO : box this to lower the size of the struct ?
-    pub content : Option<ContentLoc>,
+    pub(crate) is_debug_print : bool,
+    pub(crate) self_profiler : Option<Profiler>, // TODO : box this to lower the size of the struct ?
+
+    pub(crate) content : Option<ContentLoc>,
 }
 
 impl RustamlContext {
-    pub fn new(is_debug_print : bool, self_profile : bool) -> RustamlContext {
+    pub(crate) fn new(is_debug_print : bool, self_profile : bool) -> RustamlContext {
         RustamlContext { 
             str_interner: StrInterner::new(), 
             ast_pool: ASTPool::new(),
@@ -52,32 +53,32 @@ impl RustamlContext {
         }
     }
 
-    pub fn set_content_chars(&mut self, content_chars : &[char]){
+    pub(crate) fn set_content_chars(&mut self, content_chars : &[char]){
        self.content = Some(ContentLoc::new(content_chars));
     }
 
-    pub fn start_section(&mut self, name : &'static str){
+    pub(crate) fn start_section(&mut self, name : &'static str){
         if let Some(self_profiler) = &mut self.self_profiler {
             self_profiler.start_section(name.to_string());
         }
     }
 
     // the str is unused, it is only to make the code clearer
-    pub fn end_section(&mut self, _str : &'static str){
+    pub(crate) fn end_section(&mut self, _str : &'static str){
         if let Some(self_profiler) = &mut self.self_profiler {
             self_profiler.end_section();
         }
     }
 
-    
-    pub fn dump(&mut self, format : ProfilerFormat){
+    #[allow(unused)]
+    pub(crate) fn dump(&mut self, format : ProfilerFormat){
         if let Some(self_profiler) = self.self_profiler.take() {
             self_profiler.dump(format);
         }
     }
 }
 
-pub fn nearest_string<'a>(searched_str : &str, strings : impl IntoIterator<Item = &'a str>, default : Option<&'a str>) -> Option<&'a str> {
+pub(crate) fn nearest_string<'a>(searched_str : &str, strings : impl IntoIterator<Item = &'a str>, default : Option<&'a str>) -> Option<&'a str> {
     let mut min_distance = usize::MAX;
     let mut nearest = default;
 
@@ -92,7 +93,7 @@ pub fn nearest_string<'a>(searched_str : &str, strings : impl IntoIterator<Item 
     nearest
 }
 
-pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<char>, content_str: Option<&str>, filename : &Path, already_added_filenames : Option<&mut FxHashSet<PathBuf>>) -> Result<ASTRef, ()> {
+pub(crate) fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<char>, content_str: Option<&str>, filename : &Path, already_added_filenames : Option<&mut FxHashSet<PathBuf>>) -> Result<ASTRef, ()> {
     
     let content_str = match content_str {
         Some(c) => c,
@@ -128,13 +129,13 @@ pub fn get_ast_from_string(rustaml_context : &mut RustamlContext, content : Vec<
 }
 
 
-pub struct FrontendOutput {
-    pub ast : ASTRef,
-    pub type_infos : TypeInfos,
-    pub content : String,
+pub(crate) struct FrontendOutput {
+    pub(crate) ast : ASTRef,
+    pub(crate) type_infos : TypeInfos,
+    pub(crate) content : String,
 }
 
-pub fn read_file(filename : &Path) -> String {
+pub(crate) fn read_file(filename : &Path) -> String {
     let content_bytes = fs::read(filename).unwrap_or_else(|err| {
             panic!("Error when opening {} : {}", filename.display(), err)
     });
@@ -146,7 +147,8 @@ pub fn read_file(filename : &Path) -> String {
 }
 
 // used for every command (used for code deduplication)
-pub fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<FrontendOutput, ()> {
+#[allow(unused)]
+pub(crate) fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<FrontendOutput, ()> {
     let content = read_file(filename);
 
     let content_chars = content.chars().collect::<Vec<_>>();
@@ -191,7 +193,7 @@ cfg_if! {
         const RED_ZONE : usize = 100 * 1024; // 100KB
         const STACK_PER_RECURSION : usize = 1024 * 1024; // 1MB
         #[inline]
-        pub fn ensure_stack<R>(f : impl FnOnce() -> R) -> R {
+        pub(crate) fn ensure_stack<R>(f : impl FnOnce() -> R) -> R {
 
             #[cfg(feature = "stack-expand-test-print")]
             {
@@ -209,7 +211,7 @@ cfg_if! {
         }
     } else {
         #[inline(always)]
-        pub fn ensure_stack<R>(f : impl FnOnce() -> R) -> R {
+        pub(crate) fn ensure_stack<R>(f : impl FnOnce() -> R) -> R {
             f()
         }
     }

@@ -4,21 +4,21 @@ use clap::ValueEnum;
 use serde_json::json;
 
 #[derive(Clone)]
-pub struct ProfilerSection {
+pub(crate) struct ProfilerSection {
     name : String,
     start: Instant,
     length : Duration,
 }
 
 #[derive(Clone)]
-pub struct Profiler {
-    pub section_delims : Vec<ProfilerSection>,
+pub(crate) struct Profiler {
+    pub(crate) section_delims : Vec<ProfilerSection>,
     start : Instant,
     start_current_section : Option<(String, Instant)>,
 }
 
 #[derive(Clone, Copy, ValueEnum, Debug)]
-pub enum ProfilerFormat {
+pub(crate) enum ProfilerFormat {
     #[value(name = "txt")]
     Txt,
 
@@ -27,7 +27,7 @@ pub enum ProfilerFormat {
 }
 
 impl Profiler {
-    pub fn new() -> Profiler {
+    pub(crate) fn new() -> Profiler {
         Profiler { 
             section_delims: Vec::new(),
             start_current_section: None,
@@ -35,12 +35,12 @@ impl Profiler {
         }
     }
     // for now, no nested sections, TODO ? (return a section index ? use the string ?)
-    pub fn start_section(&mut self, name : String){
+    pub(crate) fn start_section(&mut self, name : String){
         let start = Instant::now();
         self.start_current_section = Some((name, start));
     }
 
-    pub fn end_section(&mut self){
+    pub(crate) fn end_section(&mut self){
         let (name, start) = self.start_current_section.take().unwrap();
         let elapsed = start.elapsed();
         self.section_delims.push(ProfilerSection { 
@@ -50,7 +50,7 @@ impl Profiler {
         });
     }
 
-    pub fn dump(self, format : ProfilerFormat){
+    pub(crate) fn dump(self, format : ProfilerFormat){
         let total = self.start.elapsed();
         match format {
             ProfilerFormat::Txt => {

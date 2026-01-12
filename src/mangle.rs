@@ -30,7 +30,7 @@ fn mangle_cpp(s : &str, function_type : &Type) -> String {
     
 }
 
-pub fn mangle_name_external<'a>(s : &'a str, function_type : &Type, lang : ExternLang) -> Cow<'a, str> {
+pub(crate) fn mangle_name_external<'a>(s : &'a str, function_type : &Type, lang : ExternLang) -> Cow<'a, str> {
     match lang {
         ExternLang::C => Cow::Borrowed(s),
         ExternLang::Cpp => Cow::Owned(mangle_cpp(s, function_type)),
