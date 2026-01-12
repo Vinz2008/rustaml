@@ -316,7 +316,7 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
     }
 
     pub(crate) fn get_current_debug_location(&self, builder : &Builder<'llvm_ctx>) -> Option<DILocation<'llvm_ctx>> {
-        if let Some(_) = &self.inner {
+        if self.inner.is_some() {
             builder.get_current_debug_location()
         } else {
             None

@@ -281,7 +281,7 @@ pub(crate) fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_,
 pub(crate) fn from_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, val : IntValue<'llvm_ctx>, to_type : &Type) -> BasicValueEnum<'llvm_ctx> {
     match to_type {
         Type::Integer => val.into(),
-        Type::Float => compile_context.builder.build_bit_cast(val, compile_context.context.f64_type(), "bitcast_val_to_float").unwrap().into(),
+        Type::Float => compile_context.builder.build_bit_cast(val, compile_context.context.f64_type(), "bitcast_val_to_float").unwrap(),
         Type::Bool => compile_context.builder.build_int_truncate(val, compile_context.context.bool_type(), "trunc_val_to_bool").unwrap().into(),
         Type::Char => compile_context.builder.build_int_truncate(val, compile_context.context.i32_type(), "trunc_val_to_char").unwrap().into(),
         Type::Str | Type::List(_) | Type::Function(_, _, _) => compile_context.builder.build_int_to_ptr(val, compile_context.context.ptr_type(AddressSpace::default()), "val_to_ptr").unwrap().into(),
@@ -321,14 +321,9 @@ pub(crate) fn get_void_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> AnyV
 }
 
 pub(crate) fn get_variant_tag(rustaml_context : &RustamlContext, name : StringRef) -> usize {
-    for (_k, t) in &rustaml_context.type_aliases {
-        match t {
-            Type::SumType(sum_type) => {
-                if let Some(pos) = sum_type.variants.iter().position(|v| v.get_name() == name.get_str(&rustaml_context.str_interner)) {
-                    return pos;
-                }
-            }
-            _ => {}
+    for t in rustaml_context.type_aliases.values() {
+        if let Type::SumType(sum_type) = t && let Some(pos) = sum_type.variants.iter().position(|v| v.get_name() == name.get_str(&rustaml_context.str_interner)) {
+            return pos;
         }
     }
     unreachable!()

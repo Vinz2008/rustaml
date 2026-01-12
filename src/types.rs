@@ -341,12 +341,12 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
 }
 
 fn remove_vars_pattern(context : &mut TypeContext, pattern: PatternRef){
-    match pattern.get(&context.rustaml_context.pattern_pool) {
-        &Pattern::ListDestructure(e, l) => {
+    match *pattern.get(&context.rustaml_context.pattern_pool) {
+        Pattern::ListDestructure(e, l) => {
             remove_vars_pattern(context, e);
             remove_vars_pattern(context, l);
         }
-        &Pattern::VarName(n) => {
+        Pattern::VarName(n) => {
             if !is_underscore(context.rustaml_context, n) {
                 remove_var(context, n);
             }

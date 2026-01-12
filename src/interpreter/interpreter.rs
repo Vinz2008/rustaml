@@ -196,16 +196,11 @@ impl DebugWithContext<RustamlContext> for ListRef {
 
 
 // TODO : rework the layout ? (see https://rust-unofficial.github.io/too-many-lists/)
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(crate) enum List {
+    #[default]
     None,
     Node(Val, ListRef)
-}
-
-impl Default for List {
-    fn default() -> Self {
-        List::None
-    }
 }
 
 

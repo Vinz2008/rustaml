@@ -344,7 +344,7 @@ impl Display for Type {
             Type::Never => f.write_char('!'),
             Type::SumType(sum_type) => {
                 if let Some(s) = sum_type.name.as_deref() {
-                    f.write_str(&s)
+                    f.write_str(s)
                 } else {
                     todo!() // TODO
                 }
@@ -665,11 +665,8 @@ fn parse_type_alias(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
         type_end_range = eof_tok.range.end;
     }
 
-    match &mut t {
-        Type::SumType(s) => {
-            s.name = Some(name_str.into_boxed_str());
-        },
-        _ => {},
+    if let Type::SumType(s) = &mut t {
+        s.name = Some(name_str.into_boxed_str());
     }
 
     parser.rustaml_context.type_aliases.insert(name, t.clone());
@@ -846,7 +843,7 @@ fn parse_function_call(parser: &mut Parser, mut callee : ASTRef) -> Result<ASTRe
 fn parse_identifier_expr(parser: &mut Parser, identifier_buf : &[char], identifier_range : Range<usize>) -> Result<ASTRef, ParserErr> {
     let s = identifier_buf.iter().collect::<String>();
     let identifier = parser.rustaml_context.str_interner.intern_compiler(&s);
-    for (_name, t) in &parser.rustaml_context.type_aliases {
+    for t in parser.rustaml_context.type_aliases.values() {
         match t {
             Type::SumType(sum_type) => {
                 for v in &sum_type.variants {
@@ -929,7 +926,7 @@ fn parse_integer_pattern(parser : &mut Parser, token : &Token) -> Result<(i64, u
 }
 
 fn is_a_variant(parser : &mut Parser, name : &str) -> bool {
-    for (_n, t) in &parser.rustaml_context.type_aliases {
+    for t in parser.rustaml_context.type_aliases.values() {
         match t {
             Type::SumType(s) => {
                 for v in &s.variants {
