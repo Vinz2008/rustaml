@@ -16,8 +16,8 @@ pub fn get_type_tag(t : &Type) -> u8 {
         Type::List(_) => 5,
         Type::Char => 6,
         Type::Unit => 7,
-        // TODO : add a type tag for Never ? SumType ?
-        Type::Any | Type::Never | Type::CType(_) | Type::Generic(_) | Type::SumType(_) => panic!("no type tag for this type {:?} !!", t),
+        // TODO : add a type tag for Never ? SumType ? Regex ?
+        Type::Any | Type::Never | Type::Regex | Type::CType(_) | Type::Generic(_) | Type::SumType(_) => panic!("no type tag for this type {:?} !!", t),
     }
 }
 
@@ -68,6 +68,7 @@ pub fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, '_, 'llvm_
         //Type::Unit | Type::Never => compile_context.context.void_type().into(),
         Type::Unit => compile_context.context.struct_type(&[], false).into(),
         Type::Never => compile_context.context.void_type().into(),
+        Type::Regex => todo!(), // TODO
         Type::CType(c_type) => get_llvm_type_ctype(compile_context.context, c_type),
         Type::Generic(gen_num) => get_llvm_type(compile_context, compile_context.generic_map.get(gen_num).unwrap()),
         Type::SumType(sumtype) => {
@@ -279,6 +280,7 @@ pub fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'l
                 val.into_int_value()
             }
         },
+        Type::Regex => todo!(), // TODO
         Type::Any => encountered_any_type(),
         Type::Generic(_) | Type::CType(_) => unreachable!(),
     }
@@ -303,6 +305,7 @@ pub fn from_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
                 val.into()
             }
         },
+        Type::Regex => todo!(), // TODO
         Type::Any => encountered_any_type(),
         Type::Generic(_) | Type::CType(_) => unreachable!(),
     }

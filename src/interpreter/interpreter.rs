@@ -1,3 +1,4 @@
+use regex::Regex;
 use rustc_hash::FxHashMap;
 use std::cmp::max;
 use std::cmp::Ordering;
@@ -346,6 +347,27 @@ pub struct SumTypeVal {
     // TODO : add val
 }
 
+#[derive(Clone)]
+pub struct RegexWrapper(Regex);
+
+impl RegexWrapper {
+    fn new(re : &str) -> Result<RegexWrapper, regex::Error> {
+        Ok(RegexWrapper(Regex::new(re)?))
+    }
+}
+
+impl PartialEq for RegexWrapper {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_str() == other.0.as_str()
+    }
+}
+
+impl DebugWithContext<RustamlContext> for RegexWrapper {
+    fn fmt_with_context(&self, f: &mut fmt::Formatter, _context: &RustamlContext) -> fmt::Result {
+        f.write_str(self.0.as_str())
+    }
+}
+
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 pub enum Val {
@@ -357,6 +379,7 @@ pub enum Val {
     List(ListRef),
     Function(FunctionDef),
     SumType(SumTypeVal),
+    Regex(RegexWrapper),
     Unit,
 }
 
@@ -415,6 +438,7 @@ impl Display for ValWrapDisplay<'_> {
             Val::Char(c) => write!(f, "{}", c),
             Val::String(s) => write!(f, "{}", s.get_str(&self.rustaml_context.str_interner)),
             Val::List(l) => display_list(*l, self.rustaml_context, f),
+            Val::Regex(re) => write!(f, "regex({})", re.0.as_str()),
             Val::Function(_) => write!(f, "function"), // TODO ?
             Val::SumType(_) => todo!(), // TODO
             Val::Unit => write!(f, "()"),
@@ -855,8 +879,6 @@ fn interpret_filter(context: &mut InterpretContext, list_val : Val, fun_val : Va
         _ => unreachable!(),
     };
 
-    
-
     let mut vals= Vec::new();
     {
         let mut current = list.get(&context.rustaml_context.list_node_pool);
@@ -897,6 +919,31 @@ fn interpret_chars(context : &mut InterpretContext, str : Val) -> Val {
     Val::List(new_list_ref)
 }
 
+fn interpret_regex_create(context : &InterpretContext, str : Val) -> Val {
+    let s = match str {
+        Val::String(s) => s,
+        _ => unreachable!(),
+    };
+    let re = match RegexWrapper::new(s.get_str(&context.rustaml_context.str_interner)){
+        Ok(re) => re,
+        Err(e) => runtime_error(&format!("Error when creating regex : {}", e)),
+    };
+    Val::Regex(re)
+}
+
+fn interpret_regex_has_match(context : &InterpretContext, re : Val, str : Val) -> Val {
+    let re = match re {
+        Val::Regex(re) => re,
+        _ => unreachable!(),
+    };
+    let s = match str {
+        Val::String(s) => s,
+        _ => unreachable!(),
+    };
+    let b = re.0.is_match(s.get_str(&context.rustaml_context.str_interner));
+    Val::Bool(b)
+}
+
 const STD_FUNCTIONS : &[&str] = &[
     "print",
     "rand",
@@ -904,7 +951,9 @@ const STD_FUNCTIONS : &[&str] = &[
     "panic",
     "map",
     "filter",
-    "chars"
+    "chars",
+    "regex_create",
+    "regex_has_match",
 ];
 
 fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args_val : Vec<Val>) -> Val {
@@ -926,7 +975,7 @@ fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args
             let (arg_first, args_format) = args_val.split_first().unwrap();
             let arg_format_str = match arg_first {
                 Val::String(s) => *s,
-                _ => panic!("expected string for format"),
+                _ => panic!("expected string for format"), // TODO : replace the panics, expects, etc, with runtime_error
             };
 
             interpret_format(context, arg_format_str, args_format)
@@ -936,7 +985,7 @@ fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args
             let message = format!("{}", args_val[0].display(context.rustaml_context)) ;
             rustaml_panic(&message)
         }
-        // TODO : remove these clones
+        // TODO : remove these clones (do let [a, b] = args_val.try_into())
         "map" => {
             assert_eq!(args_val.len(), 2);
             let list = args_val[0].clone();
@@ -953,6 +1002,17 @@ fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args
             assert_eq!(args_val.len(), 1);
             let s = args_val[0].clone();
             interpret_chars(context, s)
+        }
+        "regex_create" => {
+            assert_eq!(args_val.len(), 1);
+            let s = args_val[0].clone();
+            interpret_regex_create(context, s)
+        }
+        "regex_has_match" => {
+            assert_eq!(args_val.len(), 2);
+            let re = args_val[0].clone();
+            let s = args_val[1].clone();
+            interpret_regex_has_match(context, re, s)
         }
         _ => unreachable!()
     }

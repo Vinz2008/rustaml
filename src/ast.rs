@@ -313,6 +313,7 @@ pub enum Type {
     CType(CType),
     SumType(SumType), // box it ? (benchmark to see)
     // TODO : record/product type
+    Regex,
     Unit,
     Never,
 }
@@ -344,6 +345,7 @@ impl Display for Type {
                     todo!() // TODO
                 }
             },
+            Type::Regex => f.write_str("regex"),
             Type::Any => f.write_str("Any"), // TODO
             //Type::Generic(_g_idx) => panic!("Can't print generic type"), // TODO ?
             Type::Generic(g_idx) => f.write_str(&format!("generic {}", g_idx)), // TODO ?

@@ -954,6 +954,7 @@ fn apply_types_to_ast(context : &mut TypeContext){
     }
 }
 
+// TOD0 : pass a Box<Type> instead
 fn std_function_constraint(context : &mut TypeContext, name : &'static str, args : Vec<Type>, ret: Type, is_variadic : bool){
     let fun_type_var = context.table.new_type_var();
     let function_name = context.rustaml_context.str_interner.intern_compiler(name);
@@ -984,6 +985,9 @@ fn std_functions_constraints_types(context : &mut TypeContext) {
     std_function_constraint(context, "format", vec![Type::Str], Type::Str, true);
     std_function_constraint(context, "panic", vec![Type::Str], Type::Never, true);
     std_function_constraint(context, "chars", vec![Type::Str], Type::List(Box::new(Type::Char)), false);
+    std_function_constraint(context, "regex_create", vec![Type::Str], Type::Regex, false);
+    std_function_constraint(context, "regex_has_match", vec![Type::Regex, Type::Str], Type::Bool, false);
+
     let generic_type_elem_map_input = Type::Generic(0);
     let generic_type_elem_map_output = Type::Generic(1);
     std_function_constraint(context, "map", vec![Type::List(Box::new(generic_type_elem_map_input.clone())), Type::Function(Box::new([generic_type_elem_map_input]), Box::new(generic_type_elem_map_output.clone()), false)], Type::List(Box::new(generic_type_elem_map_output)), false);
