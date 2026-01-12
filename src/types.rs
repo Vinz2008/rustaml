@@ -954,8 +954,7 @@ fn apply_types_to_ast(context : &mut TypeContext){
     }
 }
 
-// TOD0 : pass a Box<Type> instead
-fn std_function_constraint(context : &mut TypeContext, name : &'static str, args : Vec<Type>, ret: Type, is_variadic : bool){
+fn std_function_constraint(context : &mut TypeContext, name : &'static str, args : Box<[Type]>, ret: Type, is_variadic : bool){
     let fun_type_var = context.table.new_type_var();
     let function_name = context.rustaml_context.str_interner.intern_compiler(name);
     create_function(context, function_name, fun_type_var);
@@ -964,14 +963,14 @@ fn std_function_constraint(context : &mut TypeContext, name : &'static str, args
         let arg_type_var = context.table.new_type_var();
         context.push_constraint(Constraint::IsType(arg_type_var, e), 0..0); // Can't have ranges, TODO ? (use an option ?)
         arg_type_var
-    }).collect::<Vec<_>>();
+    }).collect::<Box<_>>();
 
     let ret_type_var =  context.table.new_type_var();
     context.push_constraint(Constraint::IsType(ret_type_var, ret), 0..0);
 
     context.push_constraint(Constraint::FunctionType { 
         fun_type_var, 
-        args_type_vars: args_type_vars.into_boxed_slice(), 
+        args_type_vars, 
         ret_type_var, 
         is_variadic, 
         function_name: Some(name.to_owned()), 
@@ -980,21 +979,23 @@ fn std_function_constraint(context : &mut TypeContext, name : &'static str, args
 
 fn std_functions_constraints_types(context : &mut TypeContext) {
     let print_type = Type::Generic(0);
-    std_function_constraint(context, "print", vec![print_type], Type::Unit, false);
-    std_function_constraint(context, "rand", vec![Type::Unit], Type::Integer, false);
-    std_function_constraint(context, "format", vec![Type::Str], Type::Str, true);
-    std_function_constraint(context, "panic", vec![Type::Str], Type::Never, true);
-    std_function_constraint(context, "chars", vec![Type::Str], Type::List(Box::new(Type::Char)), false);
-    std_function_constraint(context, "regex_create", vec![Type::Str], Type::Regex, false);
-    std_function_constraint(context, "regex_has_match", vec![Type::Regex, Type::Str], Type::Bool, false);
+    std_function_constraint(context, "print", Box::new([print_type]), Type::Unit, false);
+    std_function_constraint(context, "rand", Box::new([Type::Unit]), Type::Integer, false);
+    std_function_constraint(context, "format", Box::new([Type::Str]), Type::Str, true);
+    std_function_constraint(context, "panic", Box::new([Type::Str]), Type::Never, true);
+    std_function_constraint(context, "chars", Box::new([Type::Str]), Type::List(Box::new(Type::Char)), false);
+    std_function_constraint(context, "regex_create", Box::new([Type::Str]), Type::Regex, false);
+    std_function_constraint(context, "regex_has_match", Box::new([Type::Regex, Type::Str]), Type::Bool, false);
 
     let generic_type_elem_map_input = Type::Generic(0);
     let generic_type_elem_map_output = Type::Generic(1);
-    std_function_constraint(context, "map", vec![Type::List(Box::new(generic_type_elem_map_input.clone())), Type::Function(Box::new([generic_type_elem_map_input]), Box::new(generic_type_elem_map_output.clone()), false)], Type::List(Box::new(generic_type_elem_map_output)), false);
+    let map_function_type = Type::Function(Box::new([generic_type_elem_map_input.clone()]), Box::new(generic_type_elem_map_output.clone()), false);
+    std_function_constraint(context, "map", Box::new([Type::List(Box::new(generic_type_elem_map_input)), map_function_type]), Type::List(Box::new(generic_type_elem_map_output)), false);
     
     
     let generic_type_elem_filter = Type::Generic(0);
-    std_function_constraint(context, "filter", vec![Type::List(Box::new(generic_type_elem_filter.clone())), Type::Function(Box::new([generic_type_elem_filter.clone()]), Box::new(Type::Bool), false)], Type::List(Box::new(generic_type_elem_filter)), false);
+    let filter_function_type = Type::Function(Box::new([generic_type_elem_filter.clone()]), Box::new(Type::Bool), false);
+    std_function_constraint(context, "filter", Box::new([Type::List(Box::new(generic_type_elem_filter.clone())), filter_function_type]), Type::List(Box::new(generic_type_elem_filter)), false);
     // TODO : add a rand_f ? or make the rand function generic with its return ?
 }
 
