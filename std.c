@@ -1266,6 +1266,92 @@ void __print_val(const char* format, ...){
     va_end(va);
 }
 
+// TODO : optimizations for simple regex (ex : just a word with no special chars, etc)
+
+#define EPSILON '\0'
+
+typedef uint32_t NodeRef;
+struct Transition {
+    char c;
+    NodeRef start;
+    NodeRef end;
+};
+
+const int s = sizeof(struct Transition);
+
+struct Regex {
+    // TODO : dfa
+    uint32_t node_count;
+    NodeRef starting_state;
+    NodeRef* ending_states;
+    uint32_t ending_states_count;
+    struct Transition* nfa_transitions;
+    uint32_t transitions_count;
+};
+
+const int s2 = sizeof(struct Regex);
+
+#define MAX(a, b) ((a > b) ? a : b)
+
+static void dfa_add_transition(struct Regex* re, struct Transition transition){
+    // add a capacity field to not realloc each time
+    if (re->transitions_count == 0){
+        re->nfa_transitions = MALLOC_NO_PTR(sizeof(struct Transition));
+        *re->nfa_transitions = transition;
+        re->node_count = (transition.start == transition.end) ? 1 : 2;
+    } else {
+        re->nfa_transitions = REALLOC(re->nfa_transitions, (re->transitions_count + 1) * sizeof(struct Transition));
+        re->nfa_transitions[re->transitions_count] = transition;
+        NodeRef last_node = re->node_count-1;
+        re->node_count = MAX(MAX(transition.start, transition.end), last_node) + 1;
+    }
+    re->transitions_count++;
+}
+
+static void dfa_add_ending_state(struct Regex* re, NodeRef node){
+    if (re->ending_states_count == 0){
+        re->ending_states = MALLOC_NO_PTR(sizeof(NodeRef));
+        *re->ending_states = node;
+    } else {
+        re->ending_states = REALLOC(re->ending_states, (re->ending_states_count+1) * sizeof(NodeRef));
+        re->ending_states[re->ending_states_count] = node;
+    }
+
+    re->ending_states_count++;
+}
+
+
+// TODO : what should it return, for now return a ptr, in the future, make the layout of Regex stable and return it directly ?
+struct Regex* __regex_create(const char* str){
+    struct Regex* re = MALLOC(sizeof(struct Regex));
+    *re = (struct Regex){
+        .node_count = 0,
+        .starting_state = 0,
+        .ending_states = NULL,
+        .ending_states_count = 0,
+        .nfa_transitions = NULL,
+        .transitions_count = 0, 
+    };
+    size_t len = strlen(str);
+    uint32_t node_nb = 0;
+    for (int i = 0; i < len; i++){
+        char c = str[i];
+        if (('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')){
+            dfa_add_transition(re, (struct Transition){
+                .c = c,
+                .start = node_nb,
+                .end = node_nb+1,
+            });
+            node_nb++;
+        } else {
+            fprintf(stderr, "ERROR : invalid regex\n");
+            exit(1);
+        }
+    }
+    dfa_add_ending_state(re, node_nb);
+    return re;
+}
+
 void __init(){
     gc_init();
 }
@@ -1275,6 +1361,23 @@ void __init(){
     puts(s);
     FREE(s);
 }*/
+
+int main(){
+    struct Regex* re = __regex_create("aaaaa");
+    for (uint32_t i = 0; i < re->transitions_count; i++){
+        struct Transition transition = re->nfa_transitions[i];
+        if (transition.c == '\0'){
+            printf("transitions : %d -> %d\n", transition.start, transition.end);
+        } else {
+            printf("transitions : %d -> %d (%c)\n", transition.start, transition.end, transition.c);
+        }
+    }
+    printf("ending states :");
+    for (uint32_t i = 0; i < re->ending_states_count; i++){
+        printf(" %d", re->ending_states[i]);
+    }
+    printf("\n");
+}
 
 
 // TODO : instead of using the fprintf(stderr, ..) and exit(1), use a macro for errors that would be this in low optimizations levels/with a flag transformed to a trap instruction like __builtin_trap()
