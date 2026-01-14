@@ -62,6 +62,7 @@ const DW_ATE_SIGNED: LLVMDWARFTypeEncoding = 0x05;
 const DW_ATE_UNSIGNED: LLVMDWARFTypeEncoding = 0x07;
 const DW_ATE_UNSIGNED_CHAR: LLVMDWARFTypeEncoding = 0x08;
 const DW_ATE_NUMERIC_STRING: LLVMDWARFTypeEncoding = 0x0b;
+const DW_TAG_UNSPECIFIED_TYPE : LLVMDWARFTypeEncoding = 0x3b;
 
 struct TypeData {
     name : &'static str,
@@ -77,6 +78,7 @@ fn init_type_data(ptr_size_in_bit : u32) -> FxHashMap<Type, TypeData> {
         // TODO : check size in bits of bool ?
         (Type::Bool, TypeData { name: "bool", size_in_bits: 8, encoding: DW_ATE_BOOLEAN }),
         (Type::Str, TypeData { name: "str", size_in_bits: ptr_size_in_bit as u64, encoding: DW_ATE_NUMERIC_STRING }),
+        (Type::Regex, TypeData { name: "regex", size_in_bits: ptr_size_in_bit as u64, encoding: DW_TAG_UNSPECIFIED_TYPE }),
         (Type::Char, TypeData { name: "char", size_in_bits: 32, encoding: DW_ATE_UNSIGNED_CHAR}),
         (Type::CType(CType::U64), TypeData { name: "Ctype_u64", size_in_bits: 64, encoding: DW_ATE_UNSIGNED }),
         (Type::CType(CType::I32), TypeData { name: "Ctype_i32", size_in_bits: 32, encoding: DW_ATE_SIGNED }),

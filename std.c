@@ -1322,10 +1322,161 @@ static void nfa_add_transition(struct Regex* re, NodeRef start, struct Transitio
     node->transitions_nb++;
 }
 
-// TODO
-/*static struct RegexAST create_regex_ast(const char* str) {
+// TODO : flattened AST ?
+// TODO : parenthesis (grouping) 
+// TODO : kleene star * 
+// TODO : plus + 
+// TODO : optional ?
+// TODO : character classes [1-9] [abc]
+// TODO : negated character class [^1-9] [^abc]
+// TODO : predefined classes : \d : digit, \w : word, \s : whitespace
+// TODO : Start / end anchors ^ $
+// TODO : Word boundary \b
+// TODO : unicode
+// TODO : ensure that leftmost match wins, not longest (ex : a|ab matches "a")
+// TODO : ensure no backreferences
+struct RegexASTNode {
+    enum {
+        AST_CHAR,
+        AST_CONCAT,
+        AST_ALTER,
+    } tag;
+    union {
+        char c;
+        // TODO : put these in a ptr ?
+        struct Concat {
+            struct RegexASTNode* lhs;
+            struct RegexASTNode* rhs;
+        } concat;
+        struct Alternative {
+            struct RegexASTNode* lhs;
+            struct RegexASTNode* rhs;
+        } alternative;
+    } data;
+};
 
-}*/
+
+struct RegexParseContext {
+    const char* str;
+    size_t str_len;
+    size_t pos;
+};
+
+#define ADVANCE(context) ({ \
+        char c = context->str[context->pos]; \
+        context->pos++; \
+        c; \
+    })
+
+#define PEEK(context) context->str[context->pos]
+
+static struct RegexASTNode* new_ast_node(struct RegexASTNode ast_node){
+    struct RegexASTNode* res = MALLOC(sizeof(struct RegexASTNode));
+    if (!res){
+        ALLOC_ERROR("regex new node");
+    }
+    *res = ast_node;
+    return res;
+}
+
+static struct RegexASTNode* parse_regex_ast_leaf(struct RegexParseContext* context){
+    assert(context->pos < context->str_len);
+    char c = ADVANCE(context);
+    struct RegexASTNode* leaf = new_ast_node((struct RegexASTNode){
+        .tag = AST_CHAR, 
+        .data.c = c,
+    });
+    
+    return leaf;
+}
+
+static struct RegexASTNode* parse_concat(struct RegexParseContext* context){
+    struct RegexASTNode* lhs = parse_regex_ast_leaf(context);
+    while (context->pos < context->str_len){
+        char c = PEEK(context);
+        if (c == '|'){
+            break;
+        }
+        struct RegexASTNode* rhs = parse_regex_ast_leaf(context);
+        lhs = new_ast_node((struct RegexASTNode){
+            .tag = AST_CONCAT,
+            .data.concat = {
+                .lhs = lhs,
+                .rhs = rhs,
+            },
+        });
+    }
+    
+    return lhs;
+}
+
+static struct RegexASTNode* parse_regex_alternative(struct RegexParseContext* context){
+    struct RegexASTNode* lhs = parse_concat(context);
+    while (context->pos < context->str_len && PEEK(context) == '|'){
+        ADVANCE(context);
+        struct RegexASTNode* rhs = parse_concat(context);
+        lhs = new_ast_node((struct RegexASTNode){
+            .tag = AST_ALTER,
+            .data.alternative = {
+                .lhs = lhs,
+                .rhs = rhs,
+            },
+        });
+    }
+    return lhs;
+}
+
+// TODO
+static struct RegexASTNode* create_regex_ast(const char* str) {
+    struct RegexParseContext context = (struct RegexParseContext){
+        .str = str,
+        .str_len = strlen(str),
+        .pos = 0,
+    };
+    return parse_regex_alternative(&context);
+}
+
+struct NFAFragment {
+    NodeRef start;
+    NodeRef end;
+};
+
+static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct RegexASTNode* ast){
+    NodeRef start;
+    NodeRef end;
+    switch (ast->tag){
+        case AST_CHAR: {
+            // TODO : add transition from last ?
+            start = nfa_add_node(re);
+            end = nfa_add_node(re);
+            char c = ast->data.c;
+            nfa_add_transition(re, start, (struct Transition){
+                .c = c,
+                .end = end,
+            });
+            break;
+        }
+        case AST_CONCAT: {
+            struct Concat concat = ast->data.concat;
+            struct NFAFragment fragment_lhs = regex_create_from_ast(re, concat.lhs);
+            struct NFAFragment fragment_rhs = regex_create_from_ast(re, concat.rhs);
+            nfa_add_transition(re, fragment_lhs.end, (struct Transition){
+                .c = EPSILON,
+                .end = fragment_rhs.start,
+            });
+            start = fragment_lhs.start;
+            end = fragment_rhs.end;
+            break;
+        }
+        default:
+            fprintf(stderr, "Unknown ast tag %d\n", ast->tag);
+            exit(1);
+    }
+    return (struct NFAFragment){
+        .start = start,
+        .end = end,
+    };
+}
 
 // TODO : what should it return, for now return a ptr, in the future, make the layout of Regex stable and return it directly ?
 struct Regex* __regex_create(const char* str){
@@ -1336,31 +1487,11 @@ struct Regex* __regex_create(const char* str){
         .nfa_nodes = NULL,
         .node_count = 0,
     };
-    size_t len = strlen(str);
-    uint32_t last_node = -1;
-    // TODO : parse to an AST, then create the NFA
-    for (size_t i = 0; i < len; i++){
-        char c = str[i];
-        if (('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')){
-            NodeRef start = nfa_add_node(re);
-            if (last_node != (uint32_t)-1){
-                nfa_add_transition(re, last_node, (struct Transition){
-                    .c = '\0',
-                    .end = start,
-                });
-            }
-            NodeRef end = nfa_add_node(re);
-            nfa_add_transition(re, start, (struct Transition){
-                .c = c,
-                .end = end,
-            });
-            last_node = end;
-        } else {
-            fprintf(stderr, "ERROR : invalid regex\n");
-            exit(1);
-        }
-    }
-    re->ending_state = last_node;
+
+    const struct RegexASTNode* ast = create_regex_ast(str);
+    struct NFAFragment nfa_fragment = regex_create_from_ast(re, ast);
+    re->starting_state = nfa_fragment.start;
+    re->ending_state = nfa_fragment.end;
     return re;
 }
 
@@ -1468,7 +1599,7 @@ uint8_t __regex_has_match(struct Regex* re, const char* str){
         struct Node node = re->nfa_nodes[node_pointer.node_ref];
         for (uint32_t i = 0; i < node.transitions_nb; i++){
             struct Transition transition = node.outgoing_transitions[i];
-            if (transition.c == '\0'){
+            if (transition.c == EPSILON){
                 push_node_pointer(&node_queue, transition.end, node_pointer.str_pos);
             } else if (node_pointer.str_pos < str_len && transition.c == str[node_pointer.str_pos]){
                 push_node_pointer(&node_queue, transition.end, node_pointer.str_pos+1);

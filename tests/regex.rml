@@ -1,3 +1,12 @@
+let re_simple = regex_create "abc" ;;
+
+let has_matched_simple_1 = regex_has_match re_simple "abc" ;;
+let _ = print has_matched_simple_1 ;;
+let has_matched_simple_1 = regex_has_match re_simple "pl" ;;
+let _ = print has_matched_simple_1 ;;
+let has_matched_simple_1 = regex_has_match re_simple "ab" ;;
+let _ = print has_matched_simple_1 ;;
+
 let re = regex_create "[0-9]+" ;;
 
 let has_matched_1 = regex_has_match re "171788" ;;

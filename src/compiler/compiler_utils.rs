@@ -68,7 +68,7 @@ pub(crate) fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, '_,
         //Type::Unit | Type::Never => compile_context.context.void_type().into(),
         Type::Unit => compile_context.context.struct_type(&[], false).into(),
         Type::Never => compile_context.context.void_type().into(),
-        Type::Regex => todo!(), // TODO
+        Type::Regex => compile_context.context.ptr_type(AddressSpace::default()).into(),
         Type::CType(c_type) => get_llvm_type_ctype(compile_context.context, c_type),
         Type::Generic(gen_num) => get_llvm_type(compile_context, compile_context.generic_map.get(gen_num).unwrap()),
         Type::SumType(sumtype) => {

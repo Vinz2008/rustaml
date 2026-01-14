@@ -173,10 +173,22 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
         },
         BuiltinFunction {
             name: "__chars",
-            is_variadic: false,
             args: Box::new([ptr_type]),
             ret: Some(ptr_type_ret),
             attributes: vec![attr_return("noalias"), attr_args("nonnull", 0)],
+            ..Default::default()
+        },
+        BuiltinFunction {
+            name: "__regex_create",
+            args: Box::new([ptr_type]),
+            ret: Some(ptr_type_ret),
+            ..Default::default()
+        },
+        BuiltinFunction {
+            name: "__regex_has_match",
+            args: Box::new([ptr_type, ptr_type]),
+            ret: Some(llvm_context.bool_type().into()),
+            ..Default::default()
         },
         // TODO : remove this ?
         BuiltinFunction {
@@ -495,6 +507,17 @@ fn compile_chars<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_c
     compile_context.builder.build_call(chars_fun, &args, "chars_call").unwrap().as_any_value_enum()
 }
 
+fn compile_regex_create<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, re_str : PointerValue<'llvm_ctx>) -> AnyValueEnum<'llvm_ctx> {
+    let create_fun = compile_context.get_internal_function("__regex_create");
+    let args = vec![re_str.into()];
+    compile_context.builder.build_call(create_fun, &args, "regex_create_call").unwrap().as_any_value_enum()
+}
+
+fn compile_regex_has_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, re : PointerValue<'llvm_ctx>, str : PointerValue<'llvm_ctx>) -> AnyValueEnum<'llvm_ctx> {
+    let has_match_fun = compile_context.get_internal_function("__regex_has_match");
+    let args = vec![re.into(), str.into()];
+    compile_context.builder.build_call(has_match_fun, &args, "regex_has_match_call").unwrap().as_any_value_enum()
+}
 
 fn should_monomorphize_function(arg_types : &[Type], ret_type : &Type) -> bool {
     matches!(ret_type, Type::Generic(_)) || arg_types.iter().any(|e| matches!(e, Type::Generic(_)))
@@ -585,6 +608,15 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_,
             "chars" => {
                 let s = compile_expr(compile_context, args[0]).into_pointer_value();
                 return compile_chars(compile_context, s);
+            }
+            "regex_create" => {
+                let re_str = compile_expr(compile_context, args[0]).into_pointer_value();
+                return compile_regex_create(compile_context, re_str);
+            }
+            "regex_has_match" => {
+                let re = compile_expr(compile_context, args[0]).into_pointer_value();
+                let str = compile_expr(compile_context, args[1]).into_pointer_value();
+                return compile_regex_has_match(compile_context, re, str);
             }
             n => (Some(n.to_owned()), Some(*name)),
         }
