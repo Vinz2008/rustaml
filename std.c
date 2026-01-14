@@ -191,12 +191,17 @@ static void assert_fail(){
 
 #endif
 
-#define ALLOC_ERROR(...) ({ \
+#define ALLOC_ERROR(...) do { \
         fprintf(stderr, "ALLOC ERROR in %s:", __func__); \
         fprintf(stderr, __VA_ARGS__); \
         fprintf(stderr, "\n"); \
         exit(1); \
-    }) 
+    } while(0);
+
+#define TODO(str) do { \
+        fprintf(stderr, "TODO : " str "\n"); \
+        exit(1); \
+    } while(0);
 
 #define ASSERT_BOOL(id_bool) assert(id_bool < 2 && #id_bool " should be true or false")
 #define ASSERT_NOT_NULL(not_null) assert(not_null && #not_null " should not be NULL")
@@ -1270,54 +1275,52 @@ void __print_val(const char* format, ...){
 
 #define EPSILON '\0'
 
+struct Node {
+    // TODO : use variable size array (struct Transition[] but would need no Node array)
+    // or fixed size maximum transitions (ex : struct Transition[X])
+    struct Transition* outgoing_transitions;
+    uint32_t transitions_nb;
+};
+
+
 typedef uint32_t NodeRef;
 struct Transition {
     char c;
-    NodeRef start;
+    NodeRef start; // TODO : is this needed ?
     NodeRef end;
 };
 
-const int s = sizeof(struct Transition);
-
 struct Regex {
     // TODO : dfa
-    uint32_t node_count;
     NodeRef starting_state;
-    NodeRef* ending_states;
-    uint32_t ending_states_count;
-    struct Transition* nfa_transitions;
-    uint32_t transitions_count;
+    NodeRef ending_state;
+    struct Node* nfa_nodes;
+    uint32_t node_count;
 };
 
-const int s2 = sizeof(struct Regex);
 
-#define MAX(a, b) ((a > b) ? a : b)
+static NodeRef dfa_add_node(struct Regex* re){
+    if (re->nfa_nodes){
+        re->nfa_nodes = REALLOC(re->nfa_nodes, (re->node_count + 1) * sizeof(struct Node));
+    } else {
+        re->nfa_nodes = MALLOC(sizeof(struct Node));
+    }
+    NodeRef res = re->node_count;
+    re->node_count++;
+    return res;
+}
 
 static void dfa_add_transition(struct Regex* re, struct Transition transition){
     // add a capacity field to not realloc each time
-    if (re->transitions_count == 0){
-        re->nfa_transitions = MALLOC_NO_PTR(sizeof(struct Transition));
-        *re->nfa_transitions = transition;
-        re->node_count = (transition.start == transition.end) ? 1 : 2;
+    struct Node* node = &re->nfa_nodes[transition.start];
+    if (node->outgoing_transitions){
+        node->outgoing_transitions = REALLOC(node->outgoing_transitions, (node->transitions_nb+1) * sizeof(struct Transition));
+        node->outgoing_transitions[node->transitions_nb] = transition;
     } else {
-        re->nfa_transitions = REALLOC(re->nfa_transitions, (re->transitions_count + 1) * sizeof(struct Transition));
-        re->nfa_transitions[re->transitions_count] = transition;
-        NodeRef last_node = re->node_count-1;
-        re->node_count = MAX(MAX(transition.start, transition.end), last_node) + 1;
+        node->outgoing_transitions = MALLOC_NO_PTR(sizeof(struct Transition));
+        *node->outgoing_transitions = transition;       
     }
-    re->transitions_count++;
-}
-
-static void dfa_add_ending_state(struct Regex* re, NodeRef node){
-    if (re->ending_states_count == 0){
-        re->ending_states = MALLOC_NO_PTR(sizeof(NodeRef));
-        *re->ending_states = node;
-    } else {
-        re->ending_states = REALLOC(re->ending_states, (re->ending_states_count+1) * sizeof(NodeRef));
-        re->ending_states[re->ending_states_count] = node;
-    }
-
-    re->ending_states_count++;
+    node->transitions_nb++;
 }
 
 
@@ -1325,32 +1328,146 @@ static void dfa_add_ending_state(struct Regex* re, NodeRef node){
 struct Regex* __regex_create(const char* str){
     struct Regex* re = MALLOC(sizeof(struct Regex));
     *re = (struct Regex){
-        .node_count = 0,
         .starting_state = 0,
-        .ending_states = NULL,
-        .ending_states_count = 0,
-        .nfa_transitions = NULL,
-        .transitions_count = 0, 
+        .ending_state = 0,
+        .nfa_nodes = NULL,
+        .node_count = 0,
     };
     size_t len = strlen(str);
-    uint32_t node_nb = 0;
-    for (int i = 0; i < len; i++){
+    uint32_t last_node = -1;
+    // TODO : parse to an AST, then create the NFA
+    for (size_t i = 0; i < len; i++){
         char c = str[i];
         if (('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')){
+            NodeRef start = dfa_add_node(re);
+            if (last_node != (uint32_t)-1){
+                dfa_add_transition(re, (struct Transition){
+                    .c = '\0',
+                    .start = last_node,
+                    .end = start,
+                });
+            }
+            NodeRef end = dfa_add_node(re);
             dfa_add_transition(re, (struct Transition){
                 .c = c,
-                .start = node_nb,
-                .end = node_nb+1,
+                .start = start,
+                .end = end,
             });
-            node_nb++;
+            last_node = end;
         } else {
             fprintf(stderr, "ERROR : invalid regex\n");
             exit(1);
         }
     }
-    dfa_add_ending_state(re, node_nb);
+    re->ending_state = last_node;
     return re;
 }
+
+struct NodePointer {
+    NodeRef node_ref;
+    size_t str_pos;
+};
+
+struct NodeQueue {
+    struct NodePointer* pointers;
+    size_t capacity;
+    size_t front;
+    size_t len;
+};
+
+static struct NodeQueue init_queue(size_t start_capacity){
+    assert(start_capacity > 0);
+    struct NodePointer* pointers = MALLOC_NO_PTR(start_capacity * sizeof(struct NodePointer));
+    if (!pointers){
+        ALLOC_ERROR("regex init node pointers");
+    }
+    return (struct NodeQueue){
+        .pointers = pointers,
+        .capacity = start_capacity,
+        .front = 0,
+        .len = 0,
+    };
+}
+
+static size_t queue_real_pos(const struct NodeQueue* node_pointers, size_t pos){
+    return (node_pointers->front + pos) % node_pointers->capacity;
+}
+
+static void ensure_size_node_pointers(struct NodeQueue* node_pointers, size_t min_capacity){
+    if (node_pointers->capacity < min_capacity){
+        size_t new_capacity = node_pointers->capacity;
+        while (new_capacity < min_capacity){
+            new_capacity *= 2;
+        }
+        struct NodePointer* new_buf = MALLOC_NO_PTR(new_capacity * sizeof(struct NodePointer));
+        if (!new_buf){
+            ALLOC_ERROR("regex node pointers");
+        }
+        for (size_t i = 0; i < node_pointers->len; i++){
+            new_buf[i] = node_pointers->pointers[queue_real_pos(node_pointers, i)];
+        }
+        FREE(node_pointers->pointers);
+        node_pointers->pointers = new_buf;
+        node_pointers->capacity = new_capacity;
+        node_pointers->front = 0;
+    }
+}
+
+static void push_node_pointer(struct NodeQueue* node_pointers, NodeRef node, size_t str_pos){
+    ensure_size_node_pointers(node_pointers, node_pointers->len+1);
+    
+    node_pointers->pointers[queue_real_pos(node_pointers, node_pointers->len)] = (struct NodePointer){
+        .node_ref = node,
+        .str_pos = str_pos,
+    };
+    node_pointers->len++;
+}
+
+static struct NodePointer pop_node_pointer(struct NodeQueue* node_pointers){
+    assert(node_pointers->len > 0);
+    struct NodePointer node = node_pointers->pointers[node_pointers->front];
+    node_pointers->front = (node_pointers->front + 1) % node_pointers->capacity;
+    node_pointers->len--;
+    return node;
+}
+
+static void free_queue(struct NodeQueue node_pointers){
+    FREE(node_pointers.pointers);
+}
+
+// TODO : transform in a list of chars instead (a uint32_t list, to support UTF8 ?)
+/*uint8_t __regex_has_match(struct Regex* re, const char* str){
+    struct NodeQueue node_queue = init_queue(4);
+    push_node_pointer(&node_queue, re->starting_state, 0);
+    size_t str_len = strlen(str);
+    size_t pos_count = str_len+1;
+    bool* visited = MALLOC(re->node_count * pos_count);
+    if (!visited){
+        ALLOC_ERROR("regex match visited NFA");
+    }
+    
+    while (node_queue.len != 0){
+        struct NodePointer node_pointer = pop_node_pointer(&node_queue);
+        if (node_pointer.str_pos == str_len && re->ending_state == node_pointer.node_ref){
+            free_queue(node_queue);
+            return 1;
+        }
+        
+        struct Node node = re->nfa_nodes[node_pointer.node_ref];
+        for (uint32_t i = 0; i < node.transitions_nb; i++){
+            struct Transition transition = node.outgoing_transitions[i];
+            if (transition.c == '\0'){
+                push_node_pointer(&node_queue, transition.end, node_pointer.str_pos);
+            } else if (node_pointer.str_pos < str_len && transition.c == str[node_pointer.str_pos]){
+                push_node_pointer(&node_queue, transition.end, node_pointer.str_pos+1);
+            }
+        }
+    }
+
+    free_queue(node_queue);
+
+    return 0;
+}*/
 
 void __init(){
     gc_init();
@@ -1363,20 +1480,25 @@ void __init(){
 }*/
 
 int main(){
-    struct Regex* re = __regex_create("aaaaa");
-    for (uint32_t i = 0; i < re->transitions_count; i++){
-        struct Transition transition = re->nfa_transitions[i];
-        if (transition.c == '\0'){
-            printf("transitions : %d -> %d\n", transition.start, transition.end);
-        } else {
-            printf("transitions : %d -> %d (%c)\n", transition.start, transition.end, transition.c);
+    struct Regex* re = __regex_create("aa");
+    printf("starting state : %d\n", re->starting_state);
+    for (uint32_t i = 0; i < re->node_count; i++){
+        printf("state %d : \n", i);
+
+        for (uint32_t j = 0; j < re->nfa_nodes[i].transitions_nb; j++){
+            struct Transition transition = re->nfa_nodes[i].outgoing_transitions[j];
+            if (transition.c == '\0'){
+                printf("\ttransitions : %d -> %d\n", transition.start, transition.end);
+            } else {
+                printf("\ttransitions : %d -> %d (%c)\n", transition.start, transition.end, transition.c);
+            }
         }
     }
-    printf("ending states :");
-    for (uint32_t i = 0; i < re->ending_states_count; i++){
-        printf(" %d", re->ending_states[i]);
-    }
-    printf("\n");
+    printf("ending state : %d\n", re->ending_state);
+
+    printf("match re re(aa) with \"aa\": %d\n", __regex_has_match(re, "aa"));
+    printf("match re re(aa) with \"bc\": %d\n", __regex_has_match(re, "bc"));
+    printf("match re re(aa) with \"ab\": %d\n", __regex_has_match(re, "ab"));
 }
 
 
