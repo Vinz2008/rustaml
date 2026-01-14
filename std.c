@@ -1436,7 +1436,7 @@ static void free_queue(struct NodeQueue node_pointers){
 }
 
 // TODO : transform in a list of chars instead (a uint32_t list, to support UTF8 ?)
-/*uint8_t __regex_has_match(struct Regex* re, const char* str){
+uint8_t __regex_has_match(struct Regex* re, const char* str){
     struct NodeQueue node_queue = init_queue(4);
     push_node_pointer(&node_queue, re->starting_state, 0);
     size_t str_len = strlen(str);
@@ -1467,7 +1467,7 @@ static void free_queue(struct NodeQueue node_pointers){
     free_queue(node_queue);
 
     return 0;
-}*/
+}
 
 void __init(){
     gc_init();
@@ -1479,7 +1479,7 @@ void __init(){
     FREE(s);
 }*/
 
-int main(){
+/*int main(){
     struct Regex* re = __regex_create("aa");
     printf("starting state : %d\n", re->starting_state);
     for (uint32_t i = 0; i < re->node_count; i++){
@@ -1499,7 +1499,7 @@ int main(){
     printf("match re re(aa) with \"aa\": %d\n", __regex_has_match(re, "aa"));
     printf("match re re(aa) with \"bc\": %d\n", __regex_has_match(re, "bc"));
     printf("match re re(aa) with \"ab\": %d\n", __regex_has_match(re, "ab"));
-}
+}*/
 
 
 // TODO : instead of using the fprintf(stderr, ..) and exit(1), use a macro for errors that would be this in low optimizations levels/with a flag transformed to a trap instruction like __builtin_trap()
