@@ -1286,7 +1286,6 @@ struct Node {
 typedef uint32_t NodeRef;
 struct Transition {
     char c;
-    NodeRef start; // TODO : is this needed ?
     NodeRef end;
 };
 
@@ -1299,7 +1298,7 @@ struct Regex {
 };
 
 
-static NodeRef dfa_add_node(struct Regex* re){
+static NodeRef nfa_add_node(struct Regex* re){
     if (re->nfa_nodes){
         re->nfa_nodes = REALLOC(re->nfa_nodes, (re->node_count + 1) * sizeof(struct Node));
     } else {
@@ -1310,9 +1309,9 @@ static NodeRef dfa_add_node(struct Regex* re){
     return res;
 }
 
-static void dfa_add_transition(struct Regex* re, struct Transition transition){
+static void nfa_add_transition(struct Regex* re, NodeRef start, struct Transition transition){
     // add a capacity field to not realloc each time
-    struct Node* node = &re->nfa_nodes[transition.start];
+    struct Node* node = &re->nfa_nodes[start];
     if (node->outgoing_transitions){
         node->outgoing_transitions = REALLOC(node->outgoing_transitions, (node->transitions_nb+1) * sizeof(struct Transition));
         node->outgoing_transitions[node->transitions_nb] = transition;
@@ -1323,6 +1322,10 @@ static void dfa_add_transition(struct Regex* re, struct Transition transition){
     node->transitions_nb++;
 }
 
+// TODO
+/*static struct RegexAST create_regex_ast(const char* str) {
+
+}*/
 
 // TODO : what should it return, for now return a ptr, in the future, make the layout of Regex stable and return it directly ?
 struct Regex* __regex_create(const char* str){
@@ -1339,18 +1342,16 @@ struct Regex* __regex_create(const char* str){
     for (size_t i = 0; i < len; i++){
         char c = str[i];
         if (('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')){
-            NodeRef start = dfa_add_node(re);
+            NodeRef start = nfa_add_node(re);
             if (last_node != (uint32_t)-1){
-                dfa_add_transition(re, (struct Transition){
+                nfa_add_transition(re, last_node, (struct Transition){
                     .c = '\0',
-                    .start = last_node,
                     .end = start,
                 });
             }
-            NodeRef end = dfa_add_node(re);
-            dfa_add_transition(re, (struct Transition){
+            NodeRef end = nfa_add_node(re);
+            nfa_add_transition(re, start, (struct Transition){
                 .c = c,
-                .start = start,
                 .end = end,
             });
             last_node = end;
@@ -1435,20 +1436,31 @@ static void free_queue(struct NodeQueue node_pointers){
     FREE(node_pointers.pointers);
 }
 
+#define VISITED(node_ref, pos) visited[(node_ref) * pos_count + (pos)]
+
 // TODO : transform in a list of chars instead (a uint32_t list, to support UTF8 ?)
 uint8_t __regex_has_match(struct Regex* re, const char* str){
     struct NodeQueue node_queue = init_queue(4);
     push_node_pointer(&node_queue, re->starting_state, 0);
     size_t str_len = strlen(str);
     size_t pos_count = str_len+1;
-    bool* visited = MALLOC(re->node_count * pos_count);
+    // find if already visited with same pos in str
+    // TODO : if visited too big, create a vec of vec ?
+    size_t visited_size = re->node_count * pos_count * sizeof(bool);
+    bool* visited = MALLOC(visited_size);
     if (!visited){
         ALLOC_ERROR("regex match visited NFA");
     }
+    memset(visited, 0, visited_size);
     
     while (node_queue.len != 0){
         struct NodePointer node_pointer = pop_node_pointer(&node_queue);
+        if (VISITED(node_pointer.node_ref, node_pointer.str_pos)){
+            continue;
+        }
+        VISITED(node_pointer.node_ref, node_pointer.str_pos) = true;
         if (node_pointer.str_pos == str_len && re->ending_state == node_pointer.node_ref){
+            FREE(visited);
             free_queue(node_queue);
             return 1;
         }
@@ -1464,6 +1476,7 @@ uint8_t __regex_has_match(struct Regex* re, const char* str){
         }
     }
 
+    FREE(visited);
     free_queue(node_queue);
 
     return 0;
@@ -1474,12 +1487,6 @@ void __init(){
 }
 
 /*int main(){
-    char* s = __format_string("test before %d test after", 123);
-    puts(s);
-    FREE(s);
-}*/
-
-/*int main(){
     struct Regex* re = __regex_create("aa");
     printf("starting state : %d\n", re->starting_state);
     for (uint32_t i = 0; i < re->node_count; i++){
@@ -1488,9 +1495,9 @@ void __init(){
         for (uint32_t j = 0; j < re->nfa_nodes[i].transitions_nb; j++){
             struct Transition transition = re->nfa_nodes[i].outgoing_transitions[j];
             if (transition.c == '\0'){
-                printf("\ttransitions : %d -> %d\n", transition.start, transition.end);
+                printf("\ttransitions : %d -> %d\n", i, transition.end);
             } else {
-                printf("\ttransitions : %d -> %d (%c)\n", transition.start, transition.end, transition.c);
+                printf("\ttransitions : %d -> %d (%c)\n", i, transition.end, transition.c);
             }
         }
     }
