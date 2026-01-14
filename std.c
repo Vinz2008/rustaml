@@ -1577,6 +1577,7 @@ uint8_t __regex_has_match(struct Regex* re, const char* str){
     size_t pos_count = str_len+1;
     // find if already visited with same pos in str
     // TODO : if visited too big, create a vec of vec ?
+    // or a bitmask ?
     size_t visited_size = re->node_count * pos_count * sizeof(bool);
     bool* visited = MALLOC(visited_size);
     if (!visited){
