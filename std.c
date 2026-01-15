@@ -1295,14 +1295,19 @@ struct Regex {
     NodeRef ending_state;
     struct Node* nfa_nodes;
     uint32_t node_count;
+    uint32_t node_capacity; // TODO : put the capacity just in a local variable and pass a pointer to it in nfa_add_node to simplify the layout and reduce the size of Regex
 };
 
 
 static NodeRef nfa_add_node(struct Regex* re){
     if (re->nfa_nodes){
-        re->nfa_nodes = REALLOC(re->nfa_nodes, (re->node_count + 1) * sizeof(struct Node));
+        if (re->node_count == re->node_capacity){
+            re->node_capacity *= 2;
+            re->nfa_nodes = REALLOC(re->nfa_nodes, re->node_capacity * sizeof(struct Node));
+        }
     } else {
         re->nfa_nodes = MALLOC(sizeof(struct Node));
+        re->node_capacity = 1;
     }
     NodeRef res = re->node_count;
     memset(re->nfa_nodes + res, 0, sizeof(struct Node));
@@ -1556,10 +1561,10 @@ static struct RegexASTNode* parse_regex_ast(struct RegexParseContext* context){
     return parse_regex_alternative(context);
 }
 
-static struct RegexASTNode* create_regex_ast(const char* str) {
+static struct RegexASTNode* create_regex_ast(const char* str, size_t str_len) {
     struct RegexParseContext context = (struct RegexParseContext){
         .str = str,
-        .str_len = strlen(str),
+        .str_len = str_len,
         .pos = 0,
     };
     return parse_regex_ast(&context);
@@ -1732,15 +1737,22 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
 // TODO : what should it return, for now return a ptr, in the future, make the layout of Regex stable and return it directly ?
 struct Regex* __regex_create(const char* str){
     struct Regex* re = MALLOC(sizeof(struct Regex));
+    size_t str_len = strlen(str);
+    uint32_t start_capacity = str_len + str_len/2; // str_len * 1.5
+    if (start_capacity == 0){
+        start_capacity = 1;
+    }
     // TODO : preallocate the nfa_nodes buffer using the fact that is thompson method (number of special ops/chars * 2)
     *re = (struct Regex){
         .starting_state = 0,
         .ending_state = 0,
-        .nfa_nodes = NULL,
+        .nfa_nodes = MALLOC(start_capacity * sizeof(struct Node)),
         .node_count = 0,
+        .node_capacity = start_capacity,
     };
 
-    const struct RegexASTNode* ast = create_regex_ast(str);
+    
+    const struct RegexASTNode* ast = create_regex_ast(str, str_len);
     struct NFAFragment nfa_fragment = regex_create_from_ast(re, ast);
     re->starting_state = nfa_fragment.start;
     re->ending_state = nfa_fragment.end;
