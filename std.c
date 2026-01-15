@@ -1357,6 +1357,7 @@ struct RegexASTNode {
         AST_ALTER,
         AST_KLEENE,
         AST_PLUS,
+        AST_OPTIONAL,
     } tag;
     union {
         char c;
@@ -1485,7 +1486,7 @@ static struct RegexASTNode* parse_regex_ast_leaf(struct RegexParseContext* conte
 }
 
 
-// plus and kleene staer
+// plus, kleene star and optional
 static struct RegexASTNode* parse_postfix(struct RegexParseContext* context){
     struct RegexASTNode* re = parse_regex_ast_leaf(context);
     while (CHARS_AVAILABLE(context)){
@@ -1500,6 +1501,12 @@ static struct RegexASTNode* parse_postfix(struct RegexParseContext* context){
             ADVANCE(context);
             re = new_ast_node((struct RegexASTNode){
                 .tag = AST_PLUS,
+                .data.unary_data = re,
+            });
+        } else if (c == '?'){
+            ADVANCE(context);
+            re = new_ast_node((struct RegexASTNode){
+                .tag = AST_OPTIONAL,
                 .data.unary_data = re,
             });
         } else {
@@ -1549,7 +1556,6 @@ static struct RegexASTNode* parse_regex_ast(struct RegexParseContext* context){
     return parse_regex_alternative(context);
 }
 
-// TODO
 static struct RegexASTNode* create_regex_ast(const char* str) {
     struct RegexParseContext context = (struct RegexParseContext){
         .str = str,
@@ -1583,14 +1589,25 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
         case AST_CHAR_CLASS: {
             // TODO : put this in other function ?
             struct CharClass char_class = ast->data.char_class;
+            start = nfa_add_node(re);
+            end = nfa_add_node(re);
             switch (char_class.tag){
                 case CHAR_CLASS_RANGE: {
                     struct CharClassRange char_class_range = char_class.data.range;
-                    start = nfa_add_node(re);
-                    end = nfa_add_node(re);
                     for (unsigned char c = (unsigned char)char_class_range.start; c <= (unsigned char)char_class_range.end; c++){
                         nfa_add_transition(re, start, (struct Transition){
                             .c = c,
+                            .end = end,
+                        });
+                    }
+                    break;
+                }
+                case CHAR_CLASS_LIST: {
+                    char* char_class_list = char_class.data.list;
+                    size_t char_list_len = strlen(char_class_list);
+                    for (size_t i = 0; i < char_list_len; i++){
+                        nfa_add_transition(re, start, (struct Transition){
+                            .c = char_class_list[i],
                             .end = end,
                         });
                     }
@@ -1680,6 +1697,26 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
                 .end = end,
             });
             
+            break;
+        }
+        case AST_OPTIONAL: {
+            start = nfa_add_node(re);
+            struct RegexASTNode* optional_node = ast->data.unary_data;
+            struct NFAFragment fragment_node = regex_create_from_ast(re, optional_node);
+            nfa_add_transition(re, start, (struct Transition){
+                .c = EPSILON,
+                .end = fragment_node.start,
+            });
+
+            end = nfa_add_node(re);
+            nfa_add_transition(re, fragment_node.end, (struct Transition){
+                .c = EPSILON,
+                .end = end,
+            });
+            nfa_add_transition(re, start, (struct Transition){
+                .c = EPSILON,
+                .end = end,
+            });
             break;
         }
         default:
