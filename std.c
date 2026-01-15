@@ -1305,6 +1305,7 @@ static NodeRef nfa_add_node(struct Regex* re){
         re->nfa_nodes = MALLOC(sizeof(struct Node));
     }
     NodeRef res = re->node_count;
+    memset(re->nfa_nodes + res, 0, sizeof(struct Node));
     re->node_count++;
     return res;
 }
@@ -1322,8 +1323,21 @@ static void nfa_add_transition(struct Regex* re, NodeRef start, struct Transitio
     node->transitions_nb++;
 }
 
+struct CharClass {
+    enum {
+        CHAR_CLASS_RANGE,
+        CHAR_CLASS_LIST,
+    } tag;
+    union {
+        struct CharClassRange {
+            char start;
+            char end;
+        } range;
+        char* list;
+    } data;
+};
+
 // TODO : flattened AST ?
-// TODO : plus + 
 // TODO : optional ?
 // TODO : character classes [1-9] [abc]
 // TODO : negated character class [^1-9] [^abc]
@@ -1338,22 +1352,21 @@ static void nfa_add_transition(struct Regex* re, NodeRef start, struct Transitio
 struct RegexASTNode {
     enum {
         AST_CHAR,
+        AST_CHAR_CLASS,
         AST_CONCAT,
         AST_ALTER,
         AST_KLEENE,
+        AST_PLUS,
     } tag;
     union {
         char c;
         // TODO : put these in a ptr ?
-        struct Concat {
+        struct BinaryNode {
             struct RegexASTNode* lhs;
             struct RegexASTNode* rhs;
-        } concat;
-        struct Alternative {
-            struct RegexASTNode* lhs;
-            struct RegexASTNode* rhs;
-        } alternative;
-        struct RegexASTNode* kleene_node;
+        } binary;
+        struct RegexASTNode* unary_data;
+        struct CharClass char_class;
     } data;
 };
 
@@ -1373,7 +1386,7 @@ struct RegexParseContext {
 #define PASS(CONTEXT, expected) do { \
         char c = ADVANCE(context); \
         if (c != expected){ \
-            fprintf(stderr, "error when parsing regex, expected %c, but got %d\n", expected, c); \
+            fprintf(stderr, "error when parsing regex, expected %c, but got %c\n", expected, c); \
             exit(1); \
         } \
     } while(0);
@@ -1391,9 +1404,10 @@ static struct RegexASTNode* new_ast_node(struct RegexASTNode ast_node){
     return res;
 }
 
-static struct RegexASTNode* parse_regex_ast_leaf(struct RegexParseContext* context){
+static struct RegexASTNode* parse_char(struct RegexParseContext* context){
     assert(CHARS_AVAILABLE(context));
     char c = ADVANCE(context);
+    assert(c != '|' && c != ')' && c != '*' && c != '+');
     struct RegexASTNode* leaf = new_ast_node((struct RegexASTNode){
         .tag = AST_CHAR, 
         .data.c = c,
@@ -1402,41 +1416,110 @@ static struct RegexASTNode* parse_regex_ast_leaf(struct RegexParseContext* conte
     return leaf;
 }
 
+static struct RegexASTNode* parse_char_class(struct RegexParseContext* context){
+    struct CharClass char_class;
+    PASS(context, '[');
+    char first_char = ADVANCE(context);
+    if (CHARS_AVAILABLE(context)){
+        char c = PEEK(context);
+        if (c == '-'){
+            ADVANCE(context);
+            char end_range = ADVANCE(context);
+            if (end_range < first_char){
+                fprintf(stderr, "Invalid range in char class : [%d-%d]\n", first_char, end_range);
+                exit(1);
+            }
+            char_class = (struct CharClass){
+                .tag = CHAR_CLASS_RANGE,
+                .data.range = {
+                    .start = first_char,
+                    .end = end_range,
+                }
+            };
+        } else {
+            size_t start_pos = context->pos-1;
+            while (CHARS_AVAILABLE(context) && PEEK(context) != ']'){
+                ADVANCE(context);
+            }
+            size_t end_pos = context->pos;
+            size_t len = end_pos-start_pos;
+            char* char_list = MALLOC((len + 1) * sizeof(char));
+            memcpy(char_list, context->str + start_pos, len);
+            char_list[len] = '\0';
+            char_class = (struct CharClass){
+                .tag = CHAR_CLASS_LIST,
+                .data.list = char_list,
+            };
+        }
+    } else {
+        char* char_list = MALLOC(sizeof(char) * 2);
+        char_list[0] = first_char;
+        char_list[1] = '\0';
+        char_class = (struct CharClass){
+            .tag = CHAR_CLASS_LIST,
+            .data.list = char_list,
+        };
+    }
+    struct RegexASTNode* char_class_node = new_ast_node((struct RegexASTNode){
+        .tag = AST_CHAR_CLASS,
+        .data.char_class = char_class,
+    });
+    PASS(context, ']');
+    return char_class_node;
+}
+
 static struct RegexASTNode* parse_regex_ast(struct RegexParseContext* context);
 
-static struct RegexASTNode* parse_parenthesis(struct RegexParseContext* context){
-    if (PEEK(context) == '('){
+static struct RegexASTNode* parse_regex_ast_leaf(struct RegexParseContext* context){
+    assert(CHARS_AVAILABLE(context));
+    char c = PEEK(context);
+    if (c == '('){
         ADVANCE(context);
         struct RegexASTNode* re = parse_regex_ast(context);
         PASS(context, ')');
         return re;
+    } else if (c == '['){
+        return parse_char_class(context);
     }
-    return parse_regex_ast_leaf(context);
+    return parse_char(context);
 }
 
-static struct RegexASTNode* parse_kleene_star(struct RegexParseContext* context){
-    struct RegexASTNode* re = parse_parenthesis(context);
-    if (CHARS_AVAILABLE(context) && PEEK(context) == '*'){
-        ADVANCE(context);
-        re = new_ast_node((struct RegexASTNode){
-            .tag = AST_KLEENE,
-            .data.kleene_node = re,
-        });
+
+// plus and kleene staer
+static struct RegexASTNode* parse_postfix(struct RegexParseContext* context){
+    struct RegexASTNode* re = parse_regex_ast_leaf(context);
+    while (CHARS_AVAILABLE(context)){
+        char c = PEEK(context);
+        if (c == '*'){
+            ADVANCE(context);
+            re = new_ast_node((struct RegexASTNode){
+                .tag = AST_KLEENE,
+                .data.unary_data = re,
+            });
+        } else if (c == '+'){
+            ADVANCE(context);
+            re = new_ast_node((struct RegexASTNode){
+                .tag = AST_PLUS,
+                .data.unary_data = re,
+            });
+        } else {
+            break;
+        }
     }
     return re;
 }
 
 static struct RegexASTNode* parse_concat(struct RegexParseContext* context){
-    struct RegexASTNode* lhs = parse_kleene_star(context);
+    struct RegexASTNode* lhs = parse_postfix(context);
     while (CHARS_AVAILABLE(context)){
         char c = PEEK(context);
         if (c == '|' || c == ')'){
             break;
         }
-        struct RegexASTNode* rhs = parse_kleene_star(context);
+        struct RegexASTNode* rhs = parse_postfix(context);
         lhs = new_ast_node((struct RegexASTNode){
             .tag = AST_CONCAT,
-            .data.concat = {
+            .data.binary = {
                 .lhs = lhs,
                 .rhs = rhs,
             },
@@ -1453,7 +1536,7 @@ static struct RegexASTNode* parse_regex_alternative(struct RegexParseContext* co
         struct RegexASTNode* rhs = parse_concat(context);
         lhs = new_ast_node((struct RegexASTNode){
             .tag = AST_ALTER,
-            .data.alternative = {
+            .data.binary = {
                 .lhs = lhs,
                 .rhs = rhs,
             },
@@ -1497,8 +1580,30 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
             });
             break;
         }
+        case AST_CHAR_CLASS: {
+            // TODO : put this in other function ?
+            struct CharClass char_class = ast->data.char_class;
+            switch (char_class.tag){
+                case CHAR_CLASS_RANGE: {
+                    struct CharClassRange char_class_range = char_class.data.range;
+                    start = nfa_add_node(re);
+                    end = nfa_add_node(re);
+                    for (unsigned char c = (unsigned char)char_class_range.start; c <= (unsigned char)char_class_range.end; c++){
+                        nfa_add_transition(re, start, (struct Transition){
+                            .c = c,
+                            .end = end,
+                        });
+                    }
+                    break;
+                }
+                default:
+                    fprintf(stderr, "Unknown char class : %d\n", char_class.tag);
+                    exit(1);
+            }
+            break;
+        }
         case AST_CONCAT: {
-            struct Concat concat = ast->data.concat;
+            struct BinaryNode concat = ast->data.binary;
             struct NFAFragment fragment_lhs = regex_create_from_ast(re, concat.lhs);
             struct NFAFragment fragment_rhs = regex_create_from_ast(re, concat.rhs);
             nfa_add_transition(re, fragment_lhs.end, (struct Transition){
@@ -1510,9 +1615,8 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
             break;
         }
         case AST_ALTER: {
-            // TODO
             start = nfa_add_node(re);
-            struct Alternative alter = ast->data.alternative;
+            struct BinaryNode alter = ast->data.binary;
             struct NFAFragment fragment_lhs = regex_create_from_ast(re, alter.lhs);
             struct NFAFragment fragment_rhs = regex_create_from_ast(re, alter.rhs);
             nfa_add_transition(re, start, (struct Transition){
@@ -1540,7 +1644,7 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
         }
         case AST_KLEENE: {
             start = nfa_add_node(re);
-            struct RegexASTNode* kleene_node = ast->data.kleene_node;
+            struct RegexASTNode* kleene_node = ast->data.unary_data;
             struct NFAFragment fragment_node = regex_create_from_ast(re, kleene_node);
             nfa_add_transition(re, fragment_node.end, (struct Transition){
                 .c = EPSILON,
@@ -1555,6 +1659,27 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
                 .c = EPSILON,
                 .end = end,
             });
+            nfa_add_transition(re, start, (struct Transition){
+                .c = EPSILON,
+                .end = end,
+            });
+            break;
+        }
+        case AST_PLUS: {
+            struct RegexASTNode* plus_node = ast->data.unary_data;
+            struct NFAFragment fragment_node = regex_create_from_ast(re, plus_node);
+            start = fragment_node.start;
+
+            nfa_add_transition(re, fragment_node.end, (struct Transition){
+                .c = EPSILON,
+                .end = fragment_node.start,
+            });
+            end = nfa_add_node(re);
+            nfa_add_transition(re, fragment_node.end, (struct Transition){
+                .c = EPSILON,
+                .end = end,
+            });
+            
             break;
         }
         default:
@@ -1570,6 +1695,7 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
 // TODO : what should it return, for now return a ptr, in the future, make the layout of Regex stable and return it directly ?
 struct Regex* __regex_create(const char* str){
     struct Regex* re = MALLOC(sizeof(struct Regex));
+    // TODO : preallocate the nfa_nodes buffer using the fact that is thompson method (number of special ops/chars * 2)
     *re = (struct Regex){
         .starting_state = 0,
         .ending_state = 0,
@@ -1708,7 +1834,7 @@ void __init(){
 }
 
 /*int main(){
-    const char* regex_str = "(a*)|b";
+    const char* regex_str = "(a*)|(b(a+))|[0-9]";
     struct Regex* re = __regex_create(regex_str);
     printf("starting state : %d\n", re->starting_state);
     for (uint32_t i = 0; i < re->node_count; i++){
@@ -1727,8 +1853,10 @@ void __init(){
 
     printf("match re re(%s) with \"aa\": %d\n", regex_str, __regex_has_match(re, "aa"));
     printf("match re re(%s) with \"b\": %d\n", regex_str, __regex_has_match(re, "b"));
+    printf("match re re(%s) with \"ba\": %d\n", regex_str, __regex_has_match(re, "ba"));
     printf("match re re(%s) with \"bc\": %d\n", regex_str, __regex_has_match(re, "bc"));
     printf("match re re(%s) with \"ab\": %d\n", regex_str, __regex_has_match(re, "ab"));
+    printf("match re re(%s) with \"0\": %d\n", regex_str, __regex_has_match(re, "0"));
 }*/
 
 
