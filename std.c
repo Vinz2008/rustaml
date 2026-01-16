@@ -1285,7 +1285,8 @@ struct Node {
 
 typedef uint32_t NodeRef;
 struct Transition {
-    char c;
+    char char_start;
+    char char_end;
     NodeRef end;
 };
 
@@ -1315,7 +1316,7 @@ static NodeRef nfa_add_node(struct Regex* re){
     return res;
 }
 
-static void nfa_add_transition(struct Regex* re, NodeRef start, struct Transition transition){
+static void _nfa_add_transition(struct Regex* re, NodeRef start, struct Transition transition){
     // add a capacity field to not realloc each time
     struct Node* node = &re->nfa_nodes[start];
     if (node->outgoing_transitions){
@@ -1327,6 +1328,23 @@ static void nfa_add_transition(struct Regex* re, NodeRef start, struct Transitio
     }
     node->transitions_nb++;
 }
+
+static void nfa_add_transition(struct Regex* re, NodeRef start, char c, NodeRef end){
+    _nfa_add_transition(re, start, (struct Transition){
+        .char_start = c,
+        .char_end = c,
+        .end = end,
+    });
+}
+
+static void nfa_add_transition_range(struct Regex* re, NodeRef start, char char_start, char char_end, NodeRef end){
+    _nfa_add_transition(re, start, (struct Transition){
+        .char_start = char_start,
+        .char_end = char_end,
+        .end = end,
+    });
+}
+
 
 struct CharClass {
     enum {
@@ -1340,6 +1358,7 @@ struct CharClass {
         } range;
         char* list;
     } data;
+    bool is_negated;
 };
 
 // TODO : flattened AST ?
@@ -1426,6 +1445,11 @@ static struct RegexASTNode* parse_char_class(struct RegexParseContext* context){
     struct CharClass char_class;
     PASS(context, '[');
     char first_char = ADVANCE(context);
+    bool is_negated = false;
+    if (first_char == '^'){
+        ADVANCE(context);
+        is_negated = true;
+    }
     if (CHARS_AVAILABLE(context)){
         char c = PEEK(context);
         if (c == '-'){
@@ -1440,7 +1464,8 @@ static struct RegexASTNode* parse_char_class(struct RegexParseContext* context){
                 .data.range = {
                     .start = first_char,
                     .end = end_range,
-                }
+                },
+                .is_negated = is_negated,
             };
         } else {
             size_t start_pos = context->pos-1;
@@ -1455,6 +1480,7 @@ static struct RegexASTNode* parse_char_class(struct RegexParseContext* context){
             char_class = (struct CharClass){
                 .tag = CHAR_CLASS_LIST,
                 .data.list = char_list,
+                .is_negated = is_negated,
             };
         }
     } else {
@@ -1464,6 +1490,7 @@ static struct RegexASTNode* parse_char_class(struct RegexParseContext* context){
         char_class = (struct CharClass){
             .tag = CHAR_CLASS_LIST,
             .data.list = char_list,
+            .is_negated = is_negated,
         };
     }
     struct RegexASTNode* char_class_node = new_ast_node((struct RegexASTNode){
@@ -1585,36 +1612,30 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
             start = nfa_add_node(re);
             end = nfa_add_node(re);
             char c = ast->data.c;
-            nfa_add_transition(re, start, (struct Transition){
-                .c = c,
-                .end = end,
-            });
+            nfa_add_transition(re, start, c, end);
             break;
         }
         case AST_CHAR_CLASS: {
             // TODO : put this in other function ?
             struct CharClass char_class = ast->data.char_class;
+            if (char_class.is_negated){
+                // TODO
+                fprintf(stderr, "TODO : negated char class is not implemented already\n");
+                exit(1);
+            }
             start = nfa_add_node(re);
             end = nfa_add_node(re);
             switch (char_class.tag){
                 case CHAR_CLASS_RANGE: {
                     struct CharClassRange char_class_range = char_class.data.range;
-                    for (unsigned char c = (unsigned char)char_class_range.start; c <= (unsigned char)char_class_range.end; c++){
-                        nfa_add_transition(re, start, (struct Transition){
-                            .c = c,
-                            .end = end,
-                        });
-                    }
+                    nfa_add_transition_range(re, start, char_class_range.start, char_class_range.end, end);
                     break;
                 }
                 case CHAR_CLASS_LIST: {
                     char* char_class_list = char_class.data.list;
                     size_t char_list_len = strlen(char_class_list);
                     for (size_t i = 0; i < char_list_len; i++){
-                        nfa_add_transition(re, start, (struct Transition){
-                            .c = char_class_list[i],
-                            .end = end,
-                        });
+                        nfa_add_transition(re, start, char_class_list[i], end);
                     }
                     break;
                 }
@@ -1628,10 +1649,7 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
             struct BinaryNode concat = ast->data.binary;
             struct NFAFragment fragment_lhs = regex_create_from_ast(re, concat.lhs);
             struct NFAFragment fragment_rhs = regex_create_from_ast(re, concat.rhs);
-            nfa_add_transition(re, fragment_lhs.end, (struct Transition){
-                .c = EPSILON,
-                .end = fragment_rhs.start,
-            });
+            nfa_add_transition(re, fragment_lhs.end, EPSILON, fragment_rhs.start);
             start = fragment_lhs.start;
             end = fragment_rhs.end;
             break;
@@ -1641,26 +1659,14 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
             struct BinaryNode alter = ast->data.binary;
             struct NFAFragment fragment_lhs = regex_create_from_ast(re, alter.lhs);
             struct NFAFragment fragment_rhs = regex_create_from_ast(re, alter.rhs);
-            nfa_add_transition(re, start, (struct Transition){
-                .c = EPSILON,
-                .end = fragment_lhs.start,
-            });
-            nfa_add_transition(re, start, (struct Transition){
-                .c = EPSILON,
-                .end = fragment_rhs.start,
-            });
+            nfa_add_transition(re, start, EPSILON, fragment_lhs.start);
+            nfa_add_transition(re, start, EPSILON, fragment_rhs.start);
             
             end = nfa_add_node(re);
 
-            nfa_add_transition(re, fragment_lhs.end, (struct Transition){
-                .c = EPSILON,
-                .end = end,
-            });
+            nfa_add_transition(re, fragment_lhs.end, EPSILON, end);
 
-            nfa_add_transition(re, fragment_rhs.end, (struct Transition){
-                .c = EPSILON,
-                .end = end,
-            });
+            nfa_add_transition(re, fragment_rhs.end, EPSILON, end);
 
             break;
         }
@@ -1668,23 +1674,11 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
             start = nfa_add_node(re);
             struct RegexASTNode* kleene_node = ast->data.unary_data;
             struct NFAFragment fragment_node = regex_create_from_ast(re, kleene_node);
-            nfa_add_transition(re, fragment_node.end, (struct Transition){
-                .c = EPSILON,
-                .end = fragment_node.start,
-            });
+            nfa_add_transition(re, fragment_node.end, EPSILON, fragment_node.start);
             end = nfa_add_node(re);
-            nfa_add_transition(re, start, (struct Transition){
-                .c = EPSILON,
-                .end = fragment_node.start,
-            });
-            nfa_add_transition(re, fragment_node.end, (struct Transition){
-                .c = EPSILON,
-                .end = end,
-            });
-            nfa_add_transition(re, start, (struct Transition){
-                .c = EPSILON,
-                .end = end,
-            });
+            nfa_add_transition(re, start, EPSILON, fragment_node.start);
+            nfa_add_transition(re, fragment_node.end, EPSILON, end);
+            nfa_add_transition(re, start, EPSILON, end);
             break;
         }
         case AST_PLUS: {
@@ -1692,15 +1686,9 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
             struct NFAFragment fragment_node = regex_create_from_ast(re, plus_node);
             start = fragment_node.start;
 
-            nfa_add_transition(re, fragment_node.end, (struct Transition){
-                .c = EPSILON,
-                .end = fragment_node.start,
-            });
+            nfa_add_transition(re, fragment_node.end, EPSILON, fragment_node.start);
             end = nfa_add_node(re);
-            nfa_add_transition(re, fragment_node.end, (struct Transition){
-                .c = EPSILON,
-                .end = end,
-            });
+            nfa_add_transition(re, fragment_node.end, EPSILON, end);
             
             break;
         }
@@ -1708,20 +1696,11 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
             start = nfa_add_node(re);
             struct RegexASTNode* optional_node = ast->data.unary_data;
             struct NFAFragment fragment_node = regex_create_from_ast(re, optional_node);
-            nfa_add_transition(re, start, (struct Transition){
-                .c = EPSILON,
-                .end = fragment_node.start,
-            });
+            nfa_add_transition(re, start, EPSILON, fragment_node.start);
 
             end = nfa_add_node(re);
-            nfa_add_transition(re, fragment_node.end, (struct Transition){
-                .c = EPSILON,
-                .end = end,
-            });
-            nfa_add_transition(re, start, (struct Transition){
-                .c = EPSILON,
-                .end = end,
-            });
+            nfa_add_transition(re, fragment_node.end, EPSILON, end);
+            nfa_add_transition(re, start, EPSILON, end);
             break;
         }
         default:
@@ -1864,9 +1843,9 @@ uint8_t __regex_has_match(struct Regex* re, const char* str){
         struct Node node = re->nfa_nodes[node_pointer.node_ref];
         for (uint32_t i = 0; i < node.transitions_nb; i++){
             struct Transition transition = node.outgoing_transitions[i];
-            if (transition.c == EPSILON){
+            if (transition.char_start == EPSILON){
                 push_node_pointer(&node_queue, transition.end, node_pointer.str_pos);
-            } else if (node_pointer.str_pos < str_len && transition.c == str[node_pointer.str_pos]){
+            } else if (node_pointer.str_pos < str_len && transition.char_start <= str[node_pointer.str_pos] && str[node_pointer.str_pos] <= transition.char_end){
                 push_node_pointer(&node_queue, transition.end, node_pointer.str_pos+1);
             }
         }
@@ -1891,10 +1870,14 @@ void __init(){
 
         for (uint32_t j = 0; j < re->nfa_nodes[i].transitions_nb; j++){
             struct Transition transition = re->nfa_nodes[i].outgoing_transitions[j];
-            if (transition.c == '\0'){
+            if (transition.char_start == EPSILON){
                 printf("\ttransitions : %d -> %d\n", i, transition.end);
             } else {
-                printf("\ttransitions : %d -> %d (%c)\n", i, transition.end, transition.c);
+                if (transition.char_start == transition.char_end){
+                    printf("\ttransitions : %d -> %d (%c)\n", i, transition.end, transition.char_start);
+                } else {
+                    printf("\ttransitions : %d -> %d (%c-%c)\n", i, transition.end, transition.char_start, transition.char_end);
+                }
             }
         }
     }
