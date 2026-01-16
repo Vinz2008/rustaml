@@ -1393,6 +1393,32 @@ struct RegexASTNode {
 };
 
 
+static void free_ast(struct RegexASTNode* ast){
+    // TODO : should it be run when gc is enabled ?? (add a ifdef for it ?)
+    switch (ast->tag){
+        case AST_CHAR:
+            break;
+        case AST_CHAR_CLASS:
+            // TODO
+            FREE(ast->data.char_class.ranges.ranges);
+            break;
+        case AST_CONCAT:
+        case AST_ALTER:
+            free_ast(ast->data.binary.lhs);
+            free_ast(ast->data.binary.rhs);
+            break;
+        case AST_KLEENE:
+        case AST_PLUS:
+        case AST_OPTIONAL:
+            free_ast(ast->data.unary_data);
+            break;
+        default:
+            fprintf(stderr, "Unknown tag in AST : %d\n", ast->tag);
+            exit(1);
+    }
+    FREE(ast);
+}
+
 struct RegexParseContext {
     const char* str;
     size_t str_len;
@@ -1622,6 +1648,8 @@ static struct NFAFragment regex_create_char_class(struct Regex* re, struct CharC
         .len = char_class.ranges.len,
     };
     memcpy(ranges_copy.ranges, char_class.ranges.ranges, sizeof(struct CharClassRange) * char_class.ranges.len);
+    // TODO : put all these steps in separate functions ? 
+
     // sort ranges
     for (size_t i = 1; i < ranges_copy.len; i++){
         struct CharClassRange range = ranges_copy.ranges[i];
@@ -1632,18 +1660,34 @@ static struct NFAFragment regex_create_char_class(struct Regex* re, struct CharC
         }
         ranges_copy.ranges[j] = range;
     }
-    struct CharClassRanges ranges_merged = (struct CharClassRanges){
-        .ranges = NULL,
-        .len = 0,
-    };
+
+#define MIN(a, b) ((a) < (b)) ? (a) : (b)
+#define MAX(a, b) ((a) > (b)) ? (a) : (b)
+
     // merge ranges
-    for (size_t i = 0; i < ranges_copy.len; i++){
-        struct CharClassRange range = ranges_copy.ranges[i];
-        // TODO
-        add_char_class_range(&ranges_merged, range);
+    size_t i = 1;
+    while (i < ranges_copy.len){
+        struct CharClassRange* range_first = &ranges_copy.ranges[i-1];
+        struct CharClassRange* range_second = &ranges_copy.ranges[i];
+        if (range_first->end + 1 >= range_second->start){
+            *range_first = (struct CharClassRange){
+                .start = MIN(range_first->start, range_second->start),
+                .end = MAX(range_first->end, range_second->end),
+            };
+            // TODO : optimize to not have to memmove ?
+            memmove(ranges_copy.ranges + i, ranges_copy.ranges + i + 1, (ranges_copy.len - i - 1) * sizeof(struct CharClassRange));
+            ranges_copy.len--;
+        } else {
+            i++;
+        }
     }
+
+    struct CharClassRanges ranges_merged = ranges_copy;
+
     if (is_negated){
-        // TODO : reverse the range list
+        for (size_t i = 0; i < ranges_merged.len; i++){
+            // TODO : reverse the range list
+        }
         fprintf(stderr, "TODO : negated char class is not implemented already\n");
         exit(1);
     } else {
@@ -1656,6 +1700,9 @@ static struct NFAFragment regex_create_char_class(struct Regex* re, struct CharC
             }
         }
     }
+    
+    FREE(ranges_copy.ranges);
+
     return (struct NFAFragment){
         .start = start,
         .end = end,
@@ -1766,8 +1813,9 @@ struct Regex* __regex_create(const char* str){
     };
 
     
-    const struct RegexASTNode* ast = create_regex_ast(str, str_len);
+    struct RegexASTNode* ast = create_regex_ast(str, str_len);
     struct NFAFragment nfa_fragment = regex_create_from_ast(re, ast);
+    free_ast(ast);
     re->starting_state = nfa_fragment.start;
     re->ending_state = nfa_fragment.end;
     return re;
@@ -1897,7 +1945,7 @@ void __init(){
 }
 
 /*int main(){
-    const char* regex_str = "(a*)|(b(a+))|[0-9]";
+    const char* regex_str = "(a*)|(b(a+))|[0-9]|[cde]";
     struct Regex* re = __regex_create(regex_str);
     printf("starting state : %d\n", re->starting_state);
     for (uint32_t i = 0; i < re->node_count; i++){
