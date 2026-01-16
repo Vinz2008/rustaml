@@ -1343,9 +1343,9 @@ struct CharClass {
 };
 
 // TODO : flattened AST ?
-// TODO : optional ?
-// TODO : character classes [1-9] [abc]
 // TODO : negated character class [^1-9] [^abc]
+// TODO : have ranges transitions instead of single transitions (ex : range [a-z] is 1 transition instead of 26, 208 -> 8 bytes)
+// TODO : multiple ranges (does [a-zA-z] should work ?) ?
 // TODO : predefined classes : \d : digit, \w : word, \s : whitespace
 // TODO : Start / end anchors ^ $
 // TODO : Word boundary \b
