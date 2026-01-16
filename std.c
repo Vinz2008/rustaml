@@ -1347,27 +1347,24 @@ static void nfa_add_transition_range(struct Regex* re, NodeRef start, char char_
 
 
 struct CharClass {
-    enum {
-        CHAR_CLASS_RANGE,
-        CHAR_CLASS_LIST,
-    } tag;
-    union {
+    bool is_negated;
+    // TODO : grow this with capacity
+    struct CharClassRanges {
         struct CharClassRange {
             char start;
             char end;
-        } range;
-        char* list;
-    } data;
-    bool is_negated;
+        }* ranges;
+        size_t len;
+    } ranges;
 };
 
-// TODO : flattened AST ?
 // TODO : negated character class [^1-9] [^abc]
 // TODO : have ranges transitions instead of single transitions (ex : range [a-z] is 1 transition instead of 26, 208 -> 8 bytes)
 // TODO : multiple ranges (does [a-zA-z] should work ?) ?
 // TODO : predefined classes : \d : digit, \w : word, \s : whitespace
 // TODO : Start / end anchors ^ $
 // TODO : Word boundary \b
+// TODO : flattened AST ?
 // TODO : unicode
 // TODO : escape regex special chars
 // TODO : ensure that leftmost match wins, not longest (ex : a|ab matches "a")
@@ -1441,58 +1438,68 @@ static struct RegexASTNode* parse_char(struct RegexParseContext* context){
     return leaf;
 }
 
+// TODO : reduce the number of args (make patterns and patterns_nb in a struct ?)
+static void add_char_class_range(struct CharClassRanges* ranges, struct CharClassRange range){
+    if (!ranges->ranges){
+        ranges->ranges = MALLOC_NO_PTR(sizeof(struct CharClassRange));
+        *ranges->ranges = range;
+    } else {
+        ranges->ranges = REALLOC(ranges->ranges, sizeof(struct CharClassRange) * (ranges->len + 1));
+        ranges->ranges[ranges->len] = range;
+    }
+    ranges->len++;
+}
+
 static struct RegexASTNode* parse_char_class(struct RegexParseContext* context){
-    struct CharClass char_class;
+    // TODO : grow with capacity the patterns list
+    struct CharClassRanges ranges = (struct CharClassRanges){0};
     PASS(context, '[');
-    char first_char = ADVANCE(context);
     bool is_negated = false;
-    if (first_char == '^'){
+    if (CHARS_AVAILABLE(context) && PEEK(context) == '^'){
         ADVANCE(context);
         is_negated = true;
     }
-    if (CHARS_AVAILABLE(context)){
-        char c = PEEK(context);
-        if (c == '-'){
-            ADVANCE(context);
+    
+    bool has_prev_char = false;
+    char prev_char;
+    while (CHARS_AVAILABLE(context) && PEEK(context) != ']'){
+        char c = ADVANCE(context);
+        if (has_prev_char && c == '-'){
             char end_range = ADVANCE(context);
-            if (end_range < first_char){
-                fprintf(stderr, "Invalid range in char class : [%d-%d]\n", first_char, end_range);
+            if (end_range < prev_char){
+                fprintf(stderr, "Invalid range in char class : [%d-%d]\n", prev_char, end_range);
                 exit(1);
             }
-            char_class = (struct CharClass){
-                .tag = CHAR_CLASS_RANGE,
-                .data.range = {
-                    .start = first_char,
-                    .end = end_range,
-                },
-                .is_negated = is_negated,
+            struct CharClassRange range = (struct CharClassRange){
+                .start = prev_char,
+                .end = end_range,
             };
+            add_char_class_range(&ranges, range);
+
+            has_prev_char = false;
         } else {
-            size_t start_pos = context->pos-1;
-            while (CHARS_AVAILABLE(context) && PEEK(context) != ']'){
-                ADVANCE(context);
+            if (has_prev_char){
+                struct CharClassRange range = (struct CharClassRange){
+                    .start = prev_char,
+                    .end = prev_char,
+                };
+                add_char_class_range(&ranges, range);
             }
-            size_t end_pos = context->pos;
-            size_t len = end_pos-start_pos;
-            char* char_list = MALLOC((len + 1) * sizeof(char));
-            memcpy(char_list, context->str + start_pos, len);
-            char_list[len] = '\0';
-            char_class = (struct CharClass){
-                .tag = CHAR_CLASS_LIST,
-                .data.list = char_list,
-                .is_negated = is_negated,
-            };
+            prev_char = c;
+            has_prev_char = true;
         }
-    } else {
-        char* char_list = MALLOC(sizeof(char) * 2);
-        char_list[0] = first_char;
-        char_list[1] = '\0';
-        char_class = (struct CharClass){
-            .tag = CHAR_CLASS_LIST,
-            .data.list = char_list,
-            .is_negated = is_negated,
-        };
     }
+    if (has_prev_char){
+        struct CharClassRange range = (struct CharClassRange){
+            .start = prev_char,
+            .end = prev_char,
+        };
+        add_char_class_range(&ranges, range);
+    }
+    struct CharClass char_class = (struct CharClass){
+        .is_negated = is_negated,
+        .ranges = ranges,
+    };
     struct RegexASTNode* char_class_node = new_ast_node((struct RegexASTNode){
         .tag = AST_CHAR_CLASS,
         .data.char_class = char_class,
@@ -1604,6 +1611,57 @@ struct NFAFragment {
 
 // TODO : create functions to create epsilon transition and simple transition to make the code simpler ?
 
+static struct NFAFragment regex_create_char_class(struct Regex* re, struct CharClass char_class){
+    // TODO : need a lot of change for unicode support (especially for negation)
+    bool is_negated = char_class.is_negated;
+    NodeRef start = nfa_add_node(re);
+    NodeRef end = nfa_add_node(re);
+    
+    struct CharClassRanges ranges_copy = (struct CharClassRanges){
+        .ranges = MALLOC_NO_PTR(sizeof(struct CharClassRange) * char_class.ranges.len),
+        .len = char_class.ranges.len,
+    };
+    memcpy(ranges_copy.ranges, char_class.ranges.ranges, sizeof(struct CharClassRange) * char_class.ranges.len);
+    // sort ranges
+    for (size_t i = 1; i < ranges_copy.len; i++){
+        struct CharClassRange range = ranges_copy.ranges[i];
+        size_t j = i;
+        while (j > 0 && ranges_copy.ranges[j-1].start > range.start){
+            ranges_copy.ranges[j-1] = ranges_copy.ranges[j];
+            j--; 
+        }
+        ranges_copy.ranges[j] = range;
+    }
+    struct CharClassRanges ranges_merged = (struct CharClassRanges){
+        .ranges = NULL,
+        .len = 0,
+    };
+    // merge ranges
+    for (size_t i = 0; i < ranges_copy.len; i++){
+        struct CharClassRange range = ranges_copy.ranges[i];
+        // TODO
+        add_char_class_range(&ranges_merged, range);
+    }
+    if (is_negated){
+        // TODO : reverse the range list
+        fprintf(stderr, "TODO : negated char class is not implemented already\n");
+        exit(1);
+    } else {
+        if (ranges_merged.len == 1 && ranges_merged.ranges[0].start == ranges_merged.ranges[0].end){
+            nfa_add_transition(re, start, ranges_merged.ranges[0].start, end);
+        } else {
+            for (size_t i = 0; i < ranges_merged.len; i++){
+                struct CharClassRange range = ranges_merged.ranges[i];
+                nfa_add_transition_range(re, start, range.start, range.end, end);
+            }
+        }
+    }
+    return (struct NFAFragment){
+        .start = start,
+        .end = end,
+    };
+}
+
 static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct RegexASTNode* ast){
     NodeRef start;
     NodeRef end;
@@ -1616,33 +1674,10 @@ static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct R
             break;
         }
         case AST_CHAR_CLASS: {
-            // TODO : put this in other function ?
             struct CharClass char_class = ast->data.char_class;
-            if (char_class.is_negated){
-                // TODO
-                fprintf(stderr, "TODO : negated char class is not implemented already\n");
-                exit(1);
-            }
-            start = nfa_add_node(re);
-            end = nfa_add_node(re);
-            switch (char_class.tag){
-                case CHAR_CLASS_RANGE: {
-                    struct CharClassRange char_class_range = char_class.data.range;
-                    nfa_add_transition_range(re, start, char_class_range.start, char_class_range.end, end);
-                    break;
-                }
-                case CHAR_CLASS_LIST: {
-                    char* char_class_list = char_class.data.list;
-                    size_t char_list_len = strlen(char_class_list);
-                    for (size_t i = 0; i < char_list_len; i++){
-                        nfa_add_transition(re, start, char_class_list[i], end);
-                    }
-                    break;
-                }
-                default:
-                    fprintf(stderr, "Unknown char class : %d\n", char_class.tag);
-                    exit(1);
-            }
+            struct NFAFragment fragment = regex_create_char_class(re, char_class);
+            start = fragment.start;
+            end = fragment.end;
             break;
         }
         case AST_CONCAT: {
