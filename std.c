@@ -1364,6 +1364,7 @@ struct CharClass {
 // TODO : predefined classes : \d : digit, \w : word, \s : whitespace
 // TODO : Start / end anchors ^ $
 // TODO : Word boundary \b
+// TODO : optimize exprs like x1|x2|x3|x4 (create multiple alternatives merged)
 // TODO : flattened AST ?
 // TODO : unicode
 // TODO : escape regex special chars
