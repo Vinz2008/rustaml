@@ -3,11 +3,11 @@ use inkwell::{basic_block::BasicBlock, types::{AnyTypeEnum, BasicTypeEnum}, valu
 use crate::{ast::{ASTRef, Pattern, PatternRef, Type}, check::{match_fallback_match_nb, match_is_all_range}, compiler::{CompileContext, compile_expr, compiler_utils::{codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_string, create_var, get_current_function, get_llvm_type, get_variant_tag, get_void_val, load_list_tail, load_list_val, move_bb_after_current}, debuginfo::get_debug_loc}};
 
 // TODO : when will be added or patterns (TODO) (for ex : match a with | [1, 2, 3] | [2, 3, 4]) I can create a more optimized version when matching multiple lists by creating a decision tree in the compiled program
-fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list_val : PointerValue<'llvm_ctx>, pattern_list : &[PatternRef], elem_type : &Type) -> IntValue<'llvm_ctx>{
+fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, list_val : PointerValue<'llvm_ctx>, pattern_list : &[PatternRef], elem_type : &Type) -> IntValue<'llvm_ctx>{
     if pattern_list.is_empty(){
         return compile_context.builder.build_is_null(list_val, "match_list_empty").unwrap();
     } else {
-        let this_function = get_current_function(compile_context.builder);
+        let this_function = get_current_function(&compile_context.builder);
         let bb_list = (0..pattern_list.len()).map(|_|{
             (compile_context.context.append_basic_block(this_function, "is_null") ,compile_context.context.append_basic_block(this_function, "has_matched_element"))
         }).collect::<Vec<_>>();
@@ -79,9 +79,9 @@ fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut C
     }
 }
 
-fn compile_short_circuiting_match_list_destructure<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, list_val : PointerValue<'llvm_ctx>, head_pattern : PatternRef, tail_pattern : PatternRef, elem_type : &Type) -> IntValue<'llvm_ctx>{
+fn compile_short_circuiting_match_list_destructure<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, list_val : PointerValue<'llvm_ctx>, head_pattern : PatternRef, tail_pattern : PatternRef, elem_type : &Type) -> IntValue<'llvm_ctx>{
     let is_not_empty = compile_context.builder.build_int_compare(IntPredicate::NE, list_val, compile_context.context.ptr_type(AddressSpace::default()).const_null(), "cmp_destructure_not_empty").unwrap();
-    let this_function = get_current_function(compile_context.builder);
+    let this_function = get_current_function(&compile_context.builder);
     let start_bb = compile_context.builder.get_insert_block().unwrap();
     let is_not_empty_bb = compile_context.context.append_basic_block(this_function, "is_empty");
     let is_head_matched_bb = compile_context.context.append_basic_block(this_function, "head_matched");
@@ -119,7 +119,7 @@ fn compile_short_circuiting_match_list_destructure<'llvm_ctx>(compile_context: &
     phi_node.as_basic_value().into_int_value()
 }
 
-fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_expr_type : &Type) -> IntValue<'llvm_ctx>{
+fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_expr_type : &Type) -> IntValue<'llvm_ctx>{
     match pattern.get(&compile_context.rustaml_context.pattern_pool).clone() {
         Pattern::Integer(i) => compile_context.builder.build_int_compare(inkwell::IntPredicate::EQ, matched_val.try_into().unwrap(), compile_context.context.i64_type().const_int(i as u64, true), "match_int_cmp").unwrap(),
         Pattern::Float(f) => compile_context.builder.build_float_compare(FloatPredicate::OEQ, matched_val.into_float_value(), compile_context.context.f64_type().const_float(f), "match_float_cmp").unwrap(),
@@ -174,7 +174,7 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
 
 
 // init vars, etc
-fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type){
+fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type){
     match pattern.get(&compile_context.rustaml_context.pattern_pool).clone() {
         Pattern::VarName(n) => {
             let matched_val_type_llvm = get_llvm_type(compile_context, matched_val_type);
@@ -196,13 +196,13 @@ fn compile_pattern_match_prologue<'llvm_ctx>(compile_context: &mut CompileContex
     }
 }
 
-fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type, bb: BasicBlock<'llvm_ctx>, else_bb : BasicBlock<'llvm_ctx>){
+fn compile_pattern_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, pattern : PatternRef, matched_val : AnyValueEnum<'llvm_ctx>, matched_val_type : &Type, bb: BasicBlock<'llvm_ctx>, else_bb : BasicBlock<'llvm_ctx>){
     let bool_val = compile_pattern_match_bool_val(compile_context, pattern, matched_val, matched_val_type);
 
     create_br_conditional(compile_context, bool_val, bb, else_bb);
 }
 
-fn match_has_enough_fallback_switch(compile_context: &CompileContext<'_, '_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
+fn match_has_enough_fallback_switch(compile_context: &CompileContext<'_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
     match_is_all_range(compile_context.rustaml_context, matched_val_type, patterns) 
         || match_fallback_match_nb(compile_context.rustaml_context, patterns) == 1
 }
@@ -217,7 +217,7 @@ fn match_can_use_switch_sum_type(matched_val_type : &Type) -> bool {
     }
 }
 
-fn match_can_use_switch(compile_context: &CompileContext<'_, '_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
+fn match_can_use_switch(compile_context: &CompileContext<'_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
     
     (matches!(matched_val_type, Type::Integer | Type::Bool) // TODO : what other types match ?
     || match_can_use_switch_sum_type(matched_val_type)) 
@@ -226,12 +226,12 @@ fn match_can_use_switch(compile_context: &CompileContext<'_, '_, '_>, matched_va
         && match_has_enough_fallback_switch(compile_context, matched_val_type, patterns)
 }
 
-fn match_switch_is_fallback(compile_context: &CompileContext<'_, '_, '_>, p : PatternRef) -> bool {
+fn match_switch_is_fallback(compile_context: &CompileContext<'_, '_>, p : PatternRef) -> bool {
     matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::VarName(_) | Pattern::Underscore)
 }
 
-fn compile_match_switch<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, matched_val : AnyValueEnum<'llvm_ctx>, match_type_ret_llvm : AnyTypeEnum<'llvm_ctx>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
-    let function = get_current_function(compile_context.builder);
+fn compile_match_switch<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, matched_val : AnyValueEnum<'llvm_ctx>, match_type_ret_llvm : AnyTypeEnum<'llvm_ctx>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
+    let function = get_current_function(&compile_context.builder);
     
     let mut match_bbs = Vec::new();
     let mut fallback_bb = None;
@@ -336,7 +336,7 @@ fn compile_match_switch<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 
 }
 
 // TODO : test nested matchs for problem with bb placement (use move_bb_after_current ?)
-pub(crate) fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, match_node : ASTRef, matched_expr : ASTRef, patterns : &[(PatternRef, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
+pub(crate) fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, match_node : ASTRef, matched_expr : ASTRef, patterns : &[(PatternRef, ASTRef)]) -> AnyValueEnum<'llvm_ctx> {
     
     let matched_val = compile_expr(compile_context, matched_expr);
     let matched_val_type = matched_expr.get_type(&compile_context.rustaml_context.ast_pool).clone();
@@ -350,7 +350,7 @@ pub(crate) fn compile_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, 
         return compile_match_switch(compile_context, matched_val, match_type_llvm, &matched_val_type, patterns);
     }
 
-    let function = get_current_function(compile_context.builder);
+    let function = get_current_function(&compile_context.builder);
     
 
     let mut match_bbs = Vec::new();

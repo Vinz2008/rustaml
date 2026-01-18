@@ -33,7 +33,7 @@ pub(crate) fn init_monomorphized_internal_fun<'llvm_ctx>() -> FxHashMap<&'static
 
 // TODO : use a list builder with a preallocated buffer to improve cache locality
 
-pub(crate) fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, elem_type : &Type, ret_elem_type : &Type) -> FunctionValue<'llvm_ctx> {
+pub(crate) fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, elem_type : &Type, ret_elem_type : &Type) -> FunctionValue<'llvm_ctx> {
     if let Some(f) = compile_context.monomorphized_internal_fun.get("map").unwrap().get(&(elem_type.clone(), ret_elem_type.clone())){
         return *f;
     }
@@ -145,7 +145,7 @@ pub(crate) fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut Compile
 
 //     return ret;
 // }
-pub(crate) fn compile_monomorphized_filter<'llvm_ctx>(compile_context: &mut CompileContext<'_, '_, 'llvm_ctx>, elem_type : &Type) -> FunctionValue<'llvm_ctx> {
+pub(crate) fn compile_monomorphized_filter<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, elem_type : &Type) -> FunctionValue<'llvm_ctx> {
     if let Some(f) = compile_context.monomorphized_internal_fun.get("filter").unwrap().get(&(elem_type.clone(), Type::Bool)){
         return *f;
     }
