@@ -59,7 +59,7 @@ pub(crate) enum TypesErrData {
 
 // TODO : test to use typerefs to interned types instead of types to speed up type comparisons ? (ex : could store somewhere the Type::Any index to compare it for the merge type ?)
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct TypeInfos {
     pub(crate) vars_env : FxHashMap<VarId, Type>,
     pub(crate) ast_var_ids : FxHashMap<ASTRef, VarId>

@@ -239,7 +239,7 @@ fn main() -> ExitCode {
             // after removing this, remove pub(crate)at the ast_pool.1
             debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&rustaml_context.ast_pool.ast_node_types, &rustaml_context));
 
-            interpreter::interpret(frontend_output.ast, &mut rustaml_context);
+            interpreter::interpret(frontend_output.ast, &mut rustaml_context, Some(frontend_output.type_infos));
         }
         Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _, self_profile: _, profile_format: _, enable_debuginfos, lib_search_paths, freestanding } => {
 

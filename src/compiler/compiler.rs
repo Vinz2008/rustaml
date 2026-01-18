@@ -1,7 +1,7 @@
 use core::panic;
 use std::{cell::Cell, fs, hash::{Hash, Hasher}, io::Write, ops::Range, path::{MAIN_SEPARATOR, Path, PathBuf}, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_type_tag_val, get_variant_tag, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, any_type_to_basic, any_type_to_metadata, any_val_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_variant_tag, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, llvm_sys::{core::LLVMPrintValueToString, prelude::LLVMValueRef}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue, ValueKind}};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -45,7 +45,7 @@ pub(crate) struct CompileContext<'context, 'llvm_ctx> {
     pub(crate) debug_info : DebugInfo<'llvm_ctx>,
     pub(crate) typeinfos : TypeInfos,
     functions : FxHashMap<StringRef, FunctionValue<'llvm_ctx>>,
-    main_function : FunctionValue<'llvm_ctx>,
+    pub(crate) main_function : FunctionValue<'llvm_ctx>,
     pub(crate) var_vals : FxHashMap<StringRef, PointerValue<'llvm_ctx>>,
     pub(crate) external_symbols_declared : FxHashSet<&'static str>,
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>, // TODO : replace this with a hashmap ?
@@ -63,6 +63,7 @@ pub(crate) struct CompileContext<'context, 'llvm_ctx> {
     generic_func_def_ast_node : FxHashMap<StringRef, ASTRef>,
 
     pub(crate) monomorphized_internal_fun : FxHashMap<&'static str, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>>, // (Type A, Type B) = function List A -> List B
+    is_jit: bool,
 }
 
 
@@ -223,7 +224,47 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
     ]
 }
 
-impl<'context, 'refs, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
+impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
+    pub(crate) fn new(
+            rustaml_context: &'context mut RustamlContext, 
+            context : &'llvm_ctx Context, 
+            module : Module<'llvm_ctx>, 
+            builder : Builder<'llvm_ctx>, 
+            debug_info: DebugInfo<'llvm_ctx>,
+            is_optimized : bool,
+            type_infos : TypeInfos,
+            target_data : TargetData,
+            is_jit : bool,
+        ) -> CompileContext<'context, 'llvm_ctx> {
+        let main_function = get_main_function(context, &module);
+        let internal_functions = get_internal_functions(&context);
+        CompileContext {
+            rustaml_context,
+            context : &context,
+            module: module,
+            builder: builder,
+            debug_info,
+            is_optimized,
+            typeinfos: type_infos,
+            main_function,
+            
+            internal_functions,
+            target_data,
+            is_jit,
+            
+            monomorphized_internal_fun: init_monomorphized_internal_fun(),
+            closure_idx: Cell::new(0),
+            var_vals: FxHashMap::default(),
+            external_symbols_declared: FxHashSet::default(),
+            global_strs: FxHashMap::default(),
+            shared_libs: Vec::new(),
+            generic_map: FxHashMap::default(),
+            generic_functions: FxHashMap::default(),
+            generic_func_def_ast_node: FxHashMap::default(),
+            functions: FxHashMap::default(),
+        }
+    }
+
     pub(crate) fn get_internal_function(&mut self, name : &'static str) -> FunctionValue<'llvm_ctx> {
         if self.external_symbols_declared.contains(name){
             self.module.get_function(name).unwrap()
@@ -1340,7 +1381,12 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llv
     let param_types_llvm = param_types.iter().map(|t| get_llvm_type(compile_context, t)).collect::<Vec<_>>();
     let param_types_metadata = param_types_llvm.iter().map(|t| any_type_to_metadata(compile_context.context, *t)).collect::<Vec<_>>();
     let function_type = get_fn_type(compile_context.context, return_type_llvm, &param_types_metadata, false);
-    let function = compile_context.module.add_function(name.get_str(&compile_context.rustaml_context.str_interner), function_type, Some(inkwell::module::Linkage::Internal));
+    let linkage = if compile_context.is_jit {
+        Linkage::External
+    } else {
+        Linkage::Internal
+    };
+    let function = compile_context.module.add_function(name.get_str(&compile_context.rustaml_context.str_interner), function_type, Some(linkage));
 
     let function_range = ast_node.get_range(&compile_context.rustaml_context.ast_pool);
     let di_subprogram = compile_context.debug_info.add_function(name.get_str(&compile_context.rustaml_context.str_interner), param_types, return_type, compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone(), compile_context.is_optimized);
@@ -1402,7 +1448,7 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llv
 }
 
 // TODO : test to replace AnyValueEnum with &dyn AnyValue ?
-fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRef) {
+pub(crate) fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRef) {
     compile_context.debug_info.enter_top_level();
     // TODO : add this in enter_top_level
     /*if let Some(loc) = compile_context.debug_info.create_debug_location(compile_context.context, compile_context.rustaml_context.content.as_ref().unwrap(),0..0){
@@ -1457,14 +1503,6 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
         t => panic!("top level node = {:?}", DebugWrapContext::new(&t, compile_context.rustaml_context)),
         // _ => unreachable!()
     }
-}
-
-
-fn get_main_function<'llvm_ctx>(llvm_context : &'llvm_ctx Context, module : &Module<'llvm_ctx>) -> FunctionValue<'llvm_ctx> {
-    let param_types = &[BasicMetadataTypeEnum::IntType(llvm_context.i32_type()), BasicMetadataTypeEnum::PointerType(llvm_context.ptr_type(AddressSpace::default()))];
-    let main = module.add_function("main", llvm_context.i32_type().fn_type(param_types, false), Some(inkwell::module::Linkage::External));
-    llvm_context.append_basic_block(main, "entry");
-    main
 }
 
 fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : OptimizationLevel, sanitizer : bool) {
@@ -1700,40 +1738,11 @@ pub(crate) fn compile(frontend_output : FrontendOutput, rustaml_context: &mut Ru
                 None
             }
         };
-
-        let main_function = get_main_function(&context, &module);
         
 
-        let internal_functions = get_internal_functions(&context);
+        let mut compile_context = CompileContext::new(rustaml_context, &context, module, builder, debug_info, is_optimized, frontend_output.type_infos, target_data, false);
 
-        let mut compile_context = CompileContext {
-            rustaml_context,
-            context : &context,
-            module: module,
-            builder: builder,
-            debug_info,
-            is_optimized,
-            typeinfos: frontend_output.type_infos,
-            main_function,
-            
-            internal_functions,
-            
-            target_data,
-            
-            monomorphized_internal_fun: init_monomorphized_internal_fun(),
-            closure_idx: Cell::new(0),
-
-            var_vals: FxHashMap::default(),
-            external_symbols_declared: FxHashSet::default(),
-            global_strs: FxHashMap::default(),
-            shared_libs: Vec::new(),
-            generic_map: FxHashMap::default(),
-            generic_functions: FxHashMap::default(),
-            generic_func_def_ast_node: FxHashMap::default(),
-            functions: FxHashMap::default(),
-        };
-
-        let entry_main_bb = main_function.get_first_basic_block().unwrap();
+        let entry_main_bb = compile_context.main_function.get_first_basic_block().unwrap();
         compile_context.builder.position_at_end(entry_main_bb);
         let init_func = compile_context.get_internal_function("__init");
         compile_context.builder.build_call(init_func, &[], "init_call").unwrap();

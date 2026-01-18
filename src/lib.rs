@@ -47,17 +47,20 @@ pub fn interpret_code(code : &str, filename : &Path, is_debug_print : bool) -> R
 
     let ast = get_ast_from_string(&mut rustaml_context, content, Some(code), filename, None)?;
 
-    if let Err(e) = resolve_and_typecheck(&mut rustaml_context, ast){
-        print_error::print_type_error(e, filename, code);
-        return Err(());
-    }
+    let type_infos = match resolve_and_typecheck(&mut rustaml_context, ast){
+        Ok(type_infos) => type_infos,
+        Err(e) => {
+            print_error::print_type_error(e, filename, code);
+            return Err(());
+        }
+    };
 
     if let Err(check_error) = check_ast(&rustaml_context, filename, code, ast){
         print_check_error(check_error, filename, code);
         return Err(());
     }
 
-    interpreter::interpret(ast, &mut rustaml_context);
+    interpreter::interpret(ast, &mut rustaml_context, Some(type_infos));
     Ok(())
 }
 

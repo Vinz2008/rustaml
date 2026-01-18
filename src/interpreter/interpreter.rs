@@ -17,6 +17,7 @@ use crate::interpreter::gc::{try_gc_collect, Gc, GcContext};
 use crate::rustaml::ensure_stack;
 use crate::rustaml::RustamlContext;
 use crate::string_intern::StringRef;
+use crate::types::TypeInfos;
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
 
@@ -471,10 +472,10 @@ pub(crate) enum FunctionBody {
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 pub(crate) struct FunctionDef {
-    name : StringRef,
+    pub name : StringRef,
     args : Box<[StringRef]>,
     pub(crate) body : FunctionBody,
-    pub(crate) function_def_ast : Option<ASTRef>, // TODO : remove this ? (isn't it already in the FunctionBody ?)
+    pub(crate) function_def_ast : Option<ASTRef>,
 }
 
 impl FunctionDef {
@@ -1042,6 +1043,17 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_bo
 pub(crate) fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val>) -> Val {
     match &func_def.body {
         FunctionBody::Ast(a) => {
+            #[cfg(feature = "jit")]
+            {
+                if should_use_jit_function(context, func_def){
+
+                    return call_jit_function(context, func_def, args_val);
+                }
+
+                
+                update_jit_heuristics_function_call(context, *a);
+            }
+            
             let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
             context.vars.reserve(func_def.args.len());
             for (arg_name, arg_val) in func_def.args.iter().zip(args_val) {
@@ -1049,17 +1061,6 @@ pub(crate) fn call_function(context: &mut InterpretContext, func_def : &Function
                 if let Some(old_val) = old_val {
                     old_vals.push((*arg_name, old_val));
                 }
-            }
-
-            #[cfg(feature = "jit")]
-            {
-                if should_use_jit_function(context, func_def){
-
-                    return call_jit_function(context, func_def);
-                }
-
-                
-                update_jit_heuristics_function_call(context, *a);
             }
             
             let res_val = ensure_stack(|| interpret_node(context, *a));
@@ -1393,7 +1394,7 @@ pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val
     }
 }
 
-pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlContext) -> Val {
+pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlContext, type_infos : Option<TypeInfos>) -> Val {
     let mut context = InterpretContext {
         vars: FxHashMap::default(),
         // functions: FxHashMap::default(),
@@ -1402,7 +1403,7 @@ pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlConte
         rng: rand::rng(),
 
         #[cfg(feature = "jit")]
-        jit_context: JitContext::new(),
+        jit_context: JitContext::new(type_infos),
     };
 
     let v = interpret_node(&mut context, ast);
@@ -1414,8 +1415,8 @@ pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlConte
     v
 }
 
-pub(crate) fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext){
+pub(crate) fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext, type_infos : Option<TypeInfos>){
     rustaml_context.start_section("interpreter");
-    interpret_with_val(ast, rustaml_context);
+    interpret_with_val(ast, rustaml_context, type_infos);
     rustaml_context.end_section("interpreter");
 }

@@ -17,7 +17,8 @@ fn interpret_repl_code(rustaml_context : &mut RustamlContext, code : String){
         Ok(a) => a,
         Err(()) => return,
     };
-    let val = interpret_with_val(ast, rustaml_context);
+
+    let val = interpret_with_val(ast, rustaml_context, None);
 
     debug_println!(rustaml_context.is_debug_print, "debug val : {:?}", DebugWrapContext::new(&val, rustaml_context));
 

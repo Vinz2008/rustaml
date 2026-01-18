@@ -8,3 +8,4 @@ let fib i : int -> int =
 // this one for benchmarking
 // let big_fib = fib 35 ;;
 let big_fib = fib 23 ;;
+let _ = print big_fib ;;
