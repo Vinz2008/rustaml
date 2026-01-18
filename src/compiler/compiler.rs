@@ -1712,19 +1712,23 @@ pub(crate) fn compile(frontend_output : FrontendOutput, rustaml_context: &mut Ru
             debug_info,
             is_optimized,
             typeinfos: frontend_output.type_infos,
-            functions: FxHashMap::default(),
             main_function,
-            var_vals: FxHashMap::default(),
+            
             internal_functions,
+            
+            target_data,
+            
+            monomorphized_internal_fun: init_monomorphized_internal_fun(),
+            closure_idx: Cell::new(0),
+
+            var_vals: FxHashMap::default(),
             external_symbols_declared: FxHashSet::default(),
             global_strs: FxHashMap::default(),
             shared_libs: Vec::new(),
-            target_data,
             generic_map: FxHashMap::default(),
             generic_functions: FxHashMap::default(),
             generic_func_def_ast_node: FxHashMap::default(),
-            monomorphized_internal_fun: init_monomorphized_internal_fun(),
-            closure_idx: Cell::new(0),
+            functions: FxHashMap::default(),
         };
 
         let entry_main_bb = main_function.get_first_basic_block().unwrap();

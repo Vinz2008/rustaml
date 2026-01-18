@@ -8,10 +8,10 @@ let big_list n =
   else n :: big_list (n - 1) ;;
 
 // for benchmarking only
-// let l = big_list 100000 ;;
-let list = big_list 30 ;;
+let list = big_list 100000 ;;
+//let list = big_list 30 ;;
 
-// TODO : make function genrics
+// TODO : make function generics
 let len l : list[int] -> int = match l with
   | [] -> 0
   | e :: li -> 1 + len li ;;

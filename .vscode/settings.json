@@ -9,6 +9,7 @@
         "debug-llvm",
         "dot-format",
         "cache",
+        "jit"
     ],
     "files.associations": {
         "io": "llvm",

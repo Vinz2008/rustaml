@@ -6,7 +6,7 @@ use std::{path::PathBuf, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 use debug_with_context::DebugWrapContext;
-
+use cfg_if::cfg_if;
 
 
 cfg_if! {
@@ -51,7 +51,7 @@ mod mangle;
 mod check;
 mod profiler;
 
-use cfg_if::cfg_if;
+
 
 cfg_if! {
     if #[cfg(feature = "native")] {

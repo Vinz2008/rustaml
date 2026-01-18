@@ -13,10 +13,13 @@ use crate::ast::PatternRef;
 use crate::debug_println;
 
 use crate::interpreter::gc::{try_gc_collect, Gc, GcContext};
+
 use crate::rustaml::ensure_stack;
 use crate::rustaml::RustamlContext;
 use crate::string_intern::StringRef;
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
+
+
 
 #[cfg(feature = "gc-test-collect")] 
 use crate::interpreter::gc::collect_gc;
@@ -43,6 +46,13 @@ cfg_if! {
         }
     } else {
         use crate::interpreter::ffi::{call_ffi_function, get_ffi_func, FFIFunc};
+    }
+}
+
+cfg_if! {
+    if #[cfg(feature = "jit")]{
+        use crate::interpreter::jit::{update_jit_heuristics_function_call, should_use_jit_function, call_jit_function};
+        use crate::interpreter::jit::JitContext;
     }
 }
 
@@ -464,7 +474,7 @@ pub(crate) struct FunctionDef {
     name : StringRef,
     args : Box<[StringRef]>,
     pub(crate) body : FunctionBody,
-    pub(crate) function_def_ast : Option<ASTRef>,
+    pub(crate) function_def_ast : Option<ASTRef>, // TODO : remove this ? (isn't it already in the FunctionBody ?)
 }
 
 impl FunctionDef {
@@ -482,7 +492,10 @@ pub(crate) struct InterpretContext<'context> {
     pub(crate) vars: FxHashMap<StringRef, Val>,
     pub(crate) rustaml_context : &'context mut RustamlContext,
     pub(crate) gc_context : GcContext,
-    rng : ThreadRng
+    rng : ThreadRng,
+
+    #[cfg(feature = "jit")]
+    pub(crate) jit_context : JitContext,
 }
 
 
@@ -1037,6 +1050,18 @@ pub(crate) fn call_function(context: &mut InterpretContext, func_def : &Function
                     old_vals.push((*arg_name, old_val));
                 }
             }
+
+            #[cfg(feature = "jit")]
+            {
+                if should_use_jit_function(context, func_def){
+
+                    return call_jit_function(context, func_def);
+                }
+
+                
+                update_jit_heuristics_function_call(context, *a);
+            }
+            
             let res_val = ensure_stack(|| interpret_node(context, *a));
             for arg_name in &func_def.args {
                 context.vars.remove(arg_name);
@@ -1375,6 +1400,9 @@ pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlConte
         rustaml_context,
         gc_context: GcContext::new(),
         rng: rand::rng(),
+
+        #[cfg(feature = "jit")]
+        jit_context: JitContext::new(),
     };
 
     let v = interpret_node(&mut context, ast);
