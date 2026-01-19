@@ -151,7 +151,6 @@ pub(crate) fn update_jit_heuristics_function_start_call(context : &mut Interpret
             if func_meta.current_recursion_depth > func_meta.max_recursion_depth {
                 func_meta.max_recursion_depth = func_meta.current_recursion_depth;
             }
-            dbg!(func_meta);
         },
         None => {
             let func_meta = FuncMeta{
@@ -175,8 +174,11 @@ pub(crate) fn update_jit_heuristics_function_end_call(context : &mut InterpretCo
     }
 }
 
+fn is_valid_jit_type(t : &Type) -> bool {
+    matches!(t, Type::Integer | Type::Float)
+}
+
 pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &FunctionDef) -> bool  {
-    // TODO : better heuristics
     if context.jit_context.type_infos.is_none() {
         return false;
     }
@@ -192,7 +194,7 @@ pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &F
     };
 
     // for now only this type
-    if args.as_ref() != &[Type::Integer] || ret.as_ref() != &Type::Integer {
+    if args.as_ref().iter().all(|e| is_valid_jit_type(e)) || is_valid_jit_type(ret.as_ref()) {
         return false;
     }
 
@@ -216,8 +218,8 @@ pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &F
 // (add later the strings and list types)
 // typedef struct {
 //     enum {
-//         INTEGER,
-//         FLOAT,
+//         INTEGER = 0,
+//         FLOAT = 1,
 //         BOOL_TYPE,
 //         CHAR_TYPE,
 //     }
@@ -230,12 +232,25 @@ pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &F
 #[repr(u8)]
 enum JITValueTag {
     INTEGER,
+    FLOAT,
 }
 
 #[repr(C)]
 struct JITValue {
     tag : JITValueTag,
     val : u64,
+}
+
+fn create_jit_value(val : Val) -> JITValue {
+    let (tag, data) = match val {
+        Val::Integer(i) => (JITValueTag::INTEGER, i as u64),
+        Val::Float(f) => (JITValueTag::FLOAT, f.to_bits()),
+        _ => todo!(),
+    };
+    JITValue { 
+        tag: tag, 
+        val: data,
+    }
 }
 
 type WrapperFN = unsafe extern "C" fn(*mut JITValue) -> JITValue;
@@ -325,18 +340,11 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
         
         fun
     };
-    let arg = match args_val[0] {
-        Val::Integer(i) => i as u64,
-        _ => unreachable!(),
-    };
-    let val_args = &mut [
-        JITValue {
-            tag: JITValueTag::INTEGER,
-            val: arg,
-        }
-    ];
+
+    let mut val_args = args_val.into_iter().map(|e| create_jit_value(e)).collect::<Box<[JITValue]>>();
     let ret = unsafe { fun.call(val_args.as_mut_ptr()) };
     match ret.tag {
-        JITValueTag::INTEGER => Val::Integer(ret.val as i64)
+        JITValueTag::INTEGER => Val::Integer(ret.val as i64),
+        JITValueTag::FLOAT => Val::Float(f64::from_bits(ret.val)), 
     }
 }
