@@ -4,6 +4,6 @@ pub(crate) mod gc;
 pub(crate) mod ffi;
 
 #[cfg(feature = "jit")]
-mod jit;
+pub(crate) mod jit;
 
 pub(crate) use interpreter::*; 

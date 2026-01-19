@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
 use std::mem;
 use std::panic;
+use std::time::Instant;
 use debug_with_context::DebugWithContext;
 use rand::prelude::*;
 
@@ -52,7 +53,7 @@ cfg_if! {
 
 cfg_if! {
     if #[cfg(feature = "jit")]{
-        use crate::interpreter::jit::{update_jit_heuristics_function_call, should_use_jit_function, call_jit_function};
+        use crate::interpreter::jit::{update_jit_heuristics_function_start_call, should_use_jit_function, call_jit_function};
         use crate::interpreter::jit::JitContext;
     }
 }
@@ -473,7 +474,7 @@ pub(crate) enum FunctionBody {
 #[debug_context(RustamlContext)]
 pub(crate) struct FunctionDef {
     pub name : StringRef,
-    args : Box<[StringRef]>,
+    pub(crate) args : Box<[StringRef]>,
     pub(crate) body : FunctionBody,
     pub(crate) function_def_ast : Option<ASTRef>,
 }
@@ -1043,15 +1044,17 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_bo
 pub(crate) fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val>) -> Val {
     match &func_def.body {
         FunctionBody::Ast(a) => {
-            #[cfg(feature = "jit")]
-            {
-                if should_use_jit_function(context, func_def){
+            cfg_if! {
+                if #[cfg(feature = "jit")]{
+                    if should_use_jit_function(context, func_def){
 
-                    return call_jit_function(context, func_def, args_val);
+                        return call_jit_function(context, func_def, args_val);
+                    }
+
+                    
+                    update_jit_heuristics_function_start_call(context, *a);
+                    let start_time = Instant::now();
                 }
-
-                
-                update_jit_heuristics_function_call(context, *a);
             }
             
             let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
@@ -1064,6 +1067,15 @@ pub(crate) fn call_function(context: &mut InterpretContext, func_def : &Function
             }
             
             let res_val = ensure_stack(|| interpret_node(context, *a));
+
+            cfg_if! {
+                if #[cfg(feature = "jit")]{
+                    use crate::interpreter::jit::update_jit_heuristics_function_end_call;
+                    let duration = Instant::now()-start_time;
+                    update_jit_heuristics_function_end_call(context, *a, duration);
+                }
+            }
+
             for arg_name in &func_def.args {
                 context.vars.remove(arg_name);
             }
@@ -1394,7 +1406,7 @@ pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val
     }
 }
 
-pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlContext, type_infos : Option<TypeInfos>) -> Val {
+pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlContext, type_infos : Option<TypeInfos>, dump_jit_ir : bool) -> Val {
     let mut context = InterpretContext {
         vars: FxHashMap::default(),
         // functions: FxHashMap::default(),
@@ -1403,8 +1415,11 @@ pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlConte
         rng: rand::rng(),
 
         #[cfg(feature = "jit")]
-        jit_context: JitContext::new(type_infos),
+        jit_context: JitContext::new(type_infos, dump_jit_ir),
     };
+
+    #[cfg(not(feature = "jit"))]
+    let _ = dump_jit_ir;
 
     let v = interpret_node(&mut context, ast);
 
@@ -1415,8 +1430,8 @@ pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlConte
     v
 }
 
-pub(crate) fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext, type_infos : Option<TypeInfos>){
+pub(crate) fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext, type_infos : Option<TypeInfos>, dump_jit_ir: bool){
     rustaml_context.start_section("interpreter");
-    interpret_with_val(ast, rustaml_context, type_infos);
+    interpret_with_val(ast, rustaml_context, type_infos, dump_jit_ir);
     rustaml_context.end_section("interpreter");
 }

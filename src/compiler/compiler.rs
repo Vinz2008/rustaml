@@ -63,7 +63,6 @@ pub(crate) struct CompileContext<'context, 'llvm_ctx> {
     generic_func_def_ast_node : FxHashMap<StringRef, ASTRef>,
 
     pub(crate) monomorphized_internal_fun : FxHashMap<&'static str, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>>, // (Type A, Type B) = function List A -> List B
-    is_jit: bool,
 }
 
 
@@ -234,7 +233,6 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
             is_optimized : bool,
             type_infos : TypeInfos,
             target_data : TargetData,
-            is_jit : bool,
         ) -> CompileContext<'context, 'llvm_ctx> {
         let main_function = get_main_function(context, &module);
         let internal_functions = get_internal_functions(&context);
@@ -250,7 +248,6 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
             
             internal_functions,
             target_data,
-            is_jit,
             
             monomorphized_internal_fun: init_monomorphized_internal_fun(),
             closure_idx: Cell::new(0),
@@ -1338,7 +1335,7 @@ pub(crate) fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '
     }
 }
 
-fn get_var_id(compile_context: &'_ CompileContext<'_, '_>, ast_node : ASTRef) -> VarId {
+pub(crate) fn get_var_id(compile_context: &'_ CompileContext<'_, '_>, ast_node : ASTRef) -> VarId {
     *compile_context.typeinfos.ast_var_ids.get(&ast_node).unwrap()
 }
 
@@ -1371,6 +1368,35 @@ fn default_attributes_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, t : &Ty
     }
 }
 
+/*    #[cfg(feature = "jit")]
+    if is_jit_entrypoint {
+        let arg_array = function.get_first_param().unwrap().into_pointer_value();
+        for (((arg_idx, arg_name), arg_type_llvm), arg_type) in args.iter().enumerate().zip(param_types_llvm).zip(param_types) {
+
+            let arg_unwraped_val = jit_unwrap_val(compile_context, arg_array, arg_idx, arg_type);
+            create_var(compile_context, *arg_name, arg_unwraped_val, arg_type_llvm);
+            compile_context.debug_info.declare_parameter(arg_name.get_str(&compile_context.rustaml_context.str_interner), arg_idx.try_into().unwrap(), arg_type, compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone());
+            //compile_context.debug_info.declare_var(arg_name.get_str(&compile_context.rustaml_context.str_interner), arg_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone());
+        }
+        return;
+    } */
+
+fn declare_function_args<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, function : FunctionValue<'llvm_ctx>, args : &[StringRef], param_types_llvm : Vec<AnyTypeEnum<'llvm_ctx>>, param_types : &[Type], function_range : Range<usize>){
+    
+    
+    for ((((arg_idx, arg_name), arg_val), arg_type_llvm), arg_type) in args.iter().enumerate().zip(function.get_param_iter()).zip(param_types_llvm).zip(param_types) {
+        default_attributes_type(compile_context.context, arg_type, AttributeLoc::Param(arg_idx.try_into().unwrap()), function);
+        create_var(compile_context, *arg_name, arg_val.as_any_value_enum(), arg_type_llvm);
+        compile_context.debug_info.declare_parameter(arg_name.get_str(&compile_context.rustaml_context.str_interner), arg_idx.try_into().unwrap(), arg_type, compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone());
+        //compile_context.debug_info.declare_var(arg_name.get_str(&compile_context.rustaml_context.str_interner), arg_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone());
+    }
+}
+
+/*#[cfg(feature = "jit")]
+    if is_jit_entrypoint {
+        function_type = get_jit_entry_function_type(compile_context.context);
+    } */
+
 fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, name : StringRef, args : &[StringRef], body : ASTRef, ast_node : ASTRef, arg_types : &[Type], return_type : &Type) -> FunctionValue<'llvm_ctx> {
     //println!("typeinfos function_env : {:?}", DebugWrapContext::new(&compile_context.typeinfos.functions_env, compile_context.rustaml_context));
     let previous_loc = compile_context.debug_info.get_current_debug_location(&compile_context.builder);
@@ -1381,12 +1407,8 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llv
     let param_types_llvm = param_types.iter().map(|t| get_llvm_type(compile_context, t)).collect::<Vec<_>>();
     let param_types_metadata = param_types_llvm.iter().map(|t| any_type_to_metadata(compile_context.context, *t)).collect::<Vec<_>>();
     let function_type = get_fn_type(compile_context.context, return_type_llvm, &param_types_metadata, false);
-    let linkage = if compile_context.is_jit {
-        Linkage::External
-    } else {
-        Linkage::Internal
-    };
-    let function = compile_context.module.add_function(name.get_str(&compile_context.rustaml_context.str_interner), function_type, Some(linkage));
+    
+    let function = compile_context.module.add_function(name.get_str(&compile_context.rustaml_context.str_interner), function_type, Some(Linkage::Internal));
 
     let function_range = ast_node.get_range(&compile_context.rustaml_context.ast_pool);
     let di_subprogram = compile_context.debug_info.add_function(name.get_str(&compile_context.rustaml_context.str_interner), param_types, return_type, compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone(), compile_context.is_optimized);
@@ -1410,12 +1432,7 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llv
 
             //let mut old_arg_name_type = Vec::new(); // to save the types that have the same of the args in the global vars 
 
-    for ((((arg_idx, arg_name), arg_val), arg_type_llvm), arg_type) in args.iter().enumerate().zip(function.get_param_iter()).zip(param_types_llvm).zip(param_types) {
-        default_attributes_type(compile_context.context, arg_type, AttributeLoc::Param(arg_idx.try_into().unwrap()), function);
-        create_var(compile_context, *arg_name, arg_val.as_any_value_enum(), arg_type_llvm);
-        compile_context.debug_info.declare_parameter(arg_name.get_str(&compile_context.rustaml_context.str_interner), arg_idx.try_into().unwrap(), arg_type, compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone());
-        //compile_context.debug_info.declare_var(arg_name.get_str(&compile_context.rustaml_context.str_interner), arg_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone());
-    }
+    declare_function_args(compile_context, function, args, param_types_llvm, param_types, function_range);
 
     default_attributes_type(compile_context.context, return_type, AttributeLoc::Return, function);
 
@@ -1447,8 +1464,23 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llv
     function
 }
 
+pub(crate) fn compile_function(compile_context: &mut CompileContext, ast_node : ASTRef, name : StringRef, args: Box<[StringRef]>, body: ASTRef){
+    // TODO : replace this with accessing the type of the ASTNode ?
+    let function_id = get_var_id(compile_context, ast_node);
+
+    let (return_type, arg_types) = match compile_context.typeinfos.vars_env.get(&function_id).unwrap() {
+        Type::Function(args, ret, _) => (ret.as_ref().clone(), args.clone()),
+        t => panic!("BUG : the function definition has not a function type, it is {:?} instead", t), // TODO : replace this with an unreachable
+    };
+    if !should_monomorphize_function(&arg_types, &return_type){
+        compile_function_def(compile_context, name, &args, body, ast_node, &arg_types, &return_type);
+    } else {
+        compile_context.generic_func_def_ast_node.insert(name, ast_node);
+    }
+}
+
 // TODO : test to replace AnyValueEnum with &dyn AnyValue ?
-pub(crate) fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRef) {
+fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRef) {
     compile_context.debug_info.enter_top_level();
     // TODO : add this in enter_top_level
     /*if let Some(loc) = compile_context.debug_info.create_debug_location(compile_context.context, compile_context.rustaml_context.content.as_ref().unwrap(),0..0){
@@ -1459,18 +1491,7 @@ pub(crate) fn compile_top_level_node(compile_context: &mut CompileContext, ast_n
 
     match ast_node.get(&compile_context.rustaml_context.ast_pool).clone() {
         ASTNode::FunctionDefinition { name, args, body, type_annotation: _ } => {
-                // TODO : replace this with accessing the type of the ASTNode ?
-                let function_id = get_var_id(compile_context, ast_node);
-
-                let (return_type, arg_types) = match compile_context.typeinfos.vars_env.get(&function_id).unwrap() {
-                    Type::Function(args, ret, _) => (ret.as_ref().clone(), args.clone()),
-                    t => panic!("BUG : the function definition has not a function type, it is {:?} instead", t), // TODO : replace this with an unreachable
-                };
-                if !should_monomorphize_function(&arg_types, &return_type){
-                    compile_function_def(compile_context, name, &args, body, ast_node, &arg_types, &return_type);
-                } else {
-                    compile_context.generic_func_def_ast_node.insert(name, ast_node);
-                }
+            compile_function(compile_context, ast_node, name, args, body);
         },
 
         ASTNode::VarDecl { name, val, body, var_type: _ } => {
@@ -1740,7 +1761,7 @@ pub(crate) fn compile(frontend_output : FrontendOutput, rustaml_context: &mut Ru
         };
         
 
-        let mut compile_context = CompileContext::new(rustaml_context, &context, module, builder, debug_info, is_optimized, frontend_output.type_infos, target_data, false);
+        let mut compile_context = CompileContext::new(rustaml_context, &context, module, builder, debug_info, is_optimized, frontend_output.type_infos, target_data);
 
         let entry_main_bb = compile_context.main_function.get_first_basic_block().unwrap();
         compile_context.builder.position_at_end(entry_main_bb);

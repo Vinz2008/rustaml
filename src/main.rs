@@ -103,6 +103,9 @@ enum Commands {
         #[arg(value_name = "FILE")]
         filename: PathBuf,
 
+        #[arg(long, default_value_t = false)]
+        dump_jit_ir : bool,
+
         #[arg(long, short = 'd', default_value_t = false)]
         debug_print : bool,
 
@@ -111,6 +114,7 @@ enum Commands {
 
         #[arg(long, value_enum, default_value_t = ProfilerFormat::Txt)]
         profile_format : ProfilerFormat,
+
     },
     /// compile file
     Compile {
@@ -216,7 +220,7 @@ fn main() -> ExitCode {
         Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, disable_gc: _, enable_sanitizer: _, debug_print, self_profile, profile_format, enable_debuginfos: _, lib_search_paths: _, freestanding: _ }) => {
             (debug_print, self_profile, profile_format)
         },
-        Some(Commands::Interpret { filename: _, debug_print, self_profile, profile_format }) => {
+        Some(Commands::Interpret { filename: _, dump_jit_ir: _, debug_print, self_profile, profile_format }) => {
             (debug_print, self_profile, profile_format)
         },
         Some(Commands::Repl { debug_print, self_profile, profile_format }) => {
@@ -228,7 +232,7 @@ fn main() -> ExitCode {
     let mut rustaml_context = RustamlContext::new(debug_print, self_profile);
 
     match args.command.expect("No subcommand specified!") {
-        Commands::Interpret { filename, debug_print: _, self_profile: _, profile_format: _ } => {
+        Commands::Interpret { filename, dump_jit_ir, debug_print: _, self_profile: _, profile_format: _ } => {
 
             let frontend_output = frontend(&filename, &mut rustaml_context);
             let frontend_output = match frontend_output {
@@ -239,7 +243,7 @@ fn main() -> ExitCode {
             // after removing this, remove pub(crate)at the ast_pool.1
             debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&rustaml_context.ast_pool.ast_node_types, &rustaml_context));
 
-            interpreter::interpret(frontend_output.ast, &mut rustaml_context, Some(frontend_output.type_infos));
+            interpreter::interpret(frontend_output.ast, &mut rustaml_context, Some(frontend_output.type_infos), dump_jit_ir);
         }
         Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _, self_profile: _, profile_format: _, enable_debuginfos, lib_search_paths, freestanding } => {
 

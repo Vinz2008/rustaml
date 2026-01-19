@@ -99,9 +99,9 @@ pub(crate) fn get_fn_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, llvm_typ
         AnyTypeEnum::FunctionType(_) => llvm_context.ptr_type(AddressSpace::default()).fn_type(param_types, is_var_args), // consider function pointers just as pointers because llvm doesn't authorize function types as returns (is technically implementation defined, but most of the times it is just a pointer)
         AnyTypeEnum::IntType(i) => i.fn_type(param_types, is_var_args),
         AnyTypeEnum::PointerType(p) => p.fn_type(param_types, is_var_args),
+        AnyTypeEnum::StructType(s) => s.fn_type(param_types, is_var_args),
         AnyTypeEnum::VectorType(_) => unreachable!(),
         AnyTypeEnum::ScalableVectorType(_) => unreachable!(), // TODO ?
-        AnyTypeEnum::StructType(_) => unreachable!(),
         AnyTypeEnum::VoidType(v) => v.fn_type(param_types, is_var_args),
     }
 }
