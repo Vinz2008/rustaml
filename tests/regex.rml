@@ -14,6 +14,12 @@ let _ = print has_matched_1 ;;
 let has_matched_2 = regex_has_match re "JDJDJJ" ;;
 let _ = print has_matched_2 ;;
 
-// TODO : regex_has_match : returns bool
+let re_emoji = regex_create "[😀-🙏]+" ;;
+let has_matched_emoji = regex_has_match re_emoji "😀" ;;
+let _ = print has_matched_emoji ;;
+let has_matched_emoji = regex_has_match re_emoji "😀😃😄😁" ;;
+let _ = print has_matched_emoji ;;
+let has_matched_emoji = regex_has_match re_emoji "🌏" ;;
+let _ = print has_matched_emoji ;;
 
 // TODO : regex_find_match : return two pos, start and end, TODO : need record type of tuple types for it
