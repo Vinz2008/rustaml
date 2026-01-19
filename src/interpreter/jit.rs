@@ -1,6 +1,6 @@
-use std::time::{Duration, Instant};
+use std::time::{Duration};
 
-use inkwell::{AddressSpace, OptimizationLevel, builder::Builder, context::Context, execution_engine::{ExecutionEngine, JitFunction}, module::{Linkage, Module}, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, PointerValue, StructValue, ValueKind}};
+use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engine::JitFunction, module::Linkage, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, PointerValue, StructValue, ValueKind}};
 use rustc_hash::FxHashMap;
 
 use crate::{ast::{ASTNode, ASTRef, Type}, compiler::{CompileContext, compile_function, compiler_utils::get_fn_type, debuginfo::DebugInfo, get_var_id}, interpreter::{FunctionBody, FunctionDef, InterpretContext, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
@@ -87,10 +87,11 @@ fn jit_wrap_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, 
 }
 
 
-fn jit_unwrap_val_data<'llvm_ctx>(val_data : BasicValueEnum<'llvm_ctx>, val_type : &Type) -> BasicValueEnum<'llvm_ctx> {
+fn jit_unwrap_val_data<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val_data : BasicValueEnum<'llvm_ctx>, val_type : &Type) -> BasicValueEnum<'llvm_ctx> {
     match val_type {
-        Type::Integer => val_data.as_basic_value_enum(), 
-        _ => todo!() // TODO
+        Type::Integer => val_data.as_basic_value_enum(),
+        Type::Float => compile_context.builder.build_bit_cast(val_data, compile_context.context.f64_type(), "bitcast_jit_val_to_float").unwrap(),
+        _ => panic!("{:?}", val_type) // TODO
     }
 }
 
@@ -110,7 +111,7 @@ pub(crate) fn jit_unwrap_val_from_args<'llvm_ctx>(compile_context: &mut CompileC
         compile_context.builder.build_in_bounds_gep(value_struct, struct_val_ptr, struct_indexes, "gep_struct_unwrap_jit").unwrap()
     };
     let load_data = compile_context.builder.build_load(i64_type, data_ptr, "jit_load_data").unwrap();
-    return jit_unwrap_val_data(load_data, arg_type).into();
+    return jit_unwrap_val_data(compile_context, load_data, arg_type).into();
 }
 
 fn get_jit_fun_wrapper_name(rustaml_context : &RustamlContext, name : StringRef) -> String {
@@ -194,7 +195,7 @@ pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &F
     };
 
     // for now only this type
-    if args.as_ref().iter().all(|e| is_valid_jit_type(e)) || is_valid_jit_type(ret.as_ref()) {
+    if args.as_ref().iter().any(|e| !is_valid_jit_type(e)) || !is_valid_jit_type(ret.as_ref()) {
         return false;
     }
 

@@ -230,10 +230,10 @@ def test_all_files(command : COMMAND, is_release_mode: bool, is_debuginfo : bool
             
     print(f"{Fore.BLUE}END TESTING {command_type_str}{Style.RESET_ALL}")
 
-def ensure_compiler_built(is_release_mode : bool):
+def ensure_compiler_built(is_release_mode : bool, is_jit : bool):
     with yaspin(Spinners.dots, text="BUILDING RUSTAML...") as spinner:
         print("BUILDING RUSTAML... ", end='')
-        pipe = subprocess.Popen("cargo build -F native -F stack-expand -F gc-test-collect" + (" --release" if is_release_mode else ""), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        pipe = subprocess.Popen("cargo build -F native -F stack-expand -F gc-test-collect" + (" -F jit" if is_jit else "") + (" --release" if is_release_mode else ""), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         
         
         out, _ = pipe.communicate()
@@ -271,6 +271,7 @@ if __name__ == '__main__':
     command = COMMAND.ALL
     is_release_mode = False
     is_debuginfo = False
+    is_jit = False
     for i in range(len(sys.argv)):
         arg = sys.argv[i]
         if arg == "--interpret":
@@ -287,13 +288,15 @@ if __name__ == '__main__':
             is_release_mode = False
         elif arg == "--debuginfo":
             is_debuginfo = True
+        elif arg == "--jit":
+            is_jit = True
         elif arg == "--replace-output":
             i += 1
             replace_outputs.append(sys.argv[i])
         elif arg == "--replace-all-outputs":
             replace_all_outputs = True
     
-    ensure_compiler_built(is_release_mode)
+    ensure_compiler_built(is_release_mode, is_jit)
     
 
     exe_path = os.path.join(root_project_dir, "target", "release" if is_release_mode else "debug", "rustaml")
