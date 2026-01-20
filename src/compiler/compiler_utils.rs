@@ -70,7 +70,7 @@ pub(crate) fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, 'll
         //      void* val; // can be also a i64 or f64 depending on type_tag
         //      uint8_t type_tag;
         // }
-        Type::List(_t) => compile_context.context.ptr_type(AddressSpace::default()).into(), // TODO ?
+        Type::List(_t) => compile_context.context.ptr_type(AddressSpace::default()).into(),
         Type::Str => compile_context.context.ptr_type(AddressSpace::default()).into(),
         Type::Char => compile_context.context.i32_type().into(),
         //Type::Unit | Type::Never => compile_context.context.void_type().into(),
@@ -184,7 +184,6 @@ pub(crate) fn codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileCont
 }
 
 pub(crate) fn _codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, message_str : PointerValue<'llvm_ctx>){
-    // TODO : only if in a hashset of already added symbols (is it needed ?)
     let ptr_type = compile_context.context.ptr_type(AddressSpace::default());
     
     let fprintf_fun = compile_context.get_internal_function("fprintf");
@@ -257,7 +256,7 @@ pub(crate) fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_,
         Type::Bool | Type::Char => compile_context.builder.build_int_z_extend(val.into_int_value(), i64_type, "zextend_bool_to_val").unwrap(),
         Type::Str | Type::List(_) | Type::Function(_, _, _) => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_to_val").unwrap(),
         //Type::Never | Type::Unit => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_nothing_to_val").unwrap(),
-        Type::Never | Type::Unit => { // TODO
+        Type::Never | Type::Unit => {
             let void_val = get_void_val(compile_context.context);
             compile_context.builder.build_bit_cast(TryInto::<BasicValueEnum>::try_into(void_val).unwrap(), i64_type, "bitcast_to_uint64_t").unwrap().into_int_value()
         }, 
@@ -275,7 +274,7 @@ pub(crate) fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_,
     }
 }
 
-// TODO : replace these with BasicValue
+
 pub(crate) fn from_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val : IntValue<'llvm_ctx>, to_type : &Type) -> BasicValueEnum<'llvm_ctx> {
     match to_type {
         Type::Integer => val.into(),

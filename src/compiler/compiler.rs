@@ -1592,8 +1592,6 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
 
     rustaml_context.start_section("std");
 
-    // TODO : pass optimization level to this function
-
     let mut clang_std = Command::new("clang");
     clang_std.arg("-x").arg("c").arg("-emit-llvm").arg(format!("-O{}", opt_level as u32)).arg("-c");
 

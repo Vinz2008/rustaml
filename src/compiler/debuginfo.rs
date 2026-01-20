@@ -53,8 +53,6 @@ pub(crate) struct DebugInfosInner<'llvm_ctx> {
     main_lexical_block : DILexicalBlock<'llvm_ctx>,
 }
 
-// TODO : add a way to transform a range to a line number and column
-
 //const DW_ATE_ADDRESS: LLVMDWARFTypeEncoding = 0x01;
 const DW_ATE_BOOLEAN: LLVMDWARFTypeEncoding = 0x02;
 const DW_ATE_FLOAT: LLVMDWARFTypeEncoding = 0x04;
@@ -176,13 +174,12 @@ fn get_list_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>) -> DIType<'
     let scope = inner.debug_compile_unit.as_debug_info_scope();
     let file = inner.debug_compile_unit.get_file();
 
-    // TODO
     //let forward_list_struct_ty = inner.debug_builder.create_placeholder_derived_type(inner.debug_builder);
     let i8_ty = inner.debug_builder.create_basic_type("i8_list_tag", 8, DW_ATE_SIGNED, LLVMDIFlagPublic).unwrap().as_type();
     let val_ty = get_debug_info_type(inner, &Type::Integer); // TODO : use an union instead
     let unit_ty = get_debug_info_type(inner, &Type::Unit);
     let ptr_ty = inner.debug_builder.create_pointer_type("list_pointer", unit_ty, inner.target_infos.get_ptr_size_in_bits() as u64, inner.target_infos.get_ptr_alignement_in_bits(), AddressSpace::default()).as_type();
-    let elements = &[i8_ty, val_ty, ptr_ty]; // TODO
+    let elements = &[ptr_ty, val_ty, i8_ty];
     let unique_id = "list_struct"; // TODO ?
     let runtime_language = 0; // TODO
     let line_nb = 0;

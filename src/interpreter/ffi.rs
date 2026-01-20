@@ -1,4 +1,4 @@
-use std::{ffi::CString, mem::{ManuallyDrop, MaybeUninit}, ops::Deref, os::raw::c_void, ptr, rc::Rc};
+use std::{ffi::CString, mem::{ManuallyDrop, MaybeUninit}, ops::Deref, os::raw::c_void, panic::{AssertUnwindSafe, catch_unwind}, ptr, rc::Rc};
 
 use crate::{ast::{CType, ExternLang, Type}, interpreter::{call_function, FunctionBody, FunctionDef, InterpretContext, Val}, mangle::mangle_name_external, rustaml::RustamlContext, string_intern::StringRef};
 
@@ -180,40 +180,43 @@ unsafe fn get_val_from_arg(arg : *const c_void, arg_type : &Type) -> Val {
 //        std::process::abort();
 //    });
 unsafe extern "C" fn function_ptr_trampoline(cif: &ffi_cif, result : &mut c_void, args_ptr: *const *const c_void, user_data : &mut UserData){
-    unsafe {
-        let user_data = &mut *(user_data as *mut UserData);
-        let context = &mut *(user_data.ctx as *mut InterpretContext);
-        let func_def = &*user_data.function_def;
-        let ffi_context = &mut *(user_data.ffi_context);
-        let arg_nb = cif.nargs;
-        let mut args = Vec::with_capacity(arg_nb as usize);
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        unsafe {
+            let user_data = &mut *(user_data as *mut UserData);
+            let context = &mut *(user_data.ctx as *mut InterpretContext);
+            let func_def = &*user_data.function_def;
+            let ffi_context = &mut *(user_data.ffi_context);
+            let arg_nb = cif.nargs;
+            let mut args = Vec::with_capacity(arg_nb as usize);
 
-        for i in 0..arg_nb {
-            args.push(*args_ptr.wrapping_add(i as usize));
+            for i in 0..arg_nb {
+                args.push(*args_ptr.wrapping_add(i as usize));
+            }
+            // TODO : work on the unwrap ?
+            let arg_types = match func_def.function_def_ast.unwrap().get_type(&context.rustaml_context.ast_pool) {
+                Type::Function(args, _, _) => args.as_ref(),
+                _ => unreachable!(),
+            };
+            //dbg!(arg_types);
+
+            let args_val = args.into_iter().zip(arg_types).map(|(i, arg_type)| get_val_from_arg(i, arg_type)).collect::<Vec<_>>();
+
+            let res_val = call_function(context, func_def, args_val);
+
+            match res_val {
+                Val::Integer(i) => *(result as *mut _ as *mut i64) = i,
+                Val::Float(f) => *(result as *mut _ as *mut f64) = f,
+                Val::Bool(b) => *(result as *mut _ as *mut u8) = b as u8,
+                Val::Function(f) => {
+                    *(result as *mut _ as *mut *const c_void) = *get_func_ptr(context, ffi_context, &f);
+                },
+                // TODO : add more
+                _ => todo!()
+            }
         }
-        // TODO : work on the unwrap ?
-        let arg_types = match func_def.function_def_ast.unwrap().get_type(&context.rustaml_context.ast_pool) {
-            Type::Function(args, _, _) => args.as_ref(),
-            _ => unreachable!(),
-        };
-        //dbg!(arg_types);
-
-        let args_val = args.into_iter().zip(arg_types).map(|(i, arg_type)| get_val_from_arg(i, arg_type)).collect::<Vec<_>>();
-
-        let res_val = call_function(context, func_def, args_val);
-
-        match res_val {
-            Val::Integer(i) => *(result as *mut _ as *mut i64) = i,
-            Val::Float(f) => *(result as *mut _ as *mut f64) = f,
-            Val::Bool(b) => *(result as *mut _ as *mut u8) = b as u8,
-            Val::Function(f) => {
-                *(result as *mut _ as *mut *const c_void) = *get_func_ptr(context, ffi_context, &f);
-            },
-            // TODO : add more
-            _ => todo!()
-        }
-    }
-    
+    })).unwrap_or_else(|_|{
+        std::process::abort();
+    } );
 }
 
 struct FFIContext {
