@@ -1,4 +1,4 @@
-use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, module::Module, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}};
+use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, module::Module, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}};
 
 use crate::{ast::{CType, Type}, compiler::{CompileContext, debuginfo::LineColLoc}, rustaml::RustamlContext, string_intern::StringRef};
 
@@ -129,17 +129,6 @@ pub(crate) fn any_type_to_basic<'llvm_ctx>(context : &'llvm_ctx Context, t : Any
     }
 }
 
-pub(crate) fn any_val_to_metadata<'llvm_ctx>(v : AnyValueEnum<'llvm_ctx>) -> BasicMetadataValueEnum<'llvm_ctx> {
-    match v {
-        AnyValueEnum::FunctionValue(f) => BasicMetadataValueEnum::PointerValue(f.as_global_value().as_pointer_value()),
-        v => v.try_into().unwrap(),
-    }
-}
-
-pub(crate) fn any_val_to_basic<'llvm_ctx>(v : AnyValueEnum<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
-    v.try_into().unwrap()
-}
-
 pub(crate) fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, name : &str, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> 
 {
     let builder = compile_context.context.create_builder();
@@ -164,10 +153,10 @@ pub(crate) fn create_entry_block_array_alloca<'llvm_ctx>(compile_context: &mut C
     builder.build_array_alloca(any_type_to_basic(compile_context.context, alloca_type), size, name).unwrap()
 }
 
-pub(crate) fn create_var<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, name : StringRef, val : AnyValueEnum<'llvm_ctx>, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
+pub(crate) fn create_var<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, name : StringRef, val : BasicValueEnum<'llvm_ctx>, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
     let name_str = name.get_str(&compile_context.rustaml_context.str_interner).to_owned();
     let var_alloca = create_entry_block_alloca(compile_context, &name_str, alloca_type);
-    compile_context.builder.build_store(var_alloca, TryInto::<BasicValueEnum>::try_into(val).unwrap()).unwrap();
+    compile_context.builder.build_store(var_alloca, val).unwrap();
     compile_context.var_vals.insert(name, var_alloca);
     var_alloca
 }
@@ -260,11 +249,11 @@ pub(crate) fn load_list_tail<'llvm_ctx>(compile_context: &mut CompileContext<'_,
 
 // TODO : have one api for casting for cast and this ?
 
-pub(crate) fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val : AnyValueEnum<'llvm_ctx>, val_type : &Type) -> IntValue<'llvm_ctx> {
+pub(crate) fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val : BasicValueEnum<'llvm_ctx>, val_type : &Type) -> IntValue<'llvm_ctx> {
     let i64_type = compile_context.context.i64_type();
     match val_type {
         Type::Integer => val.into_int_value(),
-        Type::Float => compile_context.builder.build_bit_cast(any_val_to_basic(val), i64_type, "bitcast_float_to_val").unwrap().into_int_value(),
+        Type::Float => compile_context.builder.build_bit_cast(val, i64_type, "bitcast_float_to_val").unwrap().into_int_value(),
         Type::Bool | Type::Char => compile_context.builder.build_int_z_extend(val.into_int_value(), i64_type, "zextend_bool_to_val").unwrap(),
         Type::Str | Type::List(_) | Type::Function(_, _, _) => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_to_val").unwrap(),
         //Type::Never | Type::Unit => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_nothing_to_val").unwrap(),
@@ -325,8 +314,8 @@ fn get_void_val_basic<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> BasicValu
 }
 
 // dummy val for void, if it is used as a real value, it is a bug
-pub(crate) fn get_void_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> AnyValueEnum<'llvm_ctx> {
-    get_void_val_basic(llvm_context).as_any_value_enum()
+pub(crate) fn get_void_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> BasicValueEnum<'llvm_ctx> {
+    get_void_val_basic(llvm_context).as_basic_value_enum()
 }
 
 pub(crate) fn get_variant_tag(rustaml_context : &RustamlContext, name : StringRef) -> usize {

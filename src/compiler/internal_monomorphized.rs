@@ -1,7 +1,7 @@
-use inkwell::{types::{AnyType, BasicType}, values::{AnyValue, BasicValueEnum, FunctionValue}, AddressSpace, IntPredicate};
+use inkwell::{AddressSpace, IntPredicate, types::{AnyType, BasicType}, values::{AnyValue, BasicValue, BasicValueEnum, FunctionValue}};
 use rustc_hash::FxHashMap;
 
-use crate::{ast::Type, compiler::{compiler_utils::{any_val_to_metadata, as_val_in_list, create_entry_block_alloca, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current}, CompileContext}};
+use crate::{ast::Type, compiler::{compiler_utils::{as_val_in_list, create_entry_block_alloca, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current}, CompileContext}};
 
 pub(crate) fn init_monomorphized_internal_fun<'llvm_ctx>() -> FxHashMap<&'static str, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>> {
     let mut ret = FxHashMap::default();
@@ -86,18 +86,18 @@ pub(crate) fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut Compile
     let list_node_append_fun = compile_context.get_internal_function("__list_node_append_back");
 
     let load_current = compile_context.builder.build_load(ptr_type.as_basic_type_enum(), current_alloca, "load_current").unwrap().into_pointer_value();
-    let load_current_node_val = load_list_val(compile_context, elem_type, load_current).as_any_value_enum();
+    let load_current_node_val = load_list_val(compile_context, elem_type, load_current).as_basic_value_enum();
 
-    let fun_args = vec![any_val_to_metadata(load_current_node_val)];
+    let fun_args = vec![load_current_node_val.into()];
 
-    let fun_arg_call = compile_context.builder.build_indirect_call(function_passed_type_llvm, fun_arg, &fun_args, "call_map_fun").unwrap().as_any_value_enum();
-    let fun_arg_call = as_val_in_list(compile_context, fun_arg_call, ret_elem_type).as_any_value_enum();
+    let fun_arg_call = compile_context.builder.build_indirect_call(function_passed_type_llvm, fun_arg, &fun_args, "call_map_fun").unwrap().try_as_basic_value().unwrap_basic();
+    let fun_arg_call = as_val_in_list(compile_context, fun_arg_call, ret_elem_type).as_basic_value_enum();
 
 
-    let load_ret = compile_context.builder.build_load(ptr_type.as_basic_type_enum(), ret_alloca, "load_ret").unwrap().as_any_value_enum();
-    let ret_type_tag = get_type_tag_val(compile_context.context, ret_elem_type).as_any_value_enum();
+    let load_ret = compile_context.builder.build_load(ptr_type.as_basic_type_enum(), ret_alloca, "load_ret").unwrap();
+    let ret_type_tag = get_type_tag_val(compile_context.context, ret_elem_type).as_basic_value_enum();
 
-    let list_append_args = vec![load_ret, ret_type_tag, fun_arg_call].into_iter().map(any_val_to_metadata).collect::<Vec<_>>();
+    let list_append_args = vec![load_ret, ret_type_tag, fun_arg_call].into_iter().map(|e| e.into()).collect::<Vec<_>>();
     let list_appended = compile_context.builder.build_call(list_node_append_fun, &list_append_args, "call_list_append").unwrap().as_any_value_enum();
 
     compile_context.builder.build_store::<BasicValueEnum>(ret_alloca, list_appended.try_into().unwrap()).unwrap();
@@ -198,9 +198,9 @@ pub(crate) fn compile_monomorphized_filter<'llvm_ctx>(compile_context: &mut Comp
     let list_node_append_fun = compile_context.get_internal_function("__list_node_append_back");
 
     let load_current = compile_context.builder.build_load(ptr_type.as_basic_type_enum(), current_alloca, "load_current").unwrap().into_pointer_value();
-    let load_current_node_val = load_list_val(compile_context, elem_type, load_current).as_any_value_enum();
+    let load_current_node_val = load_list_val(compile_context, elem_type, load_current).as_basic_value_enum();
 
-    let fun_args = vec![any_val_to_metadata(load_current_node_val)];
+    let fun_args = vec![load_current_node_val.into()];
 
     let filter_arg_call = compile_context.builder.build_indirect_call(function_passed_type_llvm, fun_arg, &fun_args, "call_map_fun").unwrap().as_any_value_enum().into_int_value();
 
@@ -213,13 +213,13 @@ pub(crate) fn compile_monomorphized_filter<'llvm_ctx>(compile_context: &mut Comp
     compile_context.builder.position_at_end(if_bb);
 
 
-    let load_ret = compile_context.builder.build_load(ptr_type.as_basic_type_enum(), ret_alloca, "load_ret").unwrap().as_any_value_enum();
+    let load_ret = compile_context.builder.build_load(ptr_type.as_basic_type_enum(), ret_alloca, "load_ret").unwrap().as_basic_value_enum();
 
-    let elem_tag = get_type_tag_val(compile_context.context, elem_type).as_any_value_enum();
-    let list_append_args = vec![load_ret, elem_tag, load_current_node_val].into_iter().map(any_val_to_metadata).collect::<Vec<_>>();
-    let list_appended = compile_context.builder.build_call(list_node_append_fun, &list_append_args, "call_list_append").unwrap().as_any_value_enum();
+    let elem_tag = get_type_tag_val(compile_context.context, elem_type).as_basic_value_enum();
+    let list_append_args = vec![load_ret, elem_tag, load_current_node_val].into_iter().map(|e| e.into()).collect::<Vec<_>>();
+    let list_appended = compile_context.builder.build_call(list_node_append_fun, &list_append_args, "call_list_append").unwrap().try_as_basic_value().unwrap_basic();
 
-    compile_context.builder.build_store::<BasicValueEnum>(ret_alloca, list_appended.try_into().unwrap()).unwrap();
+    compile_context.builder.build_store::<BasicValueEnum>(ret_alloca, list_appended).unwrap();
     compile_context.builder.build_unconditional_branch(after_if_bb).unwrap();
     
     compile_context.builder.position_at_end(after_if_bb);
