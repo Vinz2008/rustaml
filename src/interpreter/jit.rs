@@ -121,9 +121,9 @@ fn get_jit_fun_wrapper_name(rustaml_context : &RustamlContext, name : StringRef)
     format!("{}__//__wrapper", name.get_str(&rustaml_context.str_interner))
 }
 
-fn generate_jit_fun_wrapper<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, name : StringRef, jit_wrapper_name : &str, func_def : &FunctionDef, arg_types : &[Type], res_type : Type){
+fn generate_jit_fun_wrapper<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, name : StringRef, jit_wrapper_name : &str, arg_types : &[Type], res_type : Type){
     let wrapper_fun_ty = get_jit_entry_function_type(compile_context.context);
-    let wrapper_fun = compile_context.module.add_function(&jit_wrapper_name, wrapper_fun_ty, Some(Linkage::External));
+    let wrapper_fun = compile_context.module.add_function(jit_wrapper_name, wrapper_fun_ty, Some(Linkage::External));
     let entry = compile_context.context.append_basic_block(wrapper_fun, "entry");
     compile_context.builder.position_at_end(entry);
 
@@ -235,10 +235,10 @@ pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &F
 
 #[repr(u8)]
 enum JITValueTag {
-    INTEGER,
-    FLOAT,
-    BOOL,
-    CHAR,
+    Integer,
+    Float,
+    Bool,
+    Char,
 }
 
 #[repr(C)]
@@ -249,14 +249,14 @@ struct JITValue {
 
 fn create_jit_value(val : Val) -> JITValue {
     let (tag, data) = match val {
-        Val::Integer(i) => (JITValueTag::INTEGER, i as u64),
-        Val::Float(f) => (JITValueTag::FLOAT, f.to_bits()),
-        Val::Bool(b) => (JITValueTag::BOOL, b as u64),
-        Val::Char(c) => (JITValueTag::CHAR, c as u64),
+        Val::Integer(i) => (JITValueTag::Integer, i as u64),
+        Val::Float(f) => (JITValueTag::Float, f.to_bits()),
+        Val::Bool(b) => (JITValueTag::Bool, b as u64),
+        Val::Char(c) => (JITValueTag::Char, c as u64),
         _ => todo!(),
     };
     JITValue { 
-        tag: tag, 
+        tag, 
         val: data,
     }
 }
@@ -316,7 +316,7 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
             Type::Function(args, res_type, _) => (args.clone(), res_type.as_ref().clone()),
             t => panic!("BUG : the function definition has not a function type, it is {:?} instead", t), // TODO : replace this with an unreachable
         };
-        generate_jit_fun_wrapper(&mut compile_context, func_def.name, &wrapper_fun_name, func_def, &arg_types, res_type);
+        generate_jit_fun_wrapper(&mut compile_context, func_def.name, &wrapper_fun_name, &arg_types, res_type);
 
         // TODO : just not create the main function instead ?
         
@@ -349,12 +349,12 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
         fun
     };
 
-    let mut val_args = args_val.into_iter().map(|e| create_jit_value(e)).collect::<Box<[JITValue]>>();
+    let mut val_args = args_val.into_iter().map(create_jit_value).collect::<Box<[JITValue]>>();
     let ret = unsafe { fun.call(val_args.as_mut_ptr()) };
     match ret.tag {
-        JITValueTag::INTEGER => Val::Integer(ret.val as i64),
-        JITValueTag::FLOAT => Val::Float(f64::from_bits(ret.val)),
-        JITValueTag::BOOL => Val::Bool(ret.val != 0),
-        JITValueTag::CHAR => Val::Char(char::from_u32(ret.val.try_into().unwrap()).unwrap())
+        JITValueTag::Integer => Val::Integer(ret.val as i64),
+        JITValueTag::Float => Val::Float(f64::from_bits(ret.val)),
+        JITValueTag::Bool => Val::Bool(ret.val != 0),
+        JITValueTag::Char => Val::Char(char::from_u32(ret.val.try_into().unwrap()).unwrap())
     }
 }

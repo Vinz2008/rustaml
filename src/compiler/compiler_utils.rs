@@ -165,7 +165,8 @@ pub(crate) fn create_entry_block_array_alloca<'llvm_ctx>(compile_context: &mut C
 }
 
 pub(crate) fn create_var<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, name : StringRef, val : AnyValueEnum<'llvm_ctx>, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
-    let var_alloca = create_entry_block_alloca(compile_context, &name.get_str(&compile_context.rustaml_context.str_interner).to_owned(), alloca_type);
+    let name_str = name.get_str(&compile_context.rustaml_context.str_interner).to_owned();
+    let var_alloca = create_entry_block_alloca(compile_context, &name_str, alloca_type);
     compile_context.builder.build_store(var_alloca, TryInto::<BasicValueEnum>::try_into(val).unwrap()).unwrap();
     compile_context.var_vals.insert(name, var_alloca);
     var_alloca
@@ -238,11 +239,11 @@ pub(crate) fn create_br_unconditional<'llvm_ctx>(compile_context: &mut CompileCo
     }
 }
 
-fn load_type_tag<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, list : PointerValue<'llvm_ctx>) -> IntValue<'llvm_ctx> {
+/*fn load_type_tag<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, list : PointerValue<'llvm_ctx>) -> IntValue<'llvm_ctx> {
     let list_type = get_list_type(compile_context.context);
     let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 2, "load_type_tag_gep").unwrap();
     compile_context.builder.build_load(compile_context.context.i8_type(), gep_ptr, "load_tag_gep").unwrap().into_int_value()
-}
+}*/
 
 pub(crate) fn load_list_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, elem_type : &Type, list : PointerValue<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
     let list_type = get_list_type(compile_context.context);

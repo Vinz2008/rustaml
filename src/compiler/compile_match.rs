@@ -155,7 +155,8 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
         },
         Pattern::String(s) => {
             let str_cmp_fun = compile_context.get_internal_function("__str_cmp");
-            let pattern_str_val = create_string(compile_context, &s.get_str(&compile_context.rustaml_context.str_interner).to_owned());
+            let s_str = s.get_str(&compile_context.rustaml_context.str_interner).to_owned();
+            let pattern_str_val = create_string(compile_context, &s_str);
 
             let args = vec![pattern_str_val.into(), matched_val.try_into().unwrap()];
             compile_context.builder.build_call(str_cmp_fun, &args, "pattern_match_str_cmp").unwrap().as_any_value_enum().into_int_value()

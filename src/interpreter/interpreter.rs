@@ -110,14 +110,19 @@ impl ListPool {
         ListRef(idx.try_into().expect("too many list nodes in the pool"))
     }
 
+    cfg_if! {
+        if #[cfg(feature = "gc-test-print")] {
 
-    pub(crate) fn nb_used_nodes(&self) -> usize {
-        return self.0.iter().filter(|e| e.is_some()).count();
+            pub(crate) fn nb_used_nodes(&self) -> usize {
+                return self.0.iter().filter(|e| e.is_some()).count();
+            }
+
+            pub(crate) fn nb_free_nodes(&self) -> usize {
+                return self.0.len() - self.nb_used_nodes();
+            }
+        }
     }
 
-    pub(crate) fn nb_free_nodes(&self) -> usize {
-        return self.0.len() - self.nb_used_nodes();
-    }
 
     pub(crate) fn nb_free_at_end(&self) -> usize {
         return self.0.iter().rev().take_while(|l| l.is_none()).count();

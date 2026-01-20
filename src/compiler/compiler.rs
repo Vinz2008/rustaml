@@ -31,7 +31,7 @@ cfg_if! {
         use crate::cache::{write_cached_llvm_ir, get_cached_llvm_ir};
     } else {
         fn write_cached_llvm_ir(_bitcode_path : &Path, _opt_level : OptimizationLevel, _content : &str, _shared_libs : &[String]){}
-        fn get_cached_llvm_ir(content : &str, opt_level : OptimizationLevel) -> Option<CachedCompilation>{
+        fn get_cached_llvm_ir(_content : &str, _opt_level : OptimizationLevel) -> Option<CachedCompilation>{
             None
         }
     }
@@ -235,12 +235,12 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
             target_data : TargetData,
         ) -> CompileContext<'context, 'llvm_ctx> {
         let main_function = get_main_function(context, &module);
-        let internal_functions = get_internal_functions(&context);
+        let internal_functions = get_internal_functions(context);
         CompileContext {
             rustaml_context,
-            context : &context,
-            module: module,
-            builder: builder,
+            context,
+            module,
+            builder,
             debug_info,
             is_optimized,
             typeinfos: type_infos,
@@ -1514,7 +1514,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
                 compile_context.shared_libs.push(so_str.get_str(&compile_context.rustaml_context.str_interner).to_owned());
             }
         }
-        ASTNode::TypeAlias { name, type_alias } => {}
+        ASTNode::TypeAlias { name: _, type_alias: _ } => {}
         ASTNode::TopLevel { nodes } => {
             // placeholder for imports (TODO ?)
             for n in nodes {
