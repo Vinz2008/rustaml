@@ -14,7 +14,6 @@ struct FuncMeta {
     total_time_ns : u64,
     current_recursion_depth : u64,
     max_recursion_depth : u64,
-    // TODO : max recursion depth (increment when calling fun, decrement when )
     cached_fun : Option<JitFunction<'static, WrapperFN>>,
 }
 
@@ -180,7 +179,7 @@ pub(crate) fn update_jit_heuristics_function_end_call(context : &mut InterpretCo
 }
 
 fn is_valid_jit_type(t : &Type) -> bool {
-    matches!(t, Type::Integer | Type::Float)
+    matches!(t, Type::Integer | Type::Float | Type::Bool | Type::Char)
 }
 
 pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &FunctionDef) -> bool  {
