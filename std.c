@@ -552,18 +552,12 @@ struct ListNode* __chars(const char* s){
         i++;
     }
 
-    // no need to use INTO_TYPE because it is just widening all unsigned (so just zext)
-
 
     while (i < bytes_len){
         uint32_t code_point = utf8_decode_char(s, &i, bytes_len);
         list_builder_append_back(&list_builder, CHAR_TYPE, (Val)code_point);
     }
 
-    size_t used_nodes = list_builder.nodes_buf_idx;
-    if (used_nodes < bytes_len-1){
-        list_nodes_buf = REALLOC(list_nodes_buf, used_nodes * sizeof(struct ListNode));
-    }
     return list_builder.head;
 }
 
