@@ -162,7 +162,6 @@ fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContex
             compile_context.builder.build_call(str_cmp_fun, &args, "pattern_match_str_cmp").unwrap().as_any_value_enum().into_int_value()
         },
         Pattern::ListDestructure(head, tail) => {
-            // TODO : fix this
             let elem_type = match matched_expr_type {
                 Type::List(e) => e.as_ref(),
                 _ => unreachable!(),   

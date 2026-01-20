@@ -7,7 +7,6 @@ use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use cfg_if::cfg_if;
 
-// TODO : do only one alloc when init a static list then put all the nodes in it (faster + better cache locality)
 // TODO : add generic enums to have results for error handling
 
 #[cfg(feature = "debug-llvm")]
@@ -37,6 +36,15 @@ cfg_if! {
     }
 }
 
+
+// what is used a specific monomorphised for a generic function (used to verify if already generated)
+#[derive(Eq, Hash, PartialEq)]
+struct GenericFunIdentifier {
+    name : StringRef,
+    arg_types : Vec<Type>,
+    ret_type : Type,
+}
+
 pub(crate) struct CompileContext<'context, 'llvm_ctx> {
     pub(crate) rustaml_context : &'context mut RustamlContext,
     pub(crate) context : &'llvm_ctx Context,
@@ -57,8 +65,7 @@ pub(crate) struct CompileContext<'context, 'llvm_ctx> {
 
     pub(crate) target_data : TargetData,
 
-    // TODO : put these in a separate struct
-    generic_functions : FxHashMap<(StringRef, Vec<Type>, Type), FunctionValue<'llvm_ctx>>,
+    generic_functions : FxHashMap<GenericFunIdentifier, FunctionValue<'llvm_ctx>>,
     pub(crate) generic_map : FxHashMap<u32, Type>,
     generic_func_def_ast_node : FxHashMap<StringRef, ASTRef>,
 
@@ -198,14 +205,6 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             ret: Some(llvm_context.i32_type().into()),
             attributes: vec![attr_args("noundef", 0), attr_args("noundef", 1)],
         },
-        // TODO : remove this ?
-        BuiltinFunction {
-            name: "printf",
-            is_variadic: true,
-            args: Box::new([ptr_type]),
-            ret: Some(llvm_context.i32_type().into()),
-            attributes: vec![attr_args("noundef", 0)],
-        },
         BuiltinFunction {
             name: "__print_val",
             is_variadic: true,
@@ -293,14 +292,11 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
     }
 }
 
-// TODO : add a print function that returns unit for the compiler
 fn compile_var_decl<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, ast_node : ASTRef, name : StringRef, val : ASTRef, body : Option<ASTRef>, is_global : bool) -> AnyValueEnum<'llvm_ctx> {
     let is_underscore = name.get_str(&compile_context.rustaml_context.str_interner) == "_";
     
     //println!("test vars types : {:#?}", DebugWrapContext::new(&compile_context.var_types, compile_context.rustaml_context));
-    
-    
-    // TODO : if is global and the val is const, just generate a global var
+
     let val = compile_expr(compile_context, val);
 
     if !is_underscore {
@@ -393,15 +389,14 @@ fn get_format_ctype(c_type : &CType) -> &'static str {
     
 }
 
-// TODO : use also this for the formatting
 fn get_format_string(print_type : &Type) -> &'static str {
     match print_type {
-        Type::Integer => "%d", // TODO : verify it is good
+        Type::Integer => "%d",
         Type::Float => "%f",
-        Type::Str => "%s", // TODO : add a better printing solution
+        Type::Str => "%s",
         Type::Bool => "%b", 
         Type::Char => "%c",
-        Type::List(_) => "%l", // the format will not be used // TODO : use the format
+        Type::List(_) => "%l",
         Type::Function(_, _, _) => panic!("Can't print functions"),
         Type::Unit => "%u",
         Type::Never => "%n", // can't print it, normally if the function is really a never type, it should be never return, so the print should never be called 
@@ -413,7 +408,6 @@ fn get_format_string(print_type : &Type) -> &'static str {
     }
 }
 
-// TODO : call a c function that will call printf ? (then write the formatting part myself ? under a feature flag ?)
 fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, print_val : AnyValueEnum<'llvm_ctx>, print_val_type : &Type) -> AnyValueEnum<'llvm_ctx> {
     let print_val = TryInto::<BasicMetadataValueEnum>::try_into(print_val).unwrap();
 
@@ -683,7 +677,12 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'll
     let callee_val = if should_monomophize {
         let name = name.unwrap(); // TODO : make this support anonymous functions ? (hash function value instead of name ?)
         let ret_call_type = Type::Any; // TODO
-        if let Some(func) = compile_context.generic_functions.get(&(name, arg_call_types.clone(), ret_call_type)) {
+        let function_identifier = GenericFunIdentifier {
+            name: name,
+            arg_types: arg_call_types.clone(),
+            ret_type: ret_call_type,
+        };
+        if let Some(func) = compile_context.generic_functions.get(&function_identifier) {
             *func
         } else {
             monomophize_function(compile_context, name, arg_call_types, arg_types, &ret_type)
@@ -806,7 +805,7 @@ fn compile_binop_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_c
     match (lhs_val, rhs_val){
         (AnyValueEnum::IntValue(i),  AnyValueEnum::IntValue(i2)) => {
             match op {
-                // TODO : add check for overflow like in rust (with a flag to activate it)
+                // TODO : add a flag to disable the overflow checks
                 Operator::Plus => compile_check_overflow(compile_context, "llvm.sadd.with.overflow", "Overflow when adding", i, i2, name, range),
                 Operator::Minus => compile_check_overflow(compile_context, "llvm.ssub.with.overflow", "Overflow when substracting", i, i2, name, range),
                 Operator::Mult => compile_check_overflow(compile_context, "llvm.smul.with.overflow", "Overflow when multiplying", i, i2, name, range),
