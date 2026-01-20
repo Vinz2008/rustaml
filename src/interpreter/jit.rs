@@ -1,9 +1,9 @@
 use std::time::{Duration};
 
-use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engine::JitFunction, module::Linkage, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, PointerValue, StructValue, ValueKind}};
+use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engine::JitFunction, module::Linkage, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue, ValueKind}};
 use rustc_hash::FxHashMap;
 
-use crate::{ast::{ASTNode, ASTRef, Type}, compiler::{CompileContext, compile_function, compiler_utils::get_fn_type, debuginfo::DebugInfo, get_var_id}, interpreter::{FunctionBody, FunctionDef, InterpretContext, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
+use crate::{ast::{ASTNode, ASTRef, Type}, compiler::{CompileContext, compile_function, compiler_utils::{get_fn_type, get_llvm_type}, debuginfo::DebugInfo, get_var_id}, interpreter::{FunctionBody, FunctionDef, InterpretContext, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
 
 #[cfg(feature = "debug-llvm")]
 use inkwell::support::LLVMString;
@@ -71,8 +71,11 @@ pub(crate) fn get_jit_entry_function_type<'llvm_ctx>(llvm_context : &'llvm_ctx C
 fn jit_wrap_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val : BasicValueEnum<'llvm_ctx>, val_type : &Type) -> StructValue<'llvm_ctx> {
     let value_struct_ty = get_value_struct_type(compile_context.context);
     let type_tag = 0;
+    let i64_type = compile_context.context.i64_type();
     let val_data = match val_type {
         Type::Integer => val.into_int_value(),
+        Type::Float => compile_context.builder.build_bit_cast(val, i64_type, "bitcast_float_to_jit_val").unwrap().into_int_value(),
+        Type::Bool | Type::Char => compile_context.builder.build_int_z_extend(val.into_int_value(), i64_type, "bitcast_small_to_jit_val").unwrap(),
         _ => todo!(), // TODO
     };
     let field_vals: &[BasicValueEnum] = &[
@@ -87,10 +90,11 @@ fn jit_wrap_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, 
 }
 
 
-fn jit_unwrap_val_data<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val_data : BasicValueEnum<'llvm_ctx>, val_type : &Type) -> BasicValueEnum<'llvm_ctx> {
+fn jit_unwrap_val_data<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val_data : IntValue<'llvm_ctx>, val_type : &Type) -> BasicValueEnum<'llvm_ctx> {
     match val_type {
         Type::Integer => val_data.as_basic_value_enum(),
         Type::Float => compile_context.builder.build_bit_cast(val_data, compile_context.context.f64_type(), "bitcast_jit_val_to_float").unwrap(),
+        Type::Bool | Type::Char => compile_context.builder.build_int_truncate(val_data, get_llvm_type(compile_context, val_type).into_int_type(), "trunc_jit_val_to_bool").unwrap().as_basic_value_enum(),
         _ => panic!("{:?}", val_type) // TODO
     }
 }
@@ -111,7 +115,7 @@ pub(crate) fn jit_unwrap_val_from_args<'llvm_ctx>(compile_context: &mut CompileC
         compile_context.builder.build_in_bounds_gep(value_struct, struct_val_ptr, struct_indexes, "gep_struct_unwrap_jit").unwrap()
     };
     let load_data = compile_context.builder.build_load(i64_type, data_ptr, "jit_load_data").unwrap();
-    return jit_unwrap_val_data(compile_context, load_data, arg_type).into();
+    return jit_unwrap_val_data(compile_context, load_data.into_int_value(), arg_type).into();
 }
 
 fn get_jit_fun_wrapper_name(rustaml_context : &RustamlContext, name : StringRef) -> String {
@@ -221,8 +225,8 @@ pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &F
 //     enum {
 //         INTEGER = 0,
 //         FLOAT = 1,
-//         BOOL_TYPE,
-//         CHAR_TYPE,
+//         BOOL_TYPE = 2,
+//         CHAR_TYPE = 3,
 //     }
 //     uint64_t value;
 // } Value;
@@ -234,6 +238,8 @@ pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &F
 enum JITValueTag {
     INTEGER,
     FLOAT,
+    BOOL,
+    CHAR,
 }
 
 #[repr(C)]
@@ -246,6 +252,8 @@ fn create_jit_value(val : Val) -> JITValue {
     let (tag, data) = match val {
         Val::Integer(i) => (JITValueTag::INTEGER, i as u64),
         Val::Float(f) => (JITValueTag::FLOAT, f.to_bits()),
+        Val::Bool(b) => (JITValueTag::BOOL, b as u64),
+        Val::Char(c) => (JITValueTag::CHAR, c as u64),
         _ => todo!(),
     };
     JITValue { 
@@ -346,6 +354,8 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
     let ret = unsafe { fun.call(val_args.as_mut_ptr()) };
     match ret.tag {
         JITValueTag::INTEGER => Val::Integer(ret.val as i64),
-        JITValueTag::FLOAT => Val::Float(f64::from_bits(ret.val)), 
+        JITValueTag::FLOAT => Val::Float(f64::from_bits(ret.val)),
+        JITValueTag::BOOL => Val::Bool(ret.val != 0),
+        JITValueTag::CHAR => Val::Char(char::from_u32(ret.val.try_into().unwrap()).unwrap())
     }
 }
