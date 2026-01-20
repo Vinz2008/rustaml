@@ -371,12 +371,6 @@ fn get_func_ptr<'a>(context : &mut InterpretContext, ffi_context : &'a mut FFICo
     ffi_context.fn_ptrs.last().unwrap()
 }
 
-// TODO: need this ?
-// return a ref to make it work with libffi Arg
-/*fn get_func_ptr<'a>(ffi_context : &'a mut FFIContext) -> &'a *const c_void {
-    ffi_context.fn_ptrs.last().unwrap()
-}*/
-
 
 fn prepare_args_data(context : &mut InterpretContext, ffi_context : &mut FFIContext, args : &[Val]){
     for v in args {
@@ -394,8 +388,8 @@ fn prepare_args_data(context : &mut InterpretContext, ffi_context : &mut FFICont
             Val::Function(func_def) => {
                 prepare_func_ptr(context, ffi_context, func_def);
             }
-            Val::Integer(_) | Val::Float(_) => {} 
-            Val::Char(c) => todo!(), // TODO
+            Val::Integer(_) | Val::Float(_) | Val::Char(_) => {}
+            Val::Regex(_) => panic!("Regex not supported for FFI"),
             _ => unreachable!()
         }
     }
@@ -411,6 +405,7 @@ fn get_ffi_args<'a>(ffi_context : &'a FFIContext, args : &'a [Val]) -> Vec<Arg<'
         let arg = match a {
             Val::Integer(i) => Arg::new(i),
             Val::Float(f) => Arg::new(f),
+            Val::Char(c) => Arg::new(unsafe { &*(c as *const char as *const u32) }),
             Val::String(_) => {
                 let str_pos = ffi_context.c_str_ptrs.len()-1-string_count;
                 string_count += 1;
@@ -427,6 +422,7 @@ fn get_ffi_args<'a>(ffi_context : &'a FFIContext, args : &'a [Val]) -> Vec<Arg<'
                 Arg::new(ffi_context.fn_ptrs.get(func_pos).unwrap())
                 //Arg::new(get_func_ptr(ffi_context))
             },
+            Val::Regex(_) => panic!("Regex not supported for FFI"),
             _ => unreachable!(),
         };
         ffi_args.push(arg);
@@ -435,36 +431,10 @@ fn get_ffi_args<'a>(ffi_context : &'a FFIContext, args : &'a [Val]) -> Vec<Arg<'
     ffi_args
 }
 
-
-/*fn get_arg<'a>(context : &mut InterpretContext, ffi_context : &'a mut FFIContext, v : &'a Val) -> Arg<'a> {
-    match v {
-        Val::Integer(i) => Arg::new(i),
-        Val::Float(f) => Arg::new(f),
-        Val::String(s) => {
-            let arg_str = s.get_str(&context.rustaml_context.str_interner);
-            let cstring = std::ffi::CString::new(arg_str).unwrap();
-            
-            ffi_context.c_strs.push(cstring);
-            let cstring_ptr = ffi_context.c_strs.last().unwrap().as_ptr();
-            ffi_context.c_str_ptrs.push(cstring_ptr);
-            Arg::new(ffi_context.c_str_ptrs.last().unwrap())
-        },
-        Val::Bool(b) => {
-            ffi_context.u8s.push(*b as u8);
-            Arg::new(ffi_context.u8s.last().unwrap())
-        }
-        Val::Function(func_def) => {
-            Arg::new(get_func_ptr(context, ffi_context, func_def))
-        },
-        _ => unreachable!(),
-    }
-}*/
-
 pub(crate) fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFIFunc, args : &[Val]) -> Val {
     let mut ffi_context = FFIContext::new(args.len());
 
     unsafe  {
-        //let args = args.iter().map(|e| get_arg(context, &ffi_context, e)).collect::<Vec<_>>();
         prepare_args_data(context, &mut ffi_context, args);
         let args = get_ffi_args(&ffi_context, args);
         let val = match &ffi_func.ret_type {
@@ -485,6 +455,10 @@ pub(crate) fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFI
                 };
                 
                 Val::Bool(b)
+            }
+            Type::Char => {
+                let c : u32 = ffi_func.cif.call(ffi_func.code_ptr, &args);
+                Val::Char(char::from_u32(c).unwrap())
             }
             Type::Function(arg_types, ret_type, _) => {
                 // TODO : test this

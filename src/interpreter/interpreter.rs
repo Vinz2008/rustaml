@@ -5,7 +5,6 @@ use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
 use std::mem;
 use std::panic;
-use std::time::Instant;
 use debug_with_context::DebugWithContext;
 use rand::prelude::*;
 
@@ -55,6 +54,7 @@ cfg_if! {
     if #[cfg(feature = "jit")]{
         use crate::interpreter::jit::{update_jit_heuristics_function_start_call, should_use_jit_function, call_jit_function};
         use crate::interpreter::jit::JitContext;
+        use std::time::Instant;
     }
 }
 
@@ -1423,8 +1423,9 @@ pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlConte
         jit_context: JitContext::new(type_infos, dump_jit_ir),
     };
 
-    #[cfg(not(feature = "jit"))]
-    let _ = dump_jit_ir;
+    #[cfg(not(feature = "jit"))]{
+        let _ = (dump_jit_ir, type_infos);
+    }
 
     let v = interpret_node(&mut context, ast);
 
