@@ -1,8 +1,8 @@
-use std::{ffi::CString, mem::{ManuallyDrop, MaybeUninit}, ops::Deref, os::raw::c_void, panic::{AssertUnwindSafe, catch_unwind}, ptr, rc::Rc};
+use std::{ffi::{CStr, CString, c_char}, mem::{ManuallyDrop, MaybeUninit}, ops::Deref, os::raw::c_void, panic::{AssertUnwindSafe, catch_unwind}, ptr, rc::Rc};
 
 use crate::{ast::{CType, ExternLang, Type}, interpreter::{call_function, FunctionBody, FunctionDef, InterpretContext, Val}, mangle::mangle_name_external, rustaml::RustamlContext, string_intern::StringRef};
 
-use debug_with_context::DebugWithContext;
+use debug_with_context::{DebugWithContext, DebugWrapContext};
 use libffi::{low::CodePtr, middle::{Arg, Cif, Closure, Type as FFIType}, raw::ffi_cif};
 use libloading::Library;
 use pathbuf::pathbuf;
@@ -32,6 +32,7 @@ fn get_ffi_type(t : &Type) -> FFIType {
         Type::Integer => FFIType::i64(),
         Type::Float => FFIType::f64(),
         Type::Bool => FFIType::u8(),
+        Type::Char => FFIType::u32(),
         Type::Function(_, _, _) | Type::Str => FFIType::pointer(),
         Type::CType(c_type) => {
             match c_type {
@@ -47,8 +48,9 @@ fn get_ffi_type(t : &Type) -> FFIType {
                 CType::F64 => FFIType::f64(),
             }
         }
-        t => panic!("t : {:?}", t),
-        //_ => unreachable!()
+        Type::Unit | Type::Never => FFIType::void(), // could cause problem when in arg (TODO ?)
+        Type::List(_) | Type::SumType(_) | Type::Regex => panic!("can't use a value of type {} at FFI boundary", t),
+        Type::Any | Type::Generic(_) => unreachable!(),
     }
 }
 
@@ -138,9 +140,6 @@ fn get_function_closure(context : &mut InterpretContext, ffi_context : &mut FFIC
 
     let user_data_ref = unsafe {
         let user_ptr = Box::into_raw(user_data);
-        if ffi_context.user_data_ffi.len() == USER_DATA_MAX_NB {
-            panic!("the number of ffi call data has overflowed USER_DATA_MAX_NB");
-        }
         ffi_context.user_data_ffi.push(user_ptr);
         &mut *(user_ptr)
     };
@@ -156,31 +155,43 @@ struct UserData {
     ffi_context : *mut FFIContext,
 }
 
-unsafe fn get_val_from_arg(arg : *const c_void, arg_type : &Type) -> Val {
+unsafe fn get_val_from_arg(rustaml_context : &mut RustamlContext, arg : *const c_void, arg_type : &Type) -> Val {
     unsafe {
         match arg_type {
             Type::Integer => Val::Integer(*(arg as *const i64)),
+            Type::Float => Val::Float(*(arg as *const f64)),
+            Type::Bool => Val::Bool(*(arg as *const u8) != 0),
+            Type::Char => Val::Char(char::from_u32(*(arg as *const u32)).unwrap()),
+            Type::Str => {
+                let str_ptr = *(arg as *const *const c_char);
+                let c_str = CStr::from_ptr(str_ptr);
+                let str = c_str.to_str().expect("Passed a non UTF-8 string from a ffi function to a rustaml function");
+                Val::String(rustaml_context.str_interner.intern_runtime(str))
+            },
             Type::CType(c_type) => {
                 match c_type {
+                    CType::U8 => Val::Integer(*(arg as *const u8) as i64),
+                    CType::U16 => Val::Integer(*(arg as *const u16) as i64),
+                    CType::U32 => Val::Integer(*(arg as *const u32) as i64),
+                    CType::U64 => Val::Integer((*(arg as *const u64)).try_into().expect("trying to pass a too big u64 from a ffi function to a rustaml function that accept an Integer, so a i64")),
+                    CType::I8 => Val::Integer(*(arg as *const i8) as i64),
+                    CType::I16 => Val::Integer(*(arg as *const i16) as i64),
                     CType::I32 => Val::Integer(*(arg as *const i32) as i64),
-                    CType::I64 => get_val_from_arg(arg, &Type::Integer),
-                    CType::F64 => get_val_from_arg(arg, &Type::Float),
-                    _ => todo!()
+                    CType::I64 => get_val_from_arg(rustaml_context, arg, &Type::Integer),
+                    CType::F32 => Val::Float(*(arg as *const f32) as f64),
+                    CType::F64 => get_val_from_arg(rustaml_context, arg, &Type::Float),
                 }
             }
-            _ => todo!()
+            Type::Function(_, _, _) => todo!(), // TODO : create a FFI function from the function ptr passed from C ? (verify if it just passing an already closure function so we don't create a closure to a closure)
+            Type::SumType(_) | Type::Regex | Type::List(_) | Type::Unit => panic!("Can't pass a type {} from a ffi function to a rustaml function", arg_type), // TODO : enforce this before ?
+            Type::Generic(_) | Type::Any | Type::Never => unreachable!(),
         }
     }
 }
 
-// TODO : add a catch_unwind
-// like this ? : let _ = catch_unwind(AssertUnwindSafe(|| {
-        // body
-//    })).unwrap_or_else(|_| {
-//        std::process::abort();
-//    });
+
 unsafe extern "C" fn function_ptr_trampoline(cif: &ffi_cif, result : &mut c_void, args_ptr: *const *const c_void, user_data : &mut UserData){
-    let _ = catch_unwind(AssertUnwindSafe(|| {
+    catch_unwind(AssertUnwindSafe(|| {
         unsafe {
             let user_data = &mut *(user_data as *mut UserData);
             let context = &mut *(user_data.ctx as *mut InterpretContext);
@@ -194,12 +205,12 @@ unsafe extern "C" fn function_ptr_trampoline(cif: &ffi_cif, result : &mut c_void
             }
             // TODO : work on the unwrap ?
             let arg_types = match func_def.function_def_ast.unwrap().get_type(&context.rustaml_context.ast_pool) {
-                Type::Function(args, _, _) => args.as_ref(),
+                Type::Function(args, _, _) => args.clone(),
                 _ => unreachable!(),
             };
             //dbg!(arg_types);
 
-            let args_val = args.into_iter().zip(arg_types).map(|(i, arg_type)| get_val_from_arg(i, arg_type)).collect::<Vec<_>>();
+            let args_val = args.into_iter().zip(arg_types).map(|(i, arg_type)| get_val_from_arg(context.rustaml_context, i, &arg_type)).collect::<Vec<_>>();
 
             let res_val = call_function(context, func_def, args_val);
 
@@ -207,27 +218,32 @@ unsafe extern "C" fn function_ptr_trampoline(cif: &ffi_cif, result : &mut c_void
                 Val::Integer(i) => *(result as *mut _ as *mut i64) = i,
                 Val::Float(f) => *(result as *mut _ as *mut f64) = f,
                 Val::Bool(b) => *(result as *mut _ as *mut u8) = b as u8,
+                Val::Char(c) => *(result as *mut _ as *mut u32) = c as u32,
+                Val::String(s) => {
+                    let str = s.get_str(&context.rustaml_context.str_interner);
+                    let cstr = CString::new(str).unwrap();
+                    ffi_context.c_strs.push(cstr);
+                    let cstr_ptr = ffi_context.c_strs.last().unwrap().as_ptr();
+                    *(result as *mut _ as *mut *const c_char) = cstr_ptr as *const c_char;
+                }
                 Val::Function(f) => {
                     *(result as *mut _ as *mut *const c_void) = *get_func_ptr(context, ffi_context, &f);
                 },
-                // TODO : add more
-                _ => todo!()
+                Val::Unit | Val::List(_) | Val::Regex(_) | Val::SumType(_) => panic!("Can't return the val {:?}", DebugWrapContext::new(&res_val, context.rustaml_context)),
             }
         }
     })).unwrap_or_else(|_|{
         std::process::abort();
-    } );
+    });
 }
 
 struct FFIContext {
-    // TODO, : replace these vecs with impossible to grow vecs
     u8s : FixedVec<u8>,
-    c_strs : FixedVec<CString>,
-    c_str_ptrs : FixedVec<*const i8>,
-    // TODO : verify if they are needed
-    closures : FixedVec<Closure<'static>>,
+    c_strs : Vec<CString>,
+    c_str_ptrs : FixedVec<*const c_char>,
     fn_ptrs : FixedVec<*const c_void>,
-    user_data_ffi : FixedVec<*mut UserData>,
+    closures : Vec<Closure<'static>>,
+    user_data_ffi : Vec<*mut UserData>,
 }
 
 struct FixedVec<T> {
@@ -334,19 +350,16 @@ impl<T> Drop for FixedVec<T> {
     }
 }
 
-// TODO : what number should it be ?
-const USER_DATA_MAX_NB : usize = 20;
 
 impl FFIContext {
     fn new(args_len : usize) -> FFIContext {
         FFIContext {
             u8s: FixedVec::new(args_len), // to prevent pointer invalidation, reserve the max size possible, even if bigger than needed
-            c_strs: FixedVec::new(args_len),
+            c_strs: Vec::new(),
             c_str_ptrs: FixedVec::new(args_len),
-            closures: FixedVec::new(args_len),
             fn_ptrs: FixedVec::new(args_len),
-            // TODO : put this in the stack instead ? (because constant size ?)
-            user_data_ffi: FixedVec::new(USER_DATA_MAX_NB), // only USER_DATA_MAX_NB user data can be used, more will do pointer invalidation, so you need to call no more than USER_DATA_MAX_NB times ffi functions during a function call (ex : calling a ffi function, which calls an arg that is a rustaml function that calls a ffi function), make this number not too big because there is an allocation of USER_DATA_MAX_NB * 24 bytes
+            closures: Vec::new(),
+            user_data_ffi: Vec::new(),
         }
     }
 }
@@ -370,7 +383,6 @@ fn get_func_ptr<'a>(context : &mut InterpretContext, ffi_context : &'a mut FFICo
     let arg_ptr = fn_arg as *const () as *const c_void;
 
     ffi_context.fn_ptrs.push(arg_ptr);
-    //ffi_context.fn_ptrs.push(arg_ptr);
     ffi_context.fn_ptrs.last().unwrap()
 }
 
@@ -392,13 +404,12 @@ fn prepare_args_data(context : &mut InterpretContext, ffi_context : &mut FFICont
                 prepare_func_ptr(context, ffi_context, func_def);
             }
             Val::Integer(_) | Val::Float(_) | Val::Char(_) => {}
-            Val::Regex(_) => panic!("Regex not supported for FFI"),
-            _ => unreachable!()
+            Val::Regex(_) | Val::List(_) | Val::SumType(_) | Val::Unit => panic!("Value like {:?} not supported for FFI", DebugWrapContext::new(&v, context.rustaml_context)),
         }
     }
 }
 
-// TODO : need to call prepare_arg_data before
+
 fn get_ffi_args<'a>(ffi_context : &'a FFIContext, args : &'a [Val]) -> Vec<Arg<'a>> {
     let mut ffi_args= Vec::with_capacity(args.len());
     let mut string_count = 0;
@@ -423,10 +434,8 @@ fn get_ffi_args<'a>(ffi_context : &'a FFIContext, args : &'a [Val]) -> Vec<Arg<'
                 let func_pos = ffi_context.fn_ptrs.len()-1-func_count;
                 func_count += 1;
                 Arg::new(ffi_context.fn_ptrs.get(func_pos).unwrap())
-                //Arg::new(get_func_ptr(ffi_context))
             },
-            Val::Regex(_) => panic!("Regex not supported for FFI"),
-            _ => unreachable!(),
+            Val::Regex(_) | Val::List(_) | Val::SumType(_) | Val::Unit => unreachable!(), // already handled in prepare_args_data
         };
         ffi_args.push(arg);
     }
@@ -454,7 +463,7 @@ pub(crate) fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFI
                 let b = match b_u8 {
                     0 => false,
                     1 => true,
-                    _ => unreachable!(),
+                    _ => panic!("returning from a FFI function an invalid bool : {}", b_u8),
                 };
                 
                 Val::Bool(b)
@@ -462,6 +471,12 @@ pub(crate) fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFI
             Type::Char => {
                 let c : u32 = ffi_func.cif.call(ffi_func.code_ptr, &args);
                 Val::Char(char::from_u32(c).unwrap())
+            }
+            Type::Str => {
+                let str_ptr : *const c_char = ffi_func.cif.call(ffi_func.code_ptr, &args);
+                let cstr = CStr::from_ptr(str_ptr);
+                let str = cstr.to_str().expect("Returning a non UTF-8 string from a ffi function to a rustaml function");
+                Val::String(context.rustaml_context.str_interner.intern_runtime(str))
             }
             Type::Function(arg_types, ret_type, _) => {
                 // TODO : test this
@@ -517,7 +532,16 @@ pub(crate) fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFI
                     Val::Float(f)
                 }
             }
-            _ => unreachable!(),
+            Type::Unit => {
+                let _: () = ffi_func.cif.call(ffi_func.code_ptr, &args);
+                Val::Unit
+            }
+            Type::Never => {
+                let _: () = ffi_func.cif.call(ffi_func.code_ptr, &args);
+                panic!("Unreachable code: you marked a C function as never returning, but it returned !!")
+            }
+            Type::List(_) | Type::SumType(_) | Type::Regex => panic!("Invalid ffi function return : {}", &ffi_func.ret_type),
+            Type::Any | Type::Generic(_) => unreachable!(),
         };
         for user_data_ptr in ffi_context.user_data_ffi {
             let _user_data = Box::from_raw(user_data_ptr); // drop user data here
