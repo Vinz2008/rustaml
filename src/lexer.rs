@@ -53,31 +53,31 @@ impl Operator {
         matches!(c, '+' | '-' | '*' | '/' | '%' | '=' | '<' | '>' | '^' | ':' | '!' | '.' | '&' | '|' | '@')
     }
 
-    pub(crate) fn str_to_op(s: &str, range : &Range<usize>) -> Result<Operator, LexerErr> {
-        let op = match s {
-            "+" => Operator::Plus,
-            "-" => Operator::Minus,
-            "*" => Operator::Mult,
-            "/" => Operator::Div,
-            "%" => Operator::Rem,
-            "+." => Operator::PlusFloat,
-            "-." => Operator::MinusFloat,
-            "*." => Operator::MultFloat,
-            "/." => Operator::DivFloat,
-            "%." => Operator::RemFloat,
-            "==" => Operator::IsEqual,
-            "!=" => Operator::IsNotEqual,
-            ">=" => Operator::SuperiorOrEqual,
-            "<=" => Operator::InferiorOrEqual,
-            ">" => Operator::Superior,
-            "<" => Operator::Inferior,
-            "^" => Operator::StrAppend,
-            "::" => Operator::ListAppend,
-            "&&" => Operator::And,
-            "||" => Operator::Or,
-            "!" => Operator::Not,
-            "@" => Operator::ListMerge,
-            _ => return Err(LexerErr::new(LexerErrData::InvalidOp(s.to_owned()), range.clone())),
+    pub(crate) fn str_to_op(buf: &[char], range : &Range<usize>) -> Result<Operator, LexerErr> {
+        let op = match buf {
+            str_to_char!("+") => Operator::Plus,
+            str_to_char!("-") => Operator::Minus,
+            str_to_char!("*") => Operator::Mult,
+            str_to_char!("/") => Operator::Div,
+            str_to_char!("%") => Operator::Rem,
+            str_to_char!("+.") => Operator::PlusFloat,
+            str_to_char!("-.") => Operator::MinusFloat,
+            str_to_char!("*.") => Operator::MultFloat,
+            str_to_char!("/.") => Operator::DivFloat,
+            str_to_char!("%.") => Operator::RemFloat,
+            str_to_char!("==") => Operator::IsEqual,
+            str_to_char!("!=") => Operator::IsNotEqual,
+            str_to_char!(">=") => Operator::SuperiorOrEqual,
+            str_to_char!("<=") => Operator::InferiorOrEqual,
+            str_to_char!(">") => Operator::Superior,
+            str_to_char!("<") => Operator::Inferior,
+            str_to_char!("^") => Operator::StrAppend,
+            str_to_char!("::") => Operator::ListAppend,
+            str_to_char!("&&") => Operator::And,
+            str_to_char!("||") => Operator::Or,
+            str_to_char!("!") => Operator::Not,
+            str_to_char!("@") => Operator::ListMerge,
+            _ => return Err(LexerErr::new(LexerErrData::InvalidOp(buf.iter().collect::<String>()), range.clone())),
         };
         Ok(op)
     }
@@ -327,21 +327,19 @@ fn lex_op(lexer: &mut Lexer) -> Result<Option<Token>, LexerErr> {
 
     let range = start_pos..lexer.pos;
 
-    let op_str = buf.iter().collect::<String>();
-
-    let tok_data = match op_str.as_str() {
-        "->" => TokenData::Arrow,
-        "=" => TokenData::Equal,
-        "//" => { 
+    let tok_data = match buf {
+        str_to_char!("->") => TokenData::Arrow,
+        str_to_char!("=") => TokenData::Equal,
+        str_to_char!("//") => { 
             handle_comment(lexer);
             return Ok(None)
         },
-        "|" => TokenData::Pipe,
-        ":" => TokenData::Colon,
-        ".." => TokenData::Range(false),
-        "=.." => TokenData::Range(true),
-        "." => TokenData::Dot,
-        _ => TokenData::Op(Operator::str_to_op(&op_str, &range)?)
+        str_to_char!("|") => TokenData::Pipe,
+        str_to_char!(":") => TokenData::Colon,
+        str_to_char!("..") => TokenData::Range(false),
+        str_to_char!("=..") => TokenData::Range(true),
+        str_to_char!(".") => TokenData::Dot,
+        _ => TokenData::Op(Operator::str_to_op(buf, &range)?)
     };
 
     Ok(Some(Token::new(tok_data, range)))

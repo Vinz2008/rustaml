@@ -180,6 +180,11 @@ impl<'a> TypeContext<'a> {
         self.current_vars = vars_to_add;
     }
 
+    fn reserve_constraints(&mut self, need : usize){
+        self.constraints.reserve(need);
+        self.constraints_ranges.reserve(need);
+    }
+
     fn push_constraint(&mut self, constraint : Constraint, range : Range<usize>){
         self.constraints.push(constraint);
         self.constraints_ranges.push(range);
@@ -307,6 +312,7 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
         Pattern::Char(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Char), range), 
         Pattern::List(pattern_list) => {
             context.push_constraint(Constraint::ListType(matched_type_var), range.clone());
+            context.reserve_constraints(pattern_list.len());
             for p in pattern_list {
                 let element_type_var = context.table.new_type_var();
                 context.push_constraint(Constraint::IsElementOf { element: element_type_var, list: matched_type_var }, range.clone());
@@ -385,6 +391,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             context.push_constraint(Constraint::ListType(new_type_var), range.clone());
 
             let mut first_element = None;
+            context.reserve_constraints(list.len());
             for e in list {
                 let element_var_type = collect_constraints(context, e)?;
 
@@ -442,6 +449,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                     context.push_constraint(Constraint::IsElementOf { element: lhs_type_var, list: rhs_type_var }, range.clone());
                 },
                 Operator::ListMerge => {
+                    context.reserve_constraints(3);
                     context.push_constraint(Constraint::SameType(lhs_type_var, rhs_type_var), range.clone());
                     context.push_constraint(Constraint::ListType(lhs_type_var), range.clone());
                     context.push_constraint(Constraint::ListType(rhs_type_var), range.clone());
@@ -615,6 +623,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             let ret_type_var = context.table.new_type_var();
             context.push_constraint(Constraint::IsType(ret_type_var, *ret), range.clone());
 
+            context.reserve_constraints(function_args_types.len());
             let arg_vars = function_args_types.into_iter().map(|e| {
                 let arg_tv = context.table.new_type_var();
                 context.push_constraint(Constraint::IsType(arg_tv, e), range.clone());
@@ -695,6 +704,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
 
             // put all the constraints to one root to improve performance (test ?)
             let mut first_branch = None;
+            context.reserve_constraints(patterns.len());
             for (pattern, pattern_ast) in patterns {
                 collect_constraints_pattern(context, matched_type_var, pattern);
 
@@ -937,8 +947,7 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
 }
 
 fn apply_types_to_ast(context : &mut TypeContext){
-
-
+    
     for (&var_id, &var_tv) in &context.vars_type_vars {
         let t = context.table.resolve_type(var_tv);
         context.type_infos.vars_env.insert(var_id, t);
@@ -959,6 +968,7 @@ fn std_function_constraint(context : &mut TypeContext, name : &'static str, args
     let function_name = context.rustaml_context.str_interner.intern_compiler(name);
     create_function(context, function_name, fun_type_var);
 
+    context.reserve_constraints(args.len());
     let args_type_vars = args.into_iter().map(|e|{
         let arg_type_var = context.table.new_type_var();
         context.push_constraint(Constraint::IsType(arg_type_var, e), 0..0); // Can't have ranges, TODO ? (use an option ?)
