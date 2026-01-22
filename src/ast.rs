@@ -371,48 +371,63 @@ impl Type {
     }
 }
 
-
-fn init_precedences() -> FxHashMap<Operator, (i32, Associativity)> {
-
-    // see https://ocaml.org/manual/5.3/expr.html#ss%3Aprecedence-and-associativity for precedence ?
-
-    FxHashMap::from_iter([
-        // TODO : should the and and or be Right or Left Associativity ?
-        (Operator::StrAppend, (5, Associativity::Right)),
-        (Operator::And, (5, Associativity::Right)),
-        (Operator::Or, (5, Associativity::Right)),
-        (Operator::ListAppend, (6, Associativity::Right)),
-        (Operator::ListMerge, (6, Associativity::Left)),
-        (Operator::IsEqual, (10, Associativity::Left)),
-        (Operator::IsNotEqual, (10, Associativity::Left)),
-        (Operator::Superior, (10, Associativity::Left)),
-        (Operator::Inferior, (10, Associativity::Left)),
-        (Operator::SuperiorOrEqual, (10, Associativity::Left)),
-        (Operator::InferiorOrEqual, (10, Associativity::Left)),
-        (Operator::Plus, (20, Associativity::Left)),
-        (Operator::Minus, (20, Associativity::Left)),
-        (Operator::PlusFloat, (20, Associativity::Left)),
-        (Operator::MinusFloat, (20, Associativity::Left)),
-        (Operator::Mult, (30, Associativity::Left)),
-        (Operator::Div, (30, Associativity::Left)),
-        (Operator::Rem, (30, Associativity::Left)),
-        (Operator::MultFloat, (30, Associativity::Left)),
-        (Operator::DivFloat, (30, Associativity::Left)),
-        (Operator::RemFloat, (30, Associativity::Left)),
-    ])
-}
-
-
 #[derive(Clone, Copy)]
 pub(crate) enum Associativity {
     Left, // most operators
     Right, // ::
 }
 
+// TODO : 
+// see https://ocaml.org/manual/5.3/expr.html#ss%3Aprecedence-and-associativity for precedence ?
+const _PRECEDENCE_MAP : &[(Operator, (i32, Associativity))] = &[
+    (Operator::StrAppend, (5, Associativity::Right)),
+    (Operator::And, (5, Associativity::Right)),
+    (Operator::Or, (5, Associativity::Right)),
+    (Operator::ListAppend, (6, Associativity::Right)),
+    (Operator::ListMerge, (6, Associativity::Left)),
+    (Operator::IsEqual, (10, Associativity::Left)),
+    (Operator::IsNotEqual, (10, Associativity::Left)),
+    (Operator::Superior, (10, Associativity::Left)),
+    (Operator::Inferior, (10, Associativity::Left)),
+    (Operator::SuperiorOrEqual, (10, Associativity::Left)),
+    (Operator::InferiorOrEqual, (10, Associativity::Left)),
+    (Operator::Plus, (20, Associativity::Left)),
+    (Operator::Minus, (20, Associativity::Left)),
+    (Operator::PlusFloat, (20, Associativity::Left)),
+    (Operator::MinusFloat, (20, Associativity::Left)),
+    (Operator::Mult, (30, Associativity::Left)),
+    (Operator::Div, (30, Associativity::Left)),
+    (Operator::Rem, (30, Associativity::Left)),
+    (Operator::MultFloat, (30, Associativity::Left)),
+    (Operator::DivFloat, (30, Associativity::Left)),
+    (Operator::RemFloat, (30, Associativity::Left)),
+
+    // these are unary only operators, normally the precedence of these should not be used (TODO ?)
+    (Operator::Not, (0, Associativity::Left)),
+];
+
+
+const PRECEDENCE_MAP : &[(i32, Associativity)] = &init_precedences_map();
+
+const fn init_precedences_map() -> [(i32, Associativity); Operator::OPERATORS_COUNT] {
+    let mut v = [(0, Associativity::Left); Operator::OPERATORS_COUNT];
+    let mut i = 0;
+    while i < _PRECEDENCE_MAP.len() {
+        let op = _PRECEDENCE_MAP[i].0 as usize;
+        v[op] = _PRECEDENCE_MAP[i].1;
+        i += 1;
+    }
+    v
+}
+
+fn get_precedence(op : Operator) -> (i32, Associativity){
+    PRECEDENCE_MAP[op as usize]
+}
+
+
 pub(crate) struct Parser<'context> {
     tokens: Box<[Token]>,
     pos: usize,
-    precedences : FxHashMap<Operator, (i32, Associativity)>,
     filename : PathBuf,
     pub(crate) rustaml_context : &'context mut RustamlContext,
     imported_files : &'context mut FxHashSet<PathBuf>,
@@ -1231,7 +1246,7 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTRef, min_precedence: i32) -> Re
             Some(&TokenData::Op(op)) => op,
             Some(_) | None => break,
         };
-        let (first_precedence, _) = *parser.precedences.get(&operator).unwrap();
+        let (first_precedence, _) = get_precedence(operator);
         if first_precedence < min_precedence {
             break;
         }
@@ -1241,10 +1256,10 @@ fn parse_binary_rec(parser: &mut Parser, lhs: ASTRef, min_precedence: i32) -> Re
         while parser.has_tokens_left() {
             let current_tok_data = parser.current_tok_data();
             let new_operator =  match current_tok_data {
-                Some(TokenData::Op(op)) => op,
+                Some(TokenData::Op(op)) => *op,
                 Some(_) | None => break,
             };
-            let (precedence, associativity) = *parser.precedences.get(new_operator).unwrap();
+            let (precedence, associativity) = get_precedence(new_operator);
 
             if precedence < first_precedence || (precedence == first_precedence && matches!(associativity, Associativity::Left)){
                 break;
@@ -1378,7 +1393,6 @@ pub(crate) fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext, f
         let mut parser = Parser { 
             tokens: tokens.into_boxed_slice(), 
             pos: 0,
-            precedences: init_precedences(),
             imported_files,
             filename,
             rustaml_context,

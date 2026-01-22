@@ -8,6 +8,7 @@ use enum_tags::Tag;
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 #[debug_context(PrintTypedContext)]
+#[repr(u8)] // use this to be sure that there will be no problem with indexing in the precedence map
 pub(crate) enum Operator {
     Plus,
     Minus,
@@ -35,6 +36,7 @@ pub(crate) enum Operator {
 
 impl Operator {
     pub(crate) const OPERATORS: [&'static str; 22] = ["+", "-", "*", "/", "%", "+.", "-.", "*.", "/.", "%.", "==", "!=", ">=", "<=", ">", "<", "&&", "||", "^", "::", "!", "@"];
+    pub(crate) const OPERATORS_COUNT : usize = Operator::OPERATORS.len();
     pub(crate) fn get_type(&self) -> Type {
         match self {
             Self::Plus | Self::Minus | Self::Mult | Self::Div | Self::Rem => Type::Integer,
