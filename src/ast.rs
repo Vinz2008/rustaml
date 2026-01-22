@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::{ops::Range, path::Path};
 use std::fmt::{Debug, Display, Write};
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 
 use enum_tags::{Tag, TaggedEnum};
 use pathbuf::pathbuf;

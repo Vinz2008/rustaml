@@ -25,7 +25,7 @@ macro_static_str_to_char = "0.1.0"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 libffi = "5.1.0"
 
-inkwell = { version = "0.7.1", features = ["llvm21-1"], optional = true } # set LLVM_SYS_181_PREFIX to a only static installation to make it build statically
+inkwell = { version = "0.8.0", features = ["llvm21-1"], optional = true } # set LLVM_SYS_181_PREFIX to a only static installation to make it build statically
 human-panic = {version = "2.0.3", optional = true }
 rustyline = {version = "17.0.2", optional = true }
 stacker = { version = "0.1.21", optional = true }
