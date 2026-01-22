@@ -4,6 +4,7 @@ use crate::{ast::Type, debug_println, rustaml::RustamlContext, types_debug::Prin
 
 use debug_with_context::DebugWithContext;
 use enum_tags::Tag;
+use macro_static_str_to_char::str_to_char;
 
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
@@ -285,21 +286,22 @@ fn lex_alphabetic(lexer: &mut Lexer) -> Token {
 
     let range = start_pos..lexer.pos;
 
-    let tok_data = match buf.iter().collect::<String>().as_str() {
-        "let" => TokenData::Let,
-        "if" => TokenData::If,
-        "match" => TokenData::Match,
-        "with" => TokenData::With,
-        "then" => TokenData::Then,
-        "else" => TokenData::Else,
-        "in" => TokenData::In,
-        "import" => TokenData::Import,
-        "function" => TokenData::Function,
-        "extern" => TokenData::Extern,
-        "cast" => TokenData::Cast,
-        "type" => TokenData::Type,
-        "true" => TokenData::True,
-        "false" => TokenData::False,
+    // TODO : use the str_to_char! macro in other places
+    let tok_data = match buf {
+        str_to_char!("let") => TokenData::Let,
+        str_to_char!("if") => TokenData::If,
+        str_to_char!("match") => TokenData::Match,
+        str_to_char!("with") => TokenData::With,
+        str_to_char!("then") => TokenData::Then,
+        str_to_char!("else") => TokenData::Else,
+        str_to_char!("in") => TokenData::In,
+        str_to_char!("import") => TokenData::Import,
+        str_to_char!("function") => TokenData::Function,
+        str_to_char!("extern") => TokenData::Extern,
+        str_to_char!("cast") => TokenData::Cast,
+        str_to_char!("type") => TokenData::Type,
+        str_to_char!("true") => TokenData::True,
+        str_to_char!("false") => TokenData::False,
         _ => TokenData::Identifier(buf.to_vec().into_boxed_slice()),
     };
 

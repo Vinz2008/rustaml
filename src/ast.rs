@@ -527,6 +527,8 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
                 "int" => Type::Integer,
                 "bool" => Type::Bool,
                 "float" => Type::Float,
+                "char" => Type::Char,
+                "regex" => Type::Regex,
                 "str" => Type::Str,
                 "list" => {
                     parser.eat_tok(Some(TokenDataTag::ArrayOpen))?;

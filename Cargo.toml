@@ -20,6 +20,7 @@ const_format = { version = "0.2.35", features = ["fmt"] }
 serde_json = "1.0.145"
 serde = { version = "1.0.228", features = ["derive"] }
 regex = "1.12.2"
+macro_static_str_to_char = "0.1.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 libffi = "5.1.0"
@@ -36,8 +37,8 @@ blake3 = { version = "1.8.2", optional = true }
 [profile.release]
 lto = "fat"
 panic = "abort"
-strip = "debuginfo"
-#debug = "full"
+#strip = "debuginfo"
+debug = "full"
 
 [features]
 native = ["dep:inkwell"]
