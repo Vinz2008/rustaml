@@ -1410,6 +1410,7 @@ pub(crate) fn parse(tokens: Vec<Token>, rustaml_context : &mut RustamlContext, f
 
 #[cfg(test)]
 mod tests {
+    // TODO
     /*use crate::lexer::TokenData;
 
     use super::*;
@@ -1417,10 +1418,12 @@ mod tests {
     #[test]
     fn parser_simple() {
         // TODO
-        let input = vec![TokenData::Let, TokenData::Identifier(vec!['a']), TokenData::Op(Operator::Equal), TokenData::Integer(2), TokenData::EndOfExpr].into_iter().map(|t| Token::new(t, 0..0)).collect();
-        let result = parse(input).unwrap();
-        let expected =  ASTNode::VarDecl { name: "a".to_string(), val: Box::new(ASTNode::Integer { nb: 2 }), body: None };
-        let expected_toplevel = ASTNode::TopLevel { nodes: vec![expected] };
+        let rustaml_context = RustamlContext::new(false, false);
+        let input = vec![TokenData::Let, TokenData::Identifier(Box::new(['a'])), TokenData::Colon, TokenData::Identifier(Box::new(['i', 'n', 't'])), TokenData::Equal, TokenData::Integer(2), TokenData::EndOfExpr].into_iter().map(|t| Token::new(t, 0..0)).collect();
+        let result = parse(input, &mut rustaml_context, PathBuf::new(), None).unwrap();
+        let val_ast = rustaml_context.ast_pool.push(ASTNode::Integer { nb: 2 }, 0..0);
+        let expected =  ASTNode::VarDecl { name: rustaml_context.str_interner.intern_compiler("a"), var_type: Some(Type::Integer), val: val_ast, body: None };
+        let expected_toplevel = ASTNode::TopLevel { nodes: Box::new([rustaml_context.ast_pool.push(expected)]) };
         assert_eq!(result,  expected_toplevel);
     }*/
 }
