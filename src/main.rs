@@ -94,7 +94,7 @@ cfg_if! {
 
 // TODO : replace clap with lexopt or pico-args ?
 
-// TODO : add regex (in interpreter with regex crate and do custom implementation in std.c)
+// TODO : add simd
 
 #[derive(Subcommand, Debug)]
 enum Commands {
