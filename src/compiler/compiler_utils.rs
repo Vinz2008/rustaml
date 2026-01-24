@@ -342,7 +342,7 @@ pub(crate) fn vec_to_c_struct_ptr<'llvm_ctx>(compile_context: &mut CompileContex
     let vec_llvm_type = vec.get_type();
 
     let llvm_element_type = vec_llvm_type.get_element_type().as_any_type_enum();
-;
+    
     let size = compile_context.context.i64_type().const_int(vec_llvm_type.get_size() as u64, false);
     let alloca_array = create_entry_block_array_alloca(compile_context, "vec_to_c_struct_arr", llvm_element_type, size);
 
