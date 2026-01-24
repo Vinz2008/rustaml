@@ -54,6 +54,9 @@ pub(crate) enum TypesErrData {
     },
     ListTypeExpected {
         wrong_type : Type,
+    },
+    VecTypeExpected {
+        wrong_type : Type,
     }
 }
 
@@ -205,7 +208,10 @@ enum Constraint {
     FunctionType { fun_type_var: TypeVarId, args_type_vars: Box<[TypeVarId]>, ret_type_var: TypeVarId, is_variadic: bool, function_name : Option<String> }, // check if the function type is good (for calls)
     // TODO : can I merge these list constraints ?
     ListType(TypeVarId), // var is list(Any)
-    IsElementOf { element: TypeVarId, list : TypeVarId }
+    VecType(TypeVarId),
+    IsListElementOf { element: TypeVarId, list : TypeVarId },
+    IsVecElementOf { element: TypeVarId, vec : TypeVarId },
+    IsVecSize { size: u32, vec: TypeVarId }
 }
 
 #[derive(Default)]
@@ -315,7 +321,7 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
             context.reserve_constraints(pattern_list.len());
             for p in pattern_list {
                 let element_type_var = context.table.new_type_var();
-                context.push_constraint(Constraint::IsElementOf { element: element_type_var, list: matched_type_var }, range.clone());
+                context.push_constraint(Constraint::IsListElementOf { element: element_type_var, list: matched_type_var }, range.clone());
                 collect_constraints_pattern(context, element_type_var, p);
             }
         },
@@ -325,7 +331,7 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
             if !is_var_underscore {
                 create_var(context, e, false, element_type_var);
             }*/
-            context.push_constraint(Constraint::IsElementOf { element: element_type_var, list: matched_type_var }, range.clone());
+            context.push_constraint(Constraint::IsListElementOf { element: element_type_var, list: matched_type_var }, range.clone());
             collect_constraints_pattern(context, element_type_var, e);
             collect_constraints_pattern(context, matched_type_var, l);
         }
@@ -402,9 +408,27 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 }
             }
             if let Some(f) = first_element {
-                context.push_constraint(Constraint::IsElementOf { element: f, list: new_type_var }, range);
+                context.push_constraint(Constraint::IsListElementOf { element: f, list: new_type_var }, range);
             }
             
+        }
+
+        ASTNode::Vec { vec } => {
+            context.push_constraint(Constraint::VecType(new_type_var), range.clone());
+            context.push_constraint(Constraint::IsVecSize { size: vec.len().try_into().unwrap(), vec: new_type_var }, range.clone());
+            let mut first_element = None;
+            context.reserve_constraints(vec.len());
+            for e in vec {
+                let element_var_type = collect_constraints(context, e)?;
+                if let Some(f) = first_element {
+                    context.push_constraint(Constraint::SameType(element_var_type, f), range.clone());
+                } else {
+                    first_element = Some(element_var_type);
+                }
+            }
+            if let Some(f) = first_element {
+                context.push_constraint(Constraint::IsVecElementOf { element: f, vec: new_type_var }, range);
+            }
         }
 
         ASTNode::Cast { to_type, expr } => {
@@ -446,7 +470,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                     context.push_constraint(Constraint::IsType(rhs_type_var, Type::Str), range.clone());
                 },
                 Operator::ListAppend => {
-                    context.push_constraint(Constraint::IsElementOf { element: lhs_type_var, list: rhs_type_var }, range.clone());
+                    context.push_constraint(Constraint::IsListElementOf { element: lhs_type_var, list: rhs_type_var }, range.clone());
                 },
                 Operator::ListMerge => {
                     context.reserve_constraints(3);
@@ -454,6 +478,11 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                     context.push_constraint(Constraint::ListType(lhs_type_var), range.clone());
                     context.push_constraint(Constraint::ListType(rhs_type_var), range.clone());
                 },
+                Operator::PlusVec => {
+                    context.push_constraint(Constraint::SameType(lhs_type_var, rhs_type_var), range.clone());
+                    context.push_constraint(Constraint::VecType(lhs_type_var), range.clone());
+                    context.push_constraint(Constraint::VecType(rhs_type_var), range.clone());
+                }
                 Operator::Not => unreachable!(),
             }
 
@@ -480,6 +509,10 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                     context.push_constraint(Constraint::SameType(new_type_var, lhs_type_var), range.clone());
                     context.push_constraint(Constraint::SameType(new_type_var, rhs_type_var), range);
                 },
+                Operator::PlusVec => {
+                    context.push_constraint(Constraint::SameType(new_type_var, lhs_type_var), range.clone());
+                    context.push_constraint(Constraint::SameType(new_type_var, rhs_type_var), range.clone());
+                }
                 Operator::Not => unreachable!(),
             }
             
@@ -738,6 +771,15 @@ fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
             let e = merge_types(e1.as_ref(), e2.as_ref())?;
             Some(Type::List(Box::new(e)))
         },
+        (Type::Vec(e1, size1), Type::Vec(e2, size2)) => {
+            let e = merge_types(e1.as_ref(), e2.as_ref())?;
+            let size = match (*size1, *size2){
+                (size, 0) | (0, size) => size,
+                (size1, size2) if size1 == size2 => size1,
+                _ => return None,
+            };
+            Some(Type::Vec(Box::new(e), size))
+        }
         (Type::Function(args1, ret1, variadic1), Type::Function(args2, ret2, variadic2)) => {
             let variadic = *variadic1 || *variadic2;
             let ret = merge_types(ret1.as_ref(), ret2.as_ref())?;
@@ -902,16 +944,27 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                         set_type_with_changed(&mut table.real_types[tv_l_root.0 as usize], Type::List(Box::new(Type::Any)), &mut changed);
                     }
                 },
-                Constraint::IsElementOf { element, list } => {
+                Constraint::VecType(tv_vec) => {
+                    let tv_vec_root = table.find_root(*tv_vec);
+                    if let Some(tv_type) = &table.real_types[tv_vec_root.0 as usize] {
+                        // TODO : better support for generics (remove this and really check if the generic is a vec)
+                        if !matches!(tv_type, Type::Vec(_, _)) && !matches!(tv_type, Type::Generic(_)){
+                            return Err(TypesErr::new(TypesErrData::VecTypeExpected { wrong_type: tv_type.clone() }, range));
+                        }
+                    } else {
+                        set_type_with_changed(&mut table.real_types[tv_vec_root.0 as usize], Type::Vec(Box::new(Type::Any), 0), &mut changed);
+                    }
+                }
+                Constraint::IsListElementOf { element, list } => {
                     let element_root = table.find_root(*element);
                     let list_root = table.find_root(*list);
                     let element_type = table.real_types[element_root.0 as usize].clone();
                     let list_type = table.real_types[list_root.0 as usize].clone();
 
-                    let merged_element_type = match (&list_type, &element_type) {
+                    let merged_element_type = match (list_type, element_type) {
                         (Some(Type::List(list_element_type)), element_type) => {
                             if let Some(element_type) = element_type {
-                                let merged_element_type = merge_types(list_element_type.as_ref(), element_type);
+                                let merged_element_type = merge_types(list_element_type.as_ref(), &element_type);
                                 if merged_element_type.is_none() {
                                     // TODO : replace this to make it more clear that is not list_element_type and element_type that are incompatible, but it is that appending a element_type to a list_type (which is List(list_element_type)) that is invalid
                                     return Err(TypesErr::new(TypesErrData::IncompatibleTypes { type1: *list_element_type.clone(), type2: element_type.clone() }, range))
@@ -922,8 +975,8 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                             }
                         },
                         (Some(Type::Generic(_)), element_type) => element_type.clone(),
-                        (Some(t), _) => return Err(TypesErr::new(TypesErrData::ListTypeExpected { wrong_type: t.clone() }, range)),
-                        (None, Some(t)) => Some(t.clone()),
+                        (Some(t), _) => return Err(TypesErr::new(TypesErrData::ListTypeExpected { wrong_type: t }, range)),
+                        (None, Some(t)) => Some(t),
                         (None, None) => None,
                     };
 
@@ -939,6 +992,55 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                         set_type_with_changed(&mut table.real_types[list_root.0 as usize], Type::List(Box::new(Type::Any)), &mut changed);
                     }
                 },
+
+                Constraint::IsVecElementOf { element, vec } => {
+                    let element_root = table.find_root(*element);
+                    let vec_root = table.find_root(*vec);
+                    let element_type = table.real_types[element_root.0 as usize].clone();
+                    let vec_type = table.real_types[vec_root.0 as usize].clone();
+
+                    let (merged_element_type, merged_vec_size) = match (vec_type, element_type) {
+                        (Some(Type::Vec(vec_element_type, size)), element_type) => {
+                            if let Some(element_type) = element_type {
+                                let merged_element_type = merge_types(vec_element_type.as_ref(), &element_type);
+                                if merged_element_type.is_none(){
+                                    return Err(TypesErr::new(TypesErrData::IncompatibleTypes { type1: *vec_element_type.clone(), type2: element_type.clone() }, range));
+                                }
+                                (merged_element_type, Some(size))
+                            } else {
+                                (Some(vec_element_type.as_ref().clone()), Some(size))
+                            }
+                        }
+                        // TODO : better type checking for generics, especially here and for lists
+                        // TODO : do I need the generic case like IsListElementOf ? does the list even needs it ?
+                        (Some(t), _) => return Err(TypesErr::new(TypesErrData::VecTypeExpected { wrong_type: t }, range)),
+                        (None, Some(t)) => (Some(t), None),
+                        (None, None) => (None, None),
+                    };
+                    if let Some(merged_element_type) = merged_element_type {
+                        let merged_vec_type = Type::Vec(Box::new(merged_element_type.clone()), merged_vec_size.unwrap_or(0));
+                        set_type_with_changed(&mut table.real_types[element_root.0 as usize], merged_element_type, &mut changed);
+                        set_type_with_changed(&mut table.real_types[vec_root.0 as usize], merged_vec_type, &mut changed);
+                    } else {
+                        set_type_with_changed(&mut table.real_types[vec_root.0 as usize], Type::Vec(Box::new(Type::Any), 0), &mut changed);
+                    }
+                }
+                Constraint::IsVecSize { size, vec } => {
+                    let vec_root = table.find_root(*vec);
+                    let vec_type = table.real_types[vec_root.0 as usize].clone();
+                    // TODO : optimize the box new for the Type::Vec that is technically constant (constant lazy lock ?)
+                    if let Some(vec_type) = vec_type {
+                        let merged_vec_type = merge_types(&vec_type, &Type::Vec(Box::new(Type::Any), *size));
+                        if let Some(merged_vec_type) = merged_vec_type {
+                            set_type_with_changed(&mut table.real_types[vec_root.0 as usize], merged_vec_type, &mut changed);
+                        } else {
+                            // TODO : create real err ? (or use existing ?)
+                            panic!("types {} doesn't have a vec size as {}", vec_type, *size);
+                        }
+                    } else {
+                        set_type_with_changed(&mut table.real_types[vec_root.0 as usize], Type::Vec(Box::new(Type::Any), *size), &mut changed);
+                    }
+                }
             }
         }
     }
@@ -996,6 +1098,8 @@ fn std_functions_constraints_types(context : &mut TypeContext) {
     std_function_constraint(context, "chars", Box::new([Type::Str]), Type::List(Box::new(Type::Char)), false);
     std_function_constraint(context, "regex_create", Box::new([Type::Str]), Type::Regex, false);
     std_function_constraint(context, "regex_has_match", Box::new([Type::Regex, Type::Str]), Type::Bool, false);
+    let generic_black_box_input = Type::Generic(0);
+    std_function_constraint(context, "black_box", Box::new([generic_black_box_input]), Type::Unit, false);
 
     let generic_type_elem_map_input = Type::Generic(0);
     let generic_type_elem_map_output = Type::Generic(1);

@@ -1,4 +1,4 @@
-use inkwell::{AddressSpace, attributes::AttributeLoc, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}};
+use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType, VectorType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}};
 
 use crate::{ast::{CType, Type}, compiler::{CompileContext, debuginfo::LineColLoc}, rustaml::RustamlContext, string_intern::StringRef};
 
@@ -9,6 +9,7 @@ pub(crate) fn add_function<'llvm_ctx>(compile_context : &CompileContext<'_, 'llv
 
     #[cfg(feature = "jit")]
     if let Some(jit_cpu_infos) = &compile_context.jit_cpu_infos {
+        use inkwell::attributes::AttributeLoc;
         // TODO : use  TargetMachine::get_host_cpu_name() to get the real name of the cpu, put it in a struct/tuple with the target features, then set it here
         fun.add_attribute(AttributeLoc::Function, compile_context.context.create_string_attribute("target-cpu", &jit_cpu_infos.cpu_name));
         fun.add_attribute(AttributeLoc::Function, compile_context.context.create_string_attribute("target-features", &jit_cpu_infos.cpu_features));
@@ -39,7 +40,7 @@ pub(crate) fn get_type_tag(t : &Type) -> u8 {
         Type::Char => 6,
         Type::Unit => 7,
         // TODO : add a type tag for Never ? SumType ? Regex ?
-        Type::Any | Type::Never | Type::Regex | Type::CType(_) | Type::Generic(_) | Type::SumType(_) => panic!("no type tag for this type {:?} !!", t),
+        Type::Any | Type::Never | Type::Regex | Type::Vec(_, _) | Type::CType(_) | Type::Generic(_) | Type::SumType(_) => panic!("no type tag for this type {:?} !!", t),
     }
 }
 
@@ -96,7 +97,8 @@ pub(crate) fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, 'll
         Type::SumType(sumtype) => {
             // for now only an int for the tag, will need to support the type of variants, TODO
             get_llvm_type(compile_context, &Type::Integer)
-        }, // TODO
+        },
+        Type::Vec(e_type, size) => get_vec_type(compile_context.context, get_llvm_type(compile_context, e_type), *size).into(),
         Type::Any => encountered_any_type(),
     }
 }
@@ -114,9 +116,16 @@ pub(crate) fn get_fn_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, llvm_typ
         AnyTypeEnum::IntType(i) => i.fn_type(param_types, is_var_args),
         AnyTypeEnum::PointerType(p) => p.fn_type(param_types, is_var_args),
         AnyTypeEnum::StructType(s) => s.fn_type(param_types, is_var_args),
-        AnyTypeEnum::VectorType(_) => unreachable!(),
+        AnyTypeEnum::VectorType(_) => unreachable!(), // TODO ?
         AnyTypeEnum::ScalableVectorType(_) => unreachable!(), // TODO ?
         AnyTypeEnum::VoidType(v) => v.fn_type(param_types, is_var_args),
+    }
+}
+
+pub(crate) fn get_vec_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, llvm_type : AnyTypeEnum<'llvm_ctx>, size : u32) -> VectorType<'llvm_ctx> {
+    match llvm_type {
+        AnyTypeEnum::IntType(i) => i.vec_type(size),
+        _ => todo!() // TODO
     }
 }
 
@@ -283,6 +292,7 @@ pub(crate) fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_,
             }
         },
         Type::Regex => todo!(), // TODO
+        Type::Vec(e, size) => panic!("Can't have a vec in a list"), // TODO : should it be possible
         Type::Any => encountered_any_type(),
         Type::Generic(_) | Type::CType(_) => unreachable!(),
     }
@@ -308,6 +318,7 @@ pub(crate) fn from_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'
             }
         },
         Type::Regex => todo!(), // TODO
+        Type::Vec(e, size) => panic!("Can't have a vec in a list"), // TODO : should it be possible
         Type::Any => encountered_any_type(),
         Type::Generic(_) | Type::CType(_) => unreachable!(),
     }

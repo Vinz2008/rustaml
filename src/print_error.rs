@@ -151,6 +151,7 @@ fn print_unknown_type_annotation<'a>(error_basic_infos : ErrorBasicInfos<'a>, ty
     ErrorPrint {
         error_basic_infos,
         message: format!("Unknown type annotation : {}", type_str),
+        label: Some("This name matches no builtin type or type alias"),
         ..Default::default()
     }
 }
@@ -228,6 +229,15 @@ fn print_list_type_expected_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, w
     }
 }
 
+fn print_vec_type_expected_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, wrong_type : Type) -> ErrorPrint<'a> {
+    ErrorPrint {
+        error_basic_infos,
+        message: format!("Wrong type, expected a vec type, but got {:?}", wrong_type),
+        label: Some("This is where the type is wrong"),
+        ..Default::default()
+    }
+}
+
 fn print_var_not_found_error<'a>(error_basic_infos : ErrorBasicInfos<'a>, name: &str, nearest_var_name : Option<String>) -> ErrorPrint<'a> {
     let note = nearest_var_name.map(|n| format!("Maybe you meant {}", n));
     ErrorPrint {
@@ -286,6 +296,7 @@ pub(crate) fn print_type_error(type_error : TypesErr, filename : &Path, content 
         TypesErrData::FunctionTypeExpected { wrong_type } => print_function_type_expected(error_basic_infos, wrong_type),
         TypesErrData::IncompatibleTypes { type1, type2 } => print_incompatible_types_error(error_basic_infos, type1, type2),
         TypesErrData::ListTypeExpected { wrong_type } => print_list_type_expected_error(error_basic_infos, wrong_type),
+        TypesErrData::VecTypeExpected { wrong_type } => print_vec_type_expected_error(error_basic_infos, wrong_type),
         TypesErrData::VarNotFound { name, nearest_var_name } => print_var_not_found_error(error_basic_infos, &name, nearest_var_name),
         TypesErrData::WrongArgNb { function_name, expected_nb, got_nb } => print_wrong_arg_nb(error_basic_infos, &function_name, expected_nb, got_nb),
         TypesErrData::WrongArgType { function_name, expected_type, got_type } => print_wrong_arg_type(error_basic_infos, &function_name, expected_type, got_type),

@@ -236,6 +236,9 @@ pub(crate) enum ASTNode {
     List {
         list : Box<[ASTRef]>,
     },
+    Vec {
+        vec : Box<[ASTRef]>,
+    },
     Boolean {
         b : bool,
     },
@@ -312,6 +315,7 @@ pub(crate) enum Type {
     Str,
     Char,
     List(Box<Type>),
+    Vec(Box<Type>, u32),
     Any, // not already resolved type during type checking
     Generic(u32),
     CType(CType),
@@ -340,6 +344,9 @@ impl Display for Type {
             Type::List(e) => {
                 f.write_str(&format!("list[{}]", e.as_ref()))
             },
+            Type::Vec(e, size) => {
+                f.write_str(&format!("vec[{}, {}]", e.as_ref(), size))
+            }
             Type::Unit => f.write_str("()"),
             Type::Never => f.write_char('!'),
             Type::SumType(sum_type) => {
@@ -535,6 +542,20 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
                     let (elem_type, _) = parse_annotation_simple(parser)?; // TODO : replace with parse_annotation to have access to more complicated types ?
                     let array_close_tok = parser.eat_tok(Some(TokenDataTag::ArrayClose))?;
                     let type_annot = Type::List(Box::new(elem_type));
+                    return Ok((type_annot, array_close_tok.range.end));
+                },
+                "vec" => {
+                    parser.eat_tok(Some(TokenDataTag::ArrayOpen))?;
+                    let (elem_type, _) = parse_annotation_simple(parser)?; // TODO : verify if the elem_type in the type checking (or in check.rs ?) and also validate types that can be used with vectors
+                    parser.eat_tok(Some(TokenDataTag::Comma))?;
+                    let vec_size_tok = parser.eat_tok(Some(TokenDataTag::Integer))?;
+                    let vec_size = match vec_size_tok.tok_data {
+                        TokenData::Integer(nb) => nb.try_into().unwrap(), // TODO : verify if the size is <= u32 and do error instead
+                        _ => unreachable!(),
+                    };
+                    // TODO : verify if size is not 0 (0 will be used as not init value for the size of vec)
+                    let array_close_tok = parser.eat_tok(Some(TokenDataTag::ArrayClose))?;
+                    let type_annot = Type::Vec(Box::new(elem_type), vec_size);
                     return Ok((type_annot, array_close_tok.range.end));
                 },
                 "c_type" => {
@@ -859,6 +880,9 @@ fn parse_function_call(parser: &mut Parser, mut callee : ASTRef) -> Result<ASTRe
 
 fn parse_identifier_expr(parser: &mut Parser, identifier_buf : &[char], identifier_range : Range<usize>) -> Result<ASTRef, ParserErr> {
     let s = identifier_buf.iter().collect::<String>();
+    if s == "vec" {
+        return parse_static_vec(parser, identifier_range.start); 
+    }
     let identifier = parser.rustaml_context.str_interner.intern_compiler(&s);
     for t in parser.rustaml_context.type_aliases.values() {
         match t {
@@ -1082,6 +1106,14 @@ fn parse_static_list(parser: &mut Parser, array_open_start : usize) -> Result<AS
     let (elems, range_end) = parse_list_form(parser, parse_node)?;
     
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::List { list: elems.into_boxed_slice() }, range_start..range_end))
+}
+
+fn parse_static_vec(parser : &mut Parser, vec_open_start : usize) -> Result<ASTRef, ParserErr>{
+    let range_start = vec_open_start;
+    parser.eat_tok(Some(TokenDataTag::ArrayOpen))?;
+    let (elems, range_end) = parse_list_form(parser, parse_node)?;
+
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::Vec { vec: elems.into_boxed_slice() }, range_start..range_end))
 }
 
 fn parse_anonymous_function(parser: &mut Parser, function_range_start : usize) -> Result<ASTRef, ParserErr> {

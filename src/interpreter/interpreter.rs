@@ -715,7 +715,7 @@ fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, 
     let lhs_val = interpret_node(context, lhs);
     let rhs_val = interpret_node(context, rhs);
 
-    match op.get_type() {
+    match op.get_res_type() {
         Type::Integer => interpret_binop_int(op, lhs_val, rhs_val),
         Type::Float => interpret_binop_float(op, lhs_val, rhs_val),
         Type::Bool => interpret_binop_bool(op, lhs_val, rhs_val),
@@ -1401,6 +1401,7 @@ pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val
         ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr, patterns.as_ref()),
         ASTNode::String { str } => Val::String(str),
         ASTNode::List { list } => Val::List(List::new_from(context, &list)),
+        ASTNode::Vec { vec } => todo!(), // TODO
         ASTNode::Cast { to_type, expr } => interpret_cast(context, to_type, expr),
         ASTNode::Variant { name, arg } => interpret_variant(context, name, arg),
         ASTNode::TypeAlias { name: _, type_alias: _ } => {

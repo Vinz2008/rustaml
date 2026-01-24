@@ -1,8 +1,8 @@
 use core::panic;
 use std::{cell::Cell, fs, hash::{Hash, Hasher}, io::Write, ops::Range, path::{MAIN_SEPARATOR, Path, PathBuf}, process::{Command, Stdio}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_variant_tag, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
-use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, llvm_sys::{core::LLVMPrintValueToString, prelude::LLVMValueRef}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue, ValueKind}};
+use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_variant_tag, get_void_val, move_bb_after_current, promote_val_var_arg}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, llvm_sys::{core::LLVMPrintValueToString, prelude::LLVMValueRef}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue, ValueKind}};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use cfg_if::cfg_if;
@@ -94,6 +94,7 @@ struct GenericFunIdentifier {
     ret_type : Type,
 }
 
+#[allow(unused)]
 pub(crate) struct JITCpuInfos {
     pub(crate) cpu_features : String,
     pub(crate) cpu_name : String,
@@ -293,6 +294,10 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
         ) -> CompileContext<'context, 'llvm_ctx> {
         let main_function = get_main_function(context, &module);
         let internal_functions = get_internal_functions(context);
+
+        #[cfg(not(feature = "jit"))]
+        let _ = jit_cpu_infos;
+
         CompileContext {
             rustaml_context,
             context,
@@ -464,6 +469,7 @@ fn get_format_string(print_type : &Type) -> &'static str {
         Type::CType(c_type) => get_format_ctype(c_type),
         Type::Any => encountered_any_type(),
         Type::Regex => panic!("Can't print regex"), // TODO ?
+        Type::Vec(_, _) => todo!(), // TODO
         Type::SumType(_) => unreachable!(), // TODO ?
         Type::Generic(_) => unreachable!(),
     }
@@ -611,6 +617,23 @@ fn compile_regex_has_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '
     compile_context.builder.build_call(has_match_fun, &args, "regex_has_match_call").unwrap().try_as_basic_value().unwrap_basic()
 }
 
+// TODO : generate a monomorphized black_box function to not have a lot of junk stack allocations because of it in the function ?
+fn compile_black_box<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, arg : BasicValueEnum<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
+    let arg_llvm_type = arg.get_type();
+    let buf_ptr = create_entry_block_alloca(compile_context, "buf_blackbox", arg_llvm_type.as_any_type_enum());
+    
+    compile_context.builder.build_store(buf_ptr, arg).unwrap();
+
+    let inline_asm_ty = get_fn_type(compile_context.context, compile_context.context.void_type().into(), &[compile_context.context.ptr_type(AddressSpace::default()).into()], false);
+    let constraints = "r,~{memory}".to_owned();
+    let inline_asm = 
+        compile_context.context.create_inline_asm(inline_asm_ty, "".to_owned(), constraints, true, false, None, false);
+    
+    compile_context.builder.build_indirect_call(inline_asm_ty, inline_asm, &[buf_ptr.into()], "black_box").unwrap();
+    compile_context.builder.build_load(arg_llvm_type, buf_ptr, "load_black_box").unwrap();
+    return get_void_val(compile_context.context); // TODO : return what is loaded instead, but would need work to make return generics work (ex : need that every generic have each an unique index, so would need to keep the number of generics in the ast somewhere because of type generics annotation)
+}
+
 fn should_monomorphize_function(arg_types : &[Type], ret_type : &Type) -> bool {
     matches!(ret_type, Type::Generic(_)) || arg_types.iter().any(|e| matches!(e, Type::Generic(_)))
 }
@@ -709,6 +732,10 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'll
                 let re = compile_expr(compile_context, args[0]).unwrap_basic().into_pointer_value();
                 let str = compile_expr(compile_context, args[1]).unwrap_basic().into_pointer_value();
                 return compile_regex_has_match(compile_context, re, str);
+            }
+            "black_box" => {
+                let arg = compile_expr(compile_context, args[0]).unwrap_basic();
+                return compile_black_box(compile_context, arg);
             }
             n => (Some(n.to_owned()), Some(*name)),
         }
@@ -960,7 +987,6 @@ fn compile_binop_str<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_c
 }
 
 fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, op : Operator, lhs_val : BasicValueEnum<'llvm_ctx>, rhs_val : BasicValueEnum<'llvm_ctx>, elem_type : &Type) -> BasicValueEnum<'llvm_ctx>{
-    
 
     // TODO : check that lhs_val is a val of the same tag as the rhs_val elements and that rhs_val is a list
     match op {
@@ -977,6 +1003,23 @@ fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_
         }
         _ => unreachable!(),
     }
+}
+
+fn compile_binop_vec<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, op : Operator, lhs_val : BasicValueEnum<'llvm_ctx>, rhs_val : BasicValueEnum<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
+    let lhs_vec = lhs_val.into_vector_value();
+    let rhs_vec = rhs_val.into_vector_value();
+    match op {
+        Operator::PlusVec => {
+            if lhs_val.is_float_value(){
+                // TODO
+                todo!()
+            } else {
+                compile_context.builder.build_int_add(lhs_vec, rhs_vec, "add_vec").unwrap()
+            }
+            
+        }
+        _ => unreachable!(),
+    }.as_basic_value_enum()
 }
 
 // TODO : make also these work with vals (for example with an enum ShortCircuitingArg that can be an ASTRef or a LLVM value)
@@ -1123,12 +1166,13 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>,
 
     let lhs_type = lhs.get_type(&compile_context.rustaml_context.ast_pool).clone();
 
-    match op.get_type() {
+    match op.get_res_type() {
         Type::Integer => compile_binop_int(compile_context, op, lhs_val, rhs_val, &name, range).into(),
         Type::Float => compile_binop_float(compile_context, op, lhs_val, rhs_val, &name).into(),
         Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, &lhs_type, &name).into(),
         Type::Str => compile_binop_str(compile_context, op, lhs_val, rhs_val, &name),
         Type::List(_) => compile_binop_list(compile_context, op, lhs_val, rhs_val, &lhs_type),
+        Type::Vec(_, _) => compile_binop_vec(compile_context, op, lhs_val, rhs_val),
         _ => unreachable!(),
     }
 }
@@ -1260,6 +1304,22 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm
 
 }
 
+fn compile_static_vec<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, vec : &[ASTRef], vec_type : &Type) -> BasicValueEnum<'llvm_ctx> {
+
+    let vals = vec.iter().map(|e| compile_expr(compile_context, *e)).collect::<Vec<_>>();
+
+    // TODO : constant vec (don't really need it because the insert_element pattern with undef is already optimized by LLVM even with -O0, but it could help for the JIT to have LLVM do less work with instruction)
+
+    let vec_type = get_llvm_type(compile_context, vec_type).into_vector_type();
+
+    let mut vec = vec_type.get_undef();
+    for (val_idx, val) in vals.iter().enumerate() {
+        vec = compile_context.builder.build_insert_element(vec, val.unwrap_basic(), compile_context.context.i64_type().const_int(val_idx as u64, false), "insert_static_vec").unwrap();
+    }
+
+    vec.as_basic_value_enum()
+}
+
 
 
 fn compile_str<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, str : StringRef) -> PointerValue<'llvm_ctx> {
@@ -1383,6 +1443,10 @@ pub(crate) fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '
             let t = ast_node.get_type(&compile_context.rustaml_context.ast_pool).clone();
             compile_static_list(compile_context, &list, &t).into()
         },
+        ASTNode::Vec { vec } => {
+            let t = ast_node.get_type(&compile_context.rustaml_context.ast_pool).clone();
+            compile_static_vec(compile_context, &vec, &t).into()
+        }
         ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, matched_expr, &patterns).into(),
         ASTNode::AnonFunc { args, body, type_annotation: _ } => compile_anon_func(compile_context, ast_node, &args, body).into(),
         ASTNode::Cast { to_type, expr } => compile_cast(compile_context, &to_type, expr).into(),

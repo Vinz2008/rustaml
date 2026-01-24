@@ -1260,6 +1260,7 @@ static void vwrite_val_file(const char* format, va_list va, FILE* f){
                 size_t bool_str_len = strlen(bool_str);
                 fwrite(bool_str, 1, bool_str_len, f);
                 break;
+                    
             case 'u':
                 format++;
                 const char* s_unit = "()";

@@ -49,7 +49,7 @@ fn get_ffi_type(t : &Type) -> FFIType {
             }
         }
         Type::Unit | Type::Never => FFIType::void(), // could cause problem when in arg (TODO ?)
-        Type::List(_) | Type::SumType(_) | Type::Regex => panic!("can't use a value of type {} at FFI boundary", t),
+        Type::List(_) | Type::Vec(_, _) | Type::SumType(_) | Type::Regex => panic!("can't use a value of type {} at FFI boundary", t),
         Type::Any | Type::Generic(_) => unreachable!(),
     }
 }
@@ -183,7 +183,7 @@ unsafe fn get_val_from_arg(rustaml_context : &mut RustamlContext, arg : *const c
                 }
             }
             Type::Function(_, _, _) => todo!(), // TODO : create a FFI function from the function ptr passed from C ? (verify if it just passing an already closure function so we don't create a closure to a closure)
-            Type::SumType(_) | Type::Regex | Type::List(_) | Type::Unit => panic!("Can't pass a type {} from a ffi function to a rustaml function", arg_type), // TODO : enforce this before ?
+            Type::Vec(_, _) | Type::SumType(_) | Type::Regex | Type::List(_) | Type::Unit => panic!("Can't pass a type {} from a ffi function to a rustaml function", arg_type), // TODO : enforce this before ?
             Type::Generic(_) | Type::Any | Type::Never => unreachable!(),
         }
     }
@@ -540,7 +540,7 @@ pub(crate) fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFI
                 let _: () = ffi_func.cif.call(ffi_func.code_ptr, &args);
                 panic!("Unreachable code: you marked a C function as never returning, but it returned !!")
             }
-            Type::List(_) | Type::SumType(_) | Type::Regex => panic!("Invalid ffi function return : {}", &ffi_func.ret_type),
+            Type::List(_) | Type::SumType(_) | Type::Regex | Type::Vec(_, _) => panic!("Invalid ffi function return : {}", &ffi_func.ret_type),
             Type::Any | Type::Generic(_) => unreachable!(),
         };
         for user_data_ptr in ffi_context.user_data_ffi {

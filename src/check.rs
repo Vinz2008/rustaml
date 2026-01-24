@@ -185,12 +185,16 @@ fn check<'a>(check_context : &CheckContext<'a>, ast : ASTRef) -> Result<(), Chec
         }
         ASTNode::Integer { nb } => {
             if *nb > CheckError::INT_LITERAL_RANGE.end || *nb < CheckError::INT_LITERAL_RANGE.start {
-                // TODO : do an error
                 return Err(CheckError::new(CheckErrorData::IntegerOutOfRange { nb: *nb }, ast.get_range(&check_context.rustaml_context.ast_pool)));
             }
         },
         ASTNode::List { list } => {
             for e in list {
+                check(check_context, *e)?;
+            }
+        }
+        ASTNode::Vec { vec } => {
+            for e in vec {
                 check(check_context, *e)?;
             }
         }
