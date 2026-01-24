@@ -1,7 +1,7 @@
 use inkwell::{AddressSpace, IntPredicate, types::{AnyType, BasicType}, values::{AnyValue, BasicValue, BasicValueEnum, FunctionValue}};
 use rustc_hash::FxHashMap;
 
-use crate::{ast::Type, compiler::{compiler_utils::{as_val_in_list, create_entry_block_alloca, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current}, CompileContext}};
+use crate::{ast::Type, compiler::{CompileContext, compiler_utils::{add_function, as_val_in_list, create_entry_block_alloca, get_llvm_type, get_type_tag_val, load_list_tail, load_list_val, move_bb_after_current}}};
 
 pub(crate) fn init_monomorphized_internal_fun<'llvm_ctx>() -> FxHashMap<&'static str, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>> {
     let mut ret = FxHashMap::default();
@@ -48,7 +48,7 @@ pub(crate) fn compile_monomorphized_map<'llvm_ctx>(compile_context: &mut Compile
     
     let map_type_llvm = get_llvm_type(compile_context, &map_type).as_any_type_enum().into_function_type();
     let map_func_name = &format!("map {}->{}", elem_type, ret_elem_type);
-    let function = compile_context.module.add_function(map_func_name, map_type_llvm, Some(inkwell::module::Linkage::Internal));
+    let function = add_function(compile_context, map_func_name, map_type_llvm, Some(inkwell::module::Linkage::Internal));
     
     let entry = compile_context.context.append_basic_block(function, "entry");
     compile_context.builder.position_at_end(entry);
@@ -160,7 +160,7 @@ pub(crate) fn compile_monomorphized_filter<'llvm_ctx>(compile_context: &mut Comp
     
     let map_type_llvm = get_llvm_type(compile_context, &map_type).as_any_type_enum().into_function_type();
     let map_func_name = &format!("filter {}", elem_type);
-    let function = compile_context.module.add_function(map_func_name, map_type_llvm, Some(inkwell::module::Linkage::Internal));
+    let function = add_function(compile_context, map_func_name, map_type_llvm, Some(inkwell::module::Linkage::Internal));
     
     let entry = compile_context.context.append_basic_block(function, "entry");
     compile_context.builder.position_at_end(entry);

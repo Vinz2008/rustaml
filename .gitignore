@@ -12,3 +12,4 @@ perf.data*
 profiling.txt
 profiling.json
 ast.dot
+*.s

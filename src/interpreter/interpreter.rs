@@ -1411,7 +1411,7 @@ pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val
     }
 }
 
-pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlContext, type_infos : Option<TypeInfos>, dump_jit_ir : bool) -> Val {
+pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlContext, type_infos : Option<TypeInfos>, dump_jit_ir : bool, dump_jit_asm : bool) -> Val {
     let mut context = InterpretContext {
         vars: FxHashMap::default(),
         // functions: FxHashMap::default(),
@@ -1420,11 +1420,11 @@ pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlConte
         rng: rand::rng(),
 
         #[cfg(feature = "jit")]
-        jit_context: JitContext::new(type_infos, dump_jit_ir),
+        jit_context: JitContext::new(type_infos, dump_jit_ir, dump_jit_asm),
     };
 
     #[cfg(not(feature = "jit"))]{
-        let _ = (dump_jit_ir, type_infos);
+        let _ = (dump_jit_ir, dump_jit_asm, type_infos);
     }
 
     let v = interpret_node(&mut context, ast);
@@ -1436,8 +1436,8 @@ pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlConte
     v
 }
 
-pub(crate) fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext, type_infos : Option<TypeInfos>, dump_jit_ir: bool){
+pub(crate) fn interpret(ast: ASTRef, rustaml_context: &mut RustamlContext, type_infos : Option<TypeInfos>, dump_jit_ir: bool, dump_jit_asm : bool){
     rustaml_context.start_section("interpreter");
-    interpret_with_val(ast, rustaml_context, type_infos, dump_jit_ir);
+    interpret_with_val(ast, rustaml_context, type_infos, dump_jit_ir, dump_jit_asm);
     rustaml_context.end_section("interpreter");
 }

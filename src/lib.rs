@@ -60,7 +60,7 @@ pub fn interpret_code(code : &str, filename : &Path, is_debug_print : bool) -> R
         return Err(());
     }
 
-    interpreter::interpret(ast, &mut rustaml_context, Some(type_infos), false);
+    interpreter::interpret(ast, &mut rustaml_context, Some(type_infos), false, false);
     Ok(())
 }
 

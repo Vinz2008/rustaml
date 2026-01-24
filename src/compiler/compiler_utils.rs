@@ -1,7 +1,21 @@
-use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, module::Module, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}};
+use inkwell::{AddressSpace, attributes::AttributeLoc, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}};
 
 use crate::{ast::{CType, Type}, compiler::{CompileContext, debuginfo::LineColLoc}, rustaml::RustamlContext, string_intern::StringRef};
 
+
+pub(crate) fn add_function<'llvm_ctx>(compile_context : &CompileContext<'_, 'llvm_ctx>, name : &str, ty: FunctionType<'llvm_ctx>, linkage: Option<Linkage>) -> FunctionValue<'llvm_ctx> {
+    // TODO : add native and features attributes
+    let fun = compile_context.module.add_function(name, ty, linkage); 
+
+    #[cfg(feature = "jit")]
+    if let Some(jit_cpu_infos) = &compile_context.jit_cpu_infos {
+        // TODO : use  TargetMachine::get_host_cpu_name() to get the real name of the cpu, put it in a struct/tuple with the target features, then set it here
+        fun.add_attribute(AttributeLoc::Function, compile_context.context.create_string_attribute("target-cpu", &jit_cpu_infos.cpu_name));
+        fun.add_attribute(AttributeLoc::Function, compile_context.context.create_string_attribute("target-features", &jit_cpu_infos.cpu_features));
+    }
+
+    fun
+}
 
 pub(crate) fn get_main_function<'llvm_ctx>(llvm_context : &'llvm_ctx Context, module : &Module<'llvm_ctx>) -> FunctionValue<'llvm_ctx> {
     let param_types = &[BasicMetadataTypeEnum::IntType(llvm_context.i32_type()), BasicMetadataTypeEnum::PointerType(llvm_context.ptr_type(AddressSpace::default()))];

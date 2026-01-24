@@ -1,12 +1,14 @@
-use std::time::{Duration};
+use std::{path::Path, time::Duration};
 
-use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engine::JitFunction, module::Linkage, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue, ValueKind}};
+use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engine::JitFunction, module::Linkage, passes::PassBuilderOptions, targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue, ValueKind}};
 use rustc_hash::FxHashMap;
 
-use crate::{ast::{ASTNode, ASTRef, Type}, compiler::{CompileContext, compile_function, compiler_utils::{get_fn_type, get_llvm_type}, debuginfo::DebugInfo, get_var_id}, interpreter::{FunctionBody, FunctionDef, InterpretContext, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
+use crate::{ast::{ASTNode, ASTRef, Type}, compiler::{CompileContext, JITCpuInfos, compile_function, compiler_utils::{add_function, get_fn_type, get_llvm_type}, debuginfo::DebugInfo, get_var_id}, interpreter::{FunctionBody, FunctionDef, InterpretContext, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
 
 #[cfg(feature = "debug-llvm")]
 use inkwell::support::LLVMString;
+
+// TODO : should I migrate to ORC ? (use llvm_sys ? but very limited, or use a custom cpp bindings, but complicated)
 
 #[derive(Default, Debug)]
 struct FuncMeta {
@@ -22,10 +24,11 @@ pub(crate) struct JitContext {
     context : &'static Context,
     type_infos : Option<TypeInfos>,
     dump_jit_ir : bool,
+    dump_jit_asm : bool,
 }
 
 impl JitContext {
-    pub(crate) fn new(type_infos : Option<TypeInfos>, dump_jit_ir : bool) -> JitContext {
+    pub(crate) fn new(type_infos : Option<TypeInfos>, dump_jit_ir : bool, dump_jit_asm : bool) -> JitContext {
         // box the context and leak it because only 8 bytes, and to prevent lifetime annotation (can they be optionnal) (TODO ?)
         let context = Box::new(Context::create());
         let context = Box::leak(context);
@@ -36,6 +39,7 @@ impl JitContext {
             context,
             type_infos,
             dump_jit_ir,
+            dump_jit_asm,
         }
     }
 }
@@ -123,7 +127,7 @@ fn get_jit_fun_wrapper_name(rustaml_context : &RustamlContext, name : StringRef)
 
 fn generate_jit_fun_wrapper<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, name : StringRef, jit_wrapper_name : &str, arg_types : &[Type], res_type : Type){
     let wrapper_fun_ty = get_jit_entry_function_type(compile_context.context);
-    let wrapper_fun = compile_context.module.add_function(jit_wrapper_name, wrapper_fun_ty, Some(Linkage::External));
+    let wrapper_fun = add_function(compile_context, jit_wrapper_name, wrapper_fun_ty, Some(Linkage::External));
     let entry = compile_context.context.append_basic_block(wrapper_fun, "entry");
     compile_context.builder.position_at_end(entry);
 
@@ -301,7 +305,15 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
 
         let type_infos = context.jit_context.type_infos.as_ref().unwrap().clone(); // TODO : prevent this clone ?
 
-        let mut compile_context = CompileContext::new(context.rustaml_context, llvm_context, module, builder, DebugInfo { inner: None }, is_optimized, type_infos, target_data);
+        let cpu_name = TargetMachine::get_host_cpu_name().to_str().unwrap().to_owned();
+        let cpu_features = TargetMachine::get_host_cpu_features().to_str().unwrap().to_owned();
+
+        let cpu_infos = JITCpuInfos {
+            cpu_features,
+            cpu_name,
+        };
+        
+        let mut compile_context = CompileContext::new(context.rustaml_context, llvm_context, module, builder, DebugInfo { inner: None }, is_optimized, type_infos, target_data, Some(cpu_infos));
 
         match function_def_ast.get(&compile_context.rustaml_context.ast_pool).clone() {
             ASTNode::FunctionDefinition { name, args, body, type_annotation: _ } => {
@@ -333,8 +345,21 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
         if context.jit_context.dump_jit_ir {
             compile_context.module.print_to_file("jit.ll").unwrap();
         }
+        if context.jit_context.dump_jit_ir || context.jit_context.dump_jit_asm {
+            let passes_str = format!("default<O{}>", optimization_level as u8);
+            // run passes to dump the optimized jit IR (simulate the optimizations by the JIT, should be around the same)
+            let tmp_module = compile_context.module.clone();
+            tmp_module.run_passes(&passes_str, &target_machine, PassBuilderOptions::create()).unwrap();
+            if context.jit_context.dump_jit_ir {
+                tmp_module.print_to_file("jit-opt.ll").unwrap();
+            }
+            if context.jit_context.dump_jit_asm {
+                target_machine.write_to_file(&tmp_module, FileType::Assembly, &Path::new("jit.s")).unwrap();
+            }
+        }
 
         let fun = unsafe { execution_engine.get_function::<WrapperFN>(&wrapper_fun_name) }.unwrap();    
+        
         if let Some(fun_meta) = context.jit_context.functions_meta.get_mut(&function_def_ast){
             fun_meta.cached_fun = Some(fun.clone());
         } else {
