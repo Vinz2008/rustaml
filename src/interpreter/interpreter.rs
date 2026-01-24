@@ -381,6 +381,14 @@ impl DebugWithContext<RustamlContext> for RegexWrapper {
     }
 }
 
+
+// TODO : transform this struct into an enum with predefined simd types as variants ? or just transform into a simd variant when doing the operations (add, etc)
+#[derive(Clone, PartialEq, DebugWithContext)]
+#[debug_context(RustamlContext)]
+pub(crate) struct VecVal {
+    vec : Box<[Val]>,
+}
+
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 pub(crate) enum Val {
@@ -393,6 +401,7 @@ pub(crate) enum Val {
     Function(FunctionDef),
     SumType(SumTypeVal),
     Regex(RegexWrapper),
+    Vec(VecVal),
     Unit,
 }
 
@@ -442,6 +451,24 @@ fn display_list(l : ListRef, rustaml_context: &RustamlContext, f: &mut fmt::Form
     }
 }
 
+fn display_vec(v : &VecVal, rustaml_context: &RustamlContext, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "vec[")?;
+    let mut first = true;
+    for e in &v.vec {
+        if !first {
+            write!(f, ", ")?;
+        }
+        let e_wrap = ValWrapDisplay {
+            val: e,
+            rustaml_context,
+        };
+        write!(f, "{}", e_wrap)?;
+
+        first = false;
+    }
+    write!(f, "]")
+}
+
 impl Display for ValWrapDisplay<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.val {
@@ -451,6 +478,7 @@ impl Display for ValWrapDisplay<'_> {
             Val::Char(c) => write!(f, "{}", c),
             Val::String(s) => write!(f, "{}", s.get_str(&self.rustaml_context.str_interner)),
             Val::List(l) => display_list(*l, self.rustaml_context, f),
+            Val::Vec(v) => display_vec(v, self.rustaml_context, f),
             Val::Regex(re) => write!(f, "regex({})", re.0.as_str()),
             Val::Function(_) => write!(f, "function"), // TODO ?
             Val::SumType(_) => todo!(), // TODO
@@ -710,20 +738,56 @@ fn interpret_binop_list(context: &mut InterpretContext, op : Operator, lhs_val :
     v
 }
 
-fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, rhs : ASTRef) -> Val {
-    // TODO : add a short circuiting for bool ops
-    let lhs_val = interpret_node(context, lhs);
-    let rhs_val = interpret_node(context, rhs);
+fn interpret_binop_vec(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
+    let lhs_vec = match lhs_val {
+        Val::Vec(v) => v,
+        _ => unreachable!(),
+    };
+    let rhs_vec = match rhs_val {
+        Val::Vec(v) => v,
+        _ => unreachable!(),
+    };
 
+    assert_eq!(lhs_vec.vec.len(), rhs_vec.vec.len());
+    let vec_len = lhs_vec.vec.len();
+
+    match op {
+        Operator::PlusVec => {
+            let mut res_vec = Vec::with_capacity(vec_len);
+            for (e1, e2) in lhs_vec.vec.into_iter().zip(rhs_vec.vec) {
+                let op = match e1 {
+                    Val::Integer(_) => Operator::Plus,
+                    Val::Float(_) => Operator::PlusFloat,
+                    _ => unreachable!(),
+                };
+                let added_val = interpret_binop_val(context, op, e1, e2);
+                res_vec.push(added_val);
+            }
+            Val::Vec(VecVal { vec: res_vec.into_boxed_slice() })
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn interpret_binop_val(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     match op.get_res_type() {
         Type::Integer => interpret_binop_int(op, lhs_val, rhs_val),
         Type::Float => interpret_binop_float(op, lhs_val, rhs_val),
         Type::Bool => interpret_binop_bool(op, lhs_val, rhs_val),
         Type::Str => interpret_binop_str(context, op, lhs_val, rhs_val),
         Type::List(_) => interpret_binop_list(context, op, lhs_val, rhs_val),
+        Type::Vec(_, _) => interpret_binop_vec(context, op, lhs_val, rhs_val),
         _ => unreachable!(),
     }
 
+}
+
+fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, rhs : ASTRef) -> Val {
+    // TODO : add a short circuiting for bool ops
+    let lhs_val = interpret_node(context, lhs);
+    let rhs_val = interpret_node(context, rhs);
+
+    interpret_binop_val(context, op, lhs_val, rhs_val)
 }
 
 fn interpret_unop(context : &mut InterpretContext, op : Operator, expr : ASTRef) -> Val {
@@ -969,6 +1033,7 @@ const STD_FUNCTIONS : &[&str] = &[
     "chars",
     "regex_create",
     "regex_has_match",
+    "black_box",
 ];
 
 fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args_val : Vec<Val>) -> Val {
@@ -1028,6 +1093,9 @@ fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args
             let re = args_val[0].clone();
             let s = args_val[1].clone();
             interpret_regex_has_match(context, re, s)
+        }
+        "black_box" => {
+            Val::Unit
         }
         _ => unreachable!()
     }
@@ -1321,6 +1389,13 @@ fn interpret_variant(context : &mut InterpretContext, name : StringRef, _arg : O
     Val::SumType(sum_type_val)
 }
 
+fn interpret_static_vec(context: &mut InterpretContext, vec : Box<[ASTRef]>) -> Val {
+    let vec_val = VecVal { 
+        vec: vec.into_iter().map(|e| interpret_node(context, e)).collect::<Box<[_]>>(), 
+    };
+    Val::Vec(vec_val)
+}
+
 // TODO: add a real call to collect_gc
 
 pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
@@ -1401,7 +1476,7 @@ pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val
         ASTNode::MatchExpr { matched_expr, patterns } => interpret_match(context, matched_expr, patterns.as_ref()),
         ASTNode::String { str } => Val::String(str),
         ASTNode::List { list } => Val::List(List::new_from(context, &list)),
-        ASTNode::Vec { vec } => todo!(), // TODO
+        ASTNode::Vec { vec } => interpret_static_vec(context, vec),
         ASTNode::Cast { to_type, expr } => interpret_cast(context, to_type, expr),
         ASTNode::Variant { name, arg } => interpret_variant(context, name, arg),
         ASTNode::TypeAlias { name: _, type_alias: _ } => {

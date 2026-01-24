@@ -96,8 +96,6 @@ cfg_if! {
 
 // TODO : add simd
 
-// TODO : add a black_box intrisic
-
 // TODO : add modules ? (or at least if not user defined modules for now, builting modules for functions for regex or simd/vec)
 
 #[derive(Subcommand, Debug)]

@@ -230,6 +230,15 @@ fn get_debug_info_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>, t : &
             let name = &format!("function({}{}) -> {}", DisplayVecArgs(args), (if *is_variadic { ", ..." } else { "" }), ret.as_ref());
             inner.debug_builder.create_pointer_type(name, pointee, inner.target_infos.get_ptr_size_in_bits() as u64, inner.target_infos.get_ptr_alignement_in_bits(), AddressSpace::default()).as_type()
         }
+        Type::Vec(e, size) => {
+            let element_type = get_debug_info_type(inner, e.as_ref());
+            let size_in_bits = element_type.get_size_in_bits() * (*size) as u64;
+            let align_in_bits = element_type.get_align_in_bits();
+            let subscripts = &[
+                0..(*size as i64)
+            ];
+            inner.debug_builder.create_array_type(element_type, size_in_bits, align_in_bits, subscripts).as_type()
+        }
         _ => {
             let type_data = inner.type_data.get(t).unwrap_or_else(|| panic!("type inner data not found : {:?}", t));
             let di_type = inner.debug_builder.create_basic_type(type_data.name, type_data.size_in_bits, type_data.encoding, LLVMDIFlagPublic).unwrap().as_type();

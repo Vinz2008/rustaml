@@ -229,7 +229,7 @@ unsafe extern "C" fn function_ptr_trampoline(cif: &ffi_cif, result : &mut c_void
                 Val::Function(f) => {
                     *(result as *mut _ as *mut *const c_void) = *get_func_ptr(context, ffi_context, &f);
                 },
-                Val::Unit | Val::List(_) | Val::Regex(_) | Val::SumType(_) => panic!("Can't return the val {:?}", DebugWrapContext::new(&res_val, context.rustaml_context)),
+                Val::Unit | Val::List(_) | Val::Vec(_) | Val::Regex(_) | Val::SumType(_) => panic!("Can't return the val {:?}", DebugWrapContext::new(&res_val, context.rustaml_context)),
             }
         }
     })).unwrap_or_else(|_|{
@@ -404,7 +404,7 @@ fn prepare_args_data(context : &mut InterpretContext, ffi_context : &mut FFICont
                 prepare_func_ptr(context, ffi_context, func_def);
             }
             Val::Integer(_) | Val::Float(_) | Val::Char(_) => {}
-            Val::Regex(_) | Val::List(_) | Val::SumType(_) | Val::Unit => panic!("Value like {:?} not supported for FFI", DebugWrapContext::new(&v, context.rustaml_context)),
+            Val::Regex(_) | Val::List(_) | Val::Vec(_) | Val::SumType(_) | Val::Unit => panic!("Value like {:?} not supported for FFI", DebugWrapContext::new(&v, context.rustaml_context)),
         }
     }
 }
@@ -435,7 +435,7 @@ fn get_ffi_args<'a>(ffi_context : &'a FFIContext, args : &'a [Val]) -> Vec<Arg<'
                 func_count += 1;
                 Arg::new(ffi_context.fn_ptrs.get(func_pos).unwrap())
             },
-            Val::Regex(_) | Val::List(_) | Val::SumType(_) | Val::Unit => unreachable!(), // already handled in prepare_args_data
+            Val::Regex(_) | Val::List(_) | Val::Vec(_) | Val::SumType(_) | Val::Unit => unreachable!(), // already handled in prepare_args_data
         };
         ffi_args.push(arg);
     }

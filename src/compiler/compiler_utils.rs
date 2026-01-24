@@ -1,4 +1,4 @@
-use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType, VectorType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue}};
+use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType, VectorType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, StructValue, VectorValue}};
 
 use crate::{ast::{CType, Type}, compiler::{CompileContext, debuginfo::LineColLoc}, rustaml::RustamlContext, string_intern::StringRef};
 
@@ -322,6 +322,61 @@ pub(crate) fn from_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'
         Type::Any => encountered_any_type(),
         Type::Generic(_) | Type::CType(_) => unreachable!(),
     }
+}
+
+
+fn get_vec_c_struct_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> StructType<'llvm_ctx> {
+    llvm_context.struct_type(&[
+        llvm_context.i8_type().into(),
+        llvm_context.ptr_type(AddressSpace::default()).into(),
+        llvm_context.i32_type().into(),
+    ], false)
+}
+
+// convert to a struct with this layout (the type tag is the same as for lists) :
+// struct {
+//    uint8_t type_tag; 
+//    void* ptr;
+// }
+pub(crate) fn vec_to_c_struct_ptr<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, vec : VectorValue<'llvm_ctx>, vec_element_type : &Type) -> PointerValue<'llvm_ctx> {
+    let vec_llvm_type = vec.get_type();
+
+    let llvm_element_type = vec_llvm_type.get_element_type().as_any_type_enum();
+;
+    let size = compile_context.context.i64_type().const_int(vec_llvm_type.get_size() as u64, false);
+    let alloca_array = create_entry_block_array_alloca(compile_context, "vec_to_c_struct_arr", llvm_element_type, size);
+
+    let vec_align = compile_context.target_data.get_abi_alignment(&vec_llvm_type.as_any_type_enum());
+    
+
+    let alloca_arr_instr = alloca_array.as_instruction_value().unwrap();
+    alloca_arr_instr.set_alignment(vec_align).unwrap();
+
+    compile_context.builder.build_store(alloca_array, vec).unwrap();
+    let c_struct_fields: [BasicValueEnum; 3] = [
+        get_type_tag_val(compile_context.context, vec_element_type).into(),
+        alloca_array.into(),
+        size.into()
+    ];
+
+    let struct_type = get_vec_c_struct_type(compile_context.context);
+
+    let alloca_struct = create_entry_block_alloca(compile_context, "vec_to_c_struct", struct_type.as_any_type_enum());
+    
+    let i32_type = compile_context.context.i32_type();
+    let const_zero = i32_type.const_int(0 as u64, false);
+
+    for (idx, field) in c_struct_fields.iter().enumerate() {
+        let indexes = &[
+            const_zero,
+            i32_type.const_int(idx as u64, false),
+        ];
+        let struct_gep_ptr = unsafe {
+            compile_context.builder.build_in_bounds_gep(struct_type, alloca_struct, indexes, "vec_to_c_struct_gep").unwrap()
+        };
+        compile_context.builder.build_store(struct_gep_ptr, *field).unwrap();
+    }
+    alloca_struct
 }
 
 pub(crate) fn promote_val_var_arg<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, val_type : &Type, val : BasicValueEnum<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx>{
