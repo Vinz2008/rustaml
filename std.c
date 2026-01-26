@@ -1220,6 +1220,9 @@ static void vec_write_file_no_new_line(struct VecVal* vec_val, FILE* f){
     } else if (type_tag == FLOAT_TYPE){
         const double* float_buf = vec_val->buf;
         for (uint32_t i = 0; i < vec_val->size; i++){
+            if (i != 0){
+                fwrite(comma, sizeof(char), 2, f);
+            }
             char buf[MAX_DOUBLE_BUF_SIZE];
             struct str s = (struct str){
                 .buf = buf,

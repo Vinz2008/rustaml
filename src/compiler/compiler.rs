@@ -1016,15 +1016,36 @@ fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_
 fn compile_binop_vec<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, op : Operator, lhs_val : BasicValueEnum<'llvm_ctx>, rhs_val : BasicValueEnum<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
     let lhs_vec = lhs_val.into_vector_value();
     let rhs_vec = rhs_val.into_vector_value();
+    let vec_element_type = lhs_vec.get_type().get_element_type();
     match op {
         Operator::PlusVec => {
-            if lhs_val.is_float_value(){
-                // TODO
-                todo!()
+            if vec_element_type.is_float_type(){
+                compile_context.builder.build_float_add(lhs_vec, rhs_vec, "add_vec").unwrap()
             } else {
                 compile_context.builder.build_int_add(lhs_vec, rhs_vec, "add_vec").unwrap()
             }
             
+        }
+        Operator::MinusVec => {
+            if vec_element_type.is_float_type(){
+                compile_context.builder.build_float_sub(lhs_vec, rhs_vec, "minus_vec").unwrap()
+            } else {
+                compile_context.builder.build_int_sub(lhs_vec, rhs_vec, "minus_vec").unwrap()
+            }
+        }
+        Operator::MultVec => {
+            if vec_element_type.is_float_type(){
+                compile_context.builder.build_float_mul(lhs_vec, rhs_vec, "mult_vec").unwrap()
+            } else {
+                compile_context.builder.build_int_mul(lhs_vec, rhs_vec, "mult_vec").unwrap()
+            }
+        }
+        Operator::DivVec => {
+            if vec_element_type.is_float_type(){
+                compile_context.builder.build_float_div(lhs_vec, rhs_vec, "div_vec").unwrap()
+            } else {
+                compile_context.builder.build_int_signed_div(lhs_vec, rhs_vec, "div_vec").unwrap()
+            }
         }
         _ => unreachable!(),
     }.as_basic_value_enum()
@@ -1193,6 +1214,8 @@ fn compile_unop<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, 
     let expr_val = compile_expr(compile_context, expr).unwrap_basic();
     
     match op {
+        // TODO : just use a neg instruction instead of a 0-val ?
+        // TODO : add support for floating point (and vec ?) minus unary (also change in types.rs : either just have less informations in with the unary minus, or add a constrait that says that a typevar can be a type A or a type B)
         Operator::Minus => {
             match expr_val {
                 BasicValueEnum::IntValue(i) => {
@@ -1691,6 +1714,10 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
         clang_std.arg("-g");
     }
 
+    if optional_args.march_native {
+        clang_std.arg("-march=native");
+    }
+
 
     // TODO : work on freestanding (add set target to make the os unknown in target triplet, pass linker script or just pass linker arg ?)
     if optional_args.freestanding {
@@ -1709,6 +1736,10 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
 
     if !matches!(opt_level, OptimizationLevel::None) {
         link_cmd.arg("-flto");
+    }
+
+    if optional_args.march_native {
+        link_cmd.arg("-march=native");
     }
 
     if !optional_args.disable_gc {
@@ -1767,13 +1798,14 @@ pub(crate) struct OptionalArgs {
     enable_sanitizer : bool, 
     enable_debuginfos : bool, 
     freestanding : bool,
+    march_native : bool,
     lib_search_paths : Vec<String>
 }
 
 impl OptionalArgs {
     // TODO : make this a builder pattern ?
     #[allow(unused)]
-    pub(crate) fn new(optimization_level : Option<u8>, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, freestanding : bool, lib_search_paths : Vec<String>) -> OptionalArgs {
+    pub(crate) fn new(optimization_level : Option<u8>, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, freestanding : bool, march_native : bool, lib_search_paths : Vec<String>) -> OptionalArgs {
         OptionalArgs { 
             optimization_level: optimization_level.unwrap_or(0), 
             keep_temp, 
@@ -1781,7 +1813,8 @@ impl OptionalArgs {
             enable_sanitizer, 
             enable_debuginfos,
             freestanding,
-            lib_search_paths 
+            march_native,
+            lib_search_paths,
         }
     }
 }
@@ -1844,11 +1877,19 @@ pub(crate) fn compile(frontend_output : FrontendOutput, rustaml_context: &mut Ru
 
         let target = Target::from_triple(&target_triple).unwrap();
 
+        let (cpu, features) = if optional_args.march_native {
+            let cpu_name = TargetMachine::get_host_cpu_name().to_str().unwrap().to_owned();
+            let cpu_features = TargetMachine::get_host_cpu_features().to_str().unwrap().to_owned();
+            (cpu_name, cpu_features)
+        } else {
+            ("generic".to_owned(), "".to_owned())
+        };
+
         let target_machine = target
             .create_target_machine(
                 &target_triple,
-                "generic",
-                "",
+                &cpu,
+                &features,
                 optimization_level,
                 RelocMode::PIC,
                 CodeModel::Default,

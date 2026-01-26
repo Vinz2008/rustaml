@@ -402,12 +402,15 @@ const _PRECEDENCE_MAP : &[(Operator, (i32, Associativity))] = &[
     (Operator::Minus, (20, Associativity::Left)),
     (Operator::PlusFloat, (20, Associativity::Left)),
     (Operator::MinusFloat, (20, Associativity::Left)),
+    (Operator::PlusVec, (20, Associativity::Left)),
+    (Operator::MinusVec, (20, Associativity::Left)),
     (Operator::Mult, (30, Associativity::Left)),
     (Operator::Div, (30, Associativity::Left)),
     (Operator::Rem, (30, Associativity::Left)),
     (Operator::MultFloat, (30, Associativity::Left)),
     (Operator::DivFloat, (30, Associativity::Left)),
     (Operator::RemFloat, (30, Associativity::Left)),
+    (Operator::MultVec, (30, Associativity::Left)),
 
     // these are unary only operators, normally the precedence of these should not be used (TODO ?)
     (Operator::Not, (0, Associativity::Left)),

@@ -1,4 +1,4 @@
-use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType, VectorType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, StructValue, VectorValue}};
+use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType, VectorType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, VectorValue}};
 
 use crate::{ast::{CType, Type}, compiler::{CompileContext, debuginfo::LineColLoc}, rustaml::RustamlContext, string_intern::StringRef};
 
@@ -125,6 +125,7 @@ pub(crate) fn get_fn_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, llvm_typ
 pub(crate) fn get_vec_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, llvm_type : AnyTypeEnum<'llvm_ctx>, size : u32) -> VectorType<'llvm_ctx> {
     match llvm_type {
         AnyTypeEnum::IntType(i) => i.vec_type(size),
+        AnyTypeEnum::FloatType(f) => f.vec_type(size),
         _ => todo!() // TODO
     }
 }

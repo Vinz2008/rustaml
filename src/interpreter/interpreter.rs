@@ -751,22 +751,24 @@ fn interpret_binop_vec(context: &mut InterpretContext, op : Operator, lhs_val : 
     assert_eq!(lhs_vec.vec.len(), rhs_vec.vec.len());
     let vec_len = lhs_vec.vec.len();
 
-    match op {
-        Operator::PlusVec => {
-            let mut res_vec = Vec::with_capacity(vec_len);
-            for (e1, e2) in lhs_vec.vec.into_iter().zip(rhs_vec.vec) {
-                let op = match e1 {
-                    Val::Integer(_) => Operator::Plus,
-                    Val::Float(_) => Operator::PlusFloat,
-                    _ => unreachable!(),
-                };
-                let added_val = interpret_binop_val(context, op, e1, e2);
-                res_vec.push(added_val);
-            }
-            Val::Vec(VecVal { vec: res_vec.into_boxed_slice() })
-        }
+    let scalar_op = match (op, lhs_vec.vec.first().unwrap()) {
+        (Operator::PlusVec, Val::Integer(_)) => Operator::Plus,
+        (Operator::PlusVec, Val::Float(_)) => Operator::PlusFloat,
+        (Operator::MinusVec, Val::Integer(_)) => Operator::Minus,
+        (Operator::MinusVec, Val::Float(_)) => Operator::MinusFloat,
+        (Operator::MultVec, Val::Integer(_)) => Operator::Mult,
+        (Operator::MultVec, Val::Float(_)) => Operator::MultFloat,
+        (Operator::DivVec, Val::Integer(_)) => Operator::Div,
+        (Operator::DivVec, Val::Float(_)) => Operator::DivFloat,
         _ => unreachable!(),
+    };
+
+    let mut res_vec = Vec::with_capacity(vec_len);
+    for (e1, e2) in lhs_vec.vec.into_iter().zip(rhs_vec.vec) {
+        let res_val = interpret_binop_val(context, scalar_op, e1, e2);
+        res_vec.push(res_val);
     }
+    Val::Vec(VecVal { vec: res_vec.into_boxed_slice() })
 }
 
 fn interpret_binop_val(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {

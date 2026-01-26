@@ -478,7 +478,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                     context.push_constraint(Constraint::ListType(lhs_type_var), range.clone());
                     context.push_constraint(Constraint::ListType(rhs_type_var), range.clone());
                 },
-                Operator::PlusVec => {
+                Operator::PlusVec | Operator::MinusVec | Operator::MultVec | Operator::DivVec => {
                     context.push_constraint(Constraint::SameType(lhs_type_var, rhs_type_var), range.clone());
                     context.push_constraint(Constraint::VecType(lhs_type_var), range.clone());
                     context.push_constraint(Constraint::VecType(rhs_type_var), range.clone());
@@ -509,7 +509,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                     context.push_constraint(Constraint::SameType(new_type_var, lhs_type_var), range.clone());
                     context.push_constraint(Constraint::SameType(new_type_var, rhs_type_var), range);
                 },
-                Operator::PlusVec => {
+                Operator::PlusVec | Operator::MinusVec | Operator::MultVec | Operator::DivVec => {
                     context.push_constraint(Constraint::SameType(new_type_var, lhs_type_var), range.clone());
                     context.push_constraint(Constraint::SameType(new_type_var, rhs_type_var), range.clone());
                 }

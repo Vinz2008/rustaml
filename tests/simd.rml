@@ -2,6 +2,14 @@ let s1 : vec[int, 4] = vec[1, 2, 3, 4] ;;
 
 let s2 = vec[1, 2, 4, 8] ;;
 
-let sum = s1 +| s2 ;;
+let _ = print (s1 +| s2) ;;
+let _ = print(s1 -| s2) ;;
+let _ = print (s1 *| s2) ;;
 
-let _ = print sum ;;
+let s1_float : vec[float, 8] = vec[1.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0] ;;
+let s2_float = vec[10.0, 9.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0] ;;
+let _ = print (s1_float +| s2_float) ;;
+let _ = print (s1_float /| s2_float) ;;
+
+// TODO
+// let div_splat  = s1_float / splat(2) ;;

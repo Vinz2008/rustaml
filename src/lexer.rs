@@ -34,10 +34,13 @@ pub(crate) enum Operator {
     ListAppend, // ::
     ListMerge, // @
     PlusVec, // +|
+    MinusVec, // -|
+    MultVec, // *|
+    DivVec // /| 
 }
 
 impl Operator {
-    pub(crate) const OPERATORS: [&'static str; 23] = ["+", "-", "*", "/", "%", "+.", "-.", "*.", "/.", "%.", "+|", "==", "!=", ">=", "<=", ">", "<", "&&", "||", "^", "::", "!", "@"];
+    pub(crate) const OPERATORS: [&'static str; 26] = ["+", "-", "*", "/", "%", "+.", "-.", "*.", "/.", "%.", "+|", "-|", "*|", "/|", "==", "!=", ">=", "<=", ">", "<", "&&", "||", "^", "::", "!", "@"];
     pub(crate) const OPERATORS_COUNT : usize = Operator::OPERATORS.len();
     pub(crate) fn get_res_type(&self) -> Type {
         match self {
@@ -46,7 +49,7 @@ impl Operator {
             Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior | Self::Or | Self::And => Type::Bool,
             Self::StrAppend => Type::Str,
             Self::ListAppend | Self::ListMerge => Type::List(Box::new(Type::Any)),
-            Self::PlusVec => Type::Vec(Box::new(Type::Any), 0),
+            Self::PlusVec | Self::MinusVec | Self::MultVec | Self::DivVec => Type::Vec(Box::new(Type::Any), 0),
             Self::Not => unreachable!(),
         }
     }
@@ -80,6 +83,9 @@ impl Operator {
             str_to_char!("!") => Operator::Not,
             str_to_char!("@") => Operator::ListMerge,
             str_to_char!("+|") => Operator::PlusVec,
+            str_to_char!("-|") => Operator::MinusVec,
+            str_to_char!("*|") => Operator::MultVec,
+            str_to_char!("/|") => Operator::DivVec,
             _ => return Err(LexerErr::new(LexerErrData::InvalidOp(buf.iter().collect::<String>()), range.clone())),
         };
         Ok(op)
