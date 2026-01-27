@@ -8,7 +8,7 @@ use pathbuf::pathbuf;
 use std::path::PathBuf;
 
 // TODO : instead install file in filesystem ?
-const STD_C_CONTENT: &str = include_str!("../../std.c");
+pub(crate) const STD_C_CONTENT: &str = include_str!("../../std.c");
 
 // TODO : add a way to select the path of bdwgc for building it
 // TODO : add a way to select the path of musl for building it

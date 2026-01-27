@@ -1,9 +1,10 @@
-use std::{path::Path, time::Duration};
+use std::{ffi::CStr, io::Write, path::Path, process::{Command, Stdio}, time::Duration};
 
-use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engine::JitFunction, module::Linkage, passes::PassBuilderOptions, targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue, ValueKind}};
+use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engine::{ExecutionEngine, JitFunction}, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue, ValueKind}};
+use libloading::Library;
 use rustc_hash::FxHashMap;
 
-use crate::{ast::{ASTNode, ASTRef, Type}, compiler::{CompileContext, JITCpuInfos, compile_function, compiler_utils::{add_function, get_fn_type, get_llvm_type}, debuginfo::DebugInfo, get_var_id}, interpreter::{FunctionBody, FunctionDef, InterpretContext, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
+use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{CompileContext, JITCpuInfos, cast::cast_val, compile_function, compiler_utils::{add_function, get_fn_type, get_type_tag}, debuginfo::DebugInfo, get_var_id, linker::STD_C_CONTENT}, interpreter::{FunctionBody, FunctionDef, InterpretContext, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
 
 #[cfg(feature = "debug-llvm")]
 use inkwell::support::LLVMString;
@@ -73,16 +74,16 @@ pub(crate) fn get_jit_entry_function_type<'llvm_ctx>(llvm_context : &'llvm_ctx C
 
 fn jit_wrap_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val : BasicValueEnum<'llvm_ctx>, val_type : &Type) -> StructValue<'llvm_ctx> {
     let value_struct_ty = get_value_struct_type(compile_context.context);
-    let type_tag = 0;
+    let type_tag = get_type_tag(val_type);
     let i64_type = compile_context.context.i64_type();
     let val_data = match val_type {
-        Type::Integer => val.into_int_value(),
+        Type::Integer | Type::Bool | Type::Char | Type::Str => 
+            cast_val(compile_context, val, val_type, &Type::CType(CType::U64)).into_int_value(),
         Type::Float => compile_context.builder.build_bit_cast(val, i64_type, "bitcast_float_to_jit_val").unwrap().into_int_value(),
-        Type::Bool | Type::Char => compile_context.builder.build_int_z_extend(val.into_int_value(), i64_type, "bitcast_small_to_jit_val").unwrap(),
         _ => todo!(), // TODO
     };
     let field_vals: &[BasicValueEnum] = &[
-        compile_context.context.i8_type().const_int(type_tag, false).into(),
+        compile_context.context.i8_type().const_int(type_tag as u64, false).into(),
         val_data.into(),
     ];
     let mut struct_val = value_struct_ty.get_undef();
@@ -95,9 +96,9 @@ fn jit_wrap_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, 
 
 fn jit_unwrap_val_data<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val_data : IntValue<'llvm_ctx>, val_type : &Type) -> BasicValueEnum<'llvm_ctx> {
     match val_type {
-        Type::Integer => val_data.as_basic_value_enum(),
+        Type::Integer | Type::Bool | Type::Char => cast_val(compile_context, val_data.as_basic_value_enum(), &Type::CType(CType::U64), val_type),
         Type::Float => compile_context.builder.build_bit_cast(val_data, compile_context.context.f64_type(), "bitcast_jit_val_to_float").unwrap(),
-        Type::Bool | Type::Char => compile_context.builder.build_int_truncate(val_data, get_llvm_type(compile_context, val_type).into_int_type(), "trunc_jit_val_to_bool").unwrap().as_basic_value_enum(),
+        Type::Str => cast_val(compile_context, val_data.as_basic_value_enum(), &Type::CType(CType::U64), val_type),
         _ => panic!("{:?}", val_type) // TODO
     }
 }
@@ -121,8 +122,8 @@ pub(crate) fn jit_unwrap_val_from_args<'llvm_ctx>(compile_context: &mut CompileC
     return jit_unwrap_val_data(compile_context, load_data.into_int_value(), arg_type).into();
 }
 
-fn get_jit_fun_wrapper_name(rustaml_context : &RustamlContext, name : StringRef) -> String {
-    format!("{}__//__wrapper", name.get_str(&rustaml_context.str_interner))
+fn get_jit_fun_wrapper_name(name : &str) -> String {
+    format!("{}__//__wrapper", name)
 }
 
 fn generate_jit_fun_wrapper<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, name : StringRef, jit_wrapper_name : &str, arg_types : &[Type], res_type : Type){
@@ -149,6 +150,75 @@ fn generate_jit_fun_wrapper<'llvm_ctx>(compile_context: &mut CompileContext<'_, 
 
     let wrapped_res = jit_wrap_val(compile_context, res_call, &res_type);
     compile_context.builder.build_return(Some(&wrapped_res)).unwrap();
+}
+
+fn get_shared_library_std<'llvm_ctx>(context : &mut InterpretContext) -> Library {
+    // TODO : save the library in the JitContext
+    let temp_folder = std::env::temp_dir();
+    let std_so = temp_folder.join("std.so");
+
+    if !std_so.exists(){
+        let opt_level = 1;
+        let mut clang_std = Command::new("clang");
+        clang_std.arg("-x").arg("c").arg(format!("-O{}", opt_level)).arg("-shared");
+
+        if opt_level != 0{
+            clang_std.arg("-DNDEBUG");
+        }
+
+        // TODO : enable gc    
+        //clang_std.arg("-D_GC_")
+        
+        clang_std.arg("-march=native");
+
+        // TODO ?
+        // clang_std.arg("-g");
+        
+        let mut clang_std = clang_std.arg("-").arg("-o").arg(&std_so).stdin(Stdio::piped()).spawn().expect("compiling std failed");
+        clang_std.stdin.as_mut().unwrap().write_all(STD_C_CONTENT.as_bytes()).unwrap();
+        clang_std.wait().unwrap();
+    }
+
+    let lib_std = unsafe { Library::new(std_so).unwrap() };
+
+    lib_std
+}
+
+type PlaceholderFunType = unsafe extern "C" fn() -> ();
+
+unsafe extern "C" {
+    // don't care type, because we just need the ptr
+    unsafe fn fprintf() -> i32;
+    unsafe fn exit() -> usize;
+    static mut stderr: *mut ();
+}
+
+fn register_external_functions<'llvm_ctx>(std_lib : &Library, module : &Module<'llvm_ctx>, execution_engine : &ExecutionEngine<'llvm_ctx>){
+    for fun in module.get_functions(){
+        let bytes = fun.get_name().to_bytes();
+        match bytes {
+            b"__str_append" | b"__chars" | b"__print_val" => unsafe {
+                let fun_symbol = std_lib.get::<PlaceholderFunType>(bytes).unwrap();
+                execution_engine.add_global_mapping(&fun, fun_symbol.try_as_raw_ptr().unwrap() as usize);
+            }
+            b"fprintf" => {
+                execution_engine.add_global_mapping(&fun, fprintf as *const () as usize);
+            }
+            b"exit" => {
+                execution_engine.add_global_mapping(&fun, exit as *const () as usize);
+            }
+            _ => {}
+        }
+    }
+    for global in module.get_globals(){
+        let bytes = global.get_name().to_bytes();
+        match bytes {
+            b"stderr" => {
+                execution_engine.add_global_mapping(&global, &raw mut stderr as usize );
+            }
+            _ => {}
+        }
+    }
 }
 
 pub(crate) fn update_jit_heuristics_function_start_call(context : &mut InterpretContext, ast : ASTRef){
@@ -182,8 +252,12 @@ pub(crate) fn update_jit_heuristics_function_end_call(context : &mut InterpretCo
     }
 }
 
-fn is_valid_jit_type(t : &Type) -> bool {
-    matches!(t, Type::Integer | Type::Float | Type::Bool | Type::Char)
+fn is_valid_jit_type(t : &Type, is_return : bool) -> bool {
+    // TODO : enable this after making lists work
+    /*if !is_return && matches!(t, Type::List(_)) {
+        return true;
+    }*/
+    matches!(t, Type::Integer | Type::Float | Type::Bool | Type::Char | Type::Str)
 }
 
 pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &FunctionDef) -> bool  {
@@ -202,7 +276,7 @@ pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &F
     };
 
     // for now only this type
-    if args.as_ref().iter().any(|e| !is_valid_jit_type(e)) || !is_valid_jit_type(ret.as_ref()) {
+    if args.as_ref().iter().any(|e| !is_valid_jit_type(e, false)) || !is_valid_jit_type(ret.as_ref(), true) {
         return false;
     }
 
@@ -221,28 +295,25 @@ pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &F
 }
 
 // TODO : create a special struct Value to have as a special ABI to every function that would be : 
-// Value f(Value* args, size_t args_count)
+// Value f(Value* args)
 // with : (similar layout as the type tag and val in ListNode in std.c)
 // (add later the strings and list types)
 // typedef struct {
-//     enum {
-//         INTEGER = 0,
-//         FLOAT = 1,
-//         BOOL_TYPE = 2,
-//         CHAR_TYPE = 3,
-//     }
+//     enum {} tag;
 //     uint64_t value;
 // } Value;
-// then use functions in the compiler like get_arg(name)
 
 // TODO : while compiling the JIT, find used functions for runtime ?
+// TODO : make the layout of the same the same as the TypeTag in std.c ?
 
 #[repr(u8)]
 enum JITValueTag {
-    Integer,
-    Float,
-    Bool,
-    Char,
+    Integer = 0,
+    Float = 1,
+    Bool = 2,
+    Str = 4,
+    List = 5,
+    Char = 6,
 }
 
 #[repr(C)]
@@ -251,13 +322,19 @@ struct JITValue {
     val : u64,
 }
 
-fn create_jit_value(val : Val) -> JITValue {
+fn create_jit_value<'llvm_ctx>(rustaml_context : &RustamlContext, val : Val) -> JITValue {
     let (tag, data) = match val {
         Val::Integer(i) => (JITValueTag::Integer, i as u64),
         Val::Float(f) => (JITValueTag::Float, f.to_bits()),
         Val::Bool(b) => (JITValueTag::Bool, b as u64),
         Val::Char(c) => (JITValueTag::Char, c as u64),
-        _ => todo!(),
+        Val::String(s) => {
+            let ptr = s.get_str(&rustaml_context.str_interner).as_ptr();
+            (JITValueTag::Str, ptr as u64)
+        },
+        Val::List(_) => todo!(),
+        Val::Function(_) => todo!(), // do like ffi
+        Val::Regex(_) | Val::SumType(_) | Val::Vec(_) | Val::Unit => panic!("Unsupported JIT Value {}", val.display(rustaml_context)),
     };
     JITValue { 
         tag, 
@@ -270,6 +347,10 @@ type WrapperFN = unsafe extern "C" fn(*mut JITValue) -> JITValue;
 
 pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val>) -> Val {
     let function_def_ast = func_def.function_def_ast.unwrap();
+
+
+    // TODO : cache the lib
+    let lib = get_shared_library_std(context);
 
     let fun = if let Some(fun_meta) = context.jit_context.functions_meta.get(&function_def_ast) && let Some(cached_fun) = fun_meta.cached_fun.clone() {  // only clone small rc
         cached_fun
@@ -321,8 +402,9 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
             }
             _ => unreachable!(),
         }
+        
 
-        let wrapper_fun_name = get_jit_fun_wrapper_name(compile_context.rustaml_context, func_def.name);
+        let wrapper_fun_name = get_jit_fun_wrapper_name(func_def.name.get_str(&compile_context.rustaml_context.str_interner));
         let function_id = get_var_id(&compile_context, function_def_ast);
         let (arg_types, res_type) = match compile_context.typeinfos.vars_env.get(&function_id).unwrap() {
             Type::Function(args, res_type, _) => (args.clone(), res_type.as_ref().clone()),
@@ -335,6 +417,8 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
         let last_main_bb = compile_context.main_function.get_last_basic_block().unwrap();
         compile_context.builder.position_at_end(last_main_bb);
         compile_context.builder.build_return(Some(&compile_context.context.i32_type().const_int(0, false))).unwrap();
+
+        register_external_functions(&lib, &compile_context.module, &execution_engine);
 
         #[cfg(feature = "debug-llvm")]
         compile_context.module.verify().or_else(|e| -> Result<_, LLVMString> { 
@@ -358,6 +442,7 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
             }
         }
 
+
         let fun = unsafe { execution_engine.get_function::<WrapperFN>(&wrapper_fun_name) }.unwrap();    
         
         if let Some(fun_meta) = context.jit_context.functions_meta.get_mut(&function_def_ast){
@@ -369,17 +454,23 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
             };
             context.jit_context.functions_meta.insert(function_def_ast, fun_meta);
         }
-    
+
         
         fun
     };
 
-    let mut val_args = args_val.into_iter().map(create_jit_value).collect::<Box<[JITValue]>>();
+    let mut val_args = args_val.into_iter().map(|e| create_jit_value(context.rustaml_context, e)).collect::<Box<[JITValue]>>();
     let ret = unsafe { fun.call(val_args.as_mut_ptr()) };
     match ret.tag {
         JITValueTag::Integer => Val::Integer(ret.val as i64),
         JITValueTag::Float => Val::Float(f64::from_bits(ret.val)),
         JITValueTag::Bool => Val::Bool(ret.val != 0),
-        JITValueTag::Char => Val::Char(char::from_u32(ret.val.try_into().unwrap()).unwrap())
+        JITValueTag::Char => Val::Char(char::from_u32(ret.val.try_into().unwrap()).unwrap()),
+        JITValueTag::Str => {
+            let cstr = unsafe { CStr::from_ptr(ret.val as *const i8) };
+            let str = context.rustaml_context.str_interner.intern_runtime(cstr.to_str().unwrap());
+            Val::String(str)
+        }
+        JITValueTag::List => panic!("List unsupported in return type of JIT"),
     }
 }

@@ -1,6 +1,6 @@
 use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType, VectorType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, VectorValue}};
 
-use crate::{ast::{CType, Type}, compiler::{CompileContext, debuginfo::LineColLoc}, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{CType, Type}, compiler::{CompileContext, cast::cast_val, debuginfo::LineColLoc}, rustaml::RustamlContext, string_intern::StringRef};
 
 
 pub(crate) fn add_function<'llvm_ctx>(compile_context : &CompileContext<'_, 'llvm_ctx>, name : &str, ty: FunctionType<'llvm_ctx>, linkage: Option<Linkage>) -> FunctionValue<'llvm_ctx> {
@@ -273,17 +273,10 @@ pub(crate) fn load_list_tail<'llvm_ctx>(compile_context: &mut CompileContext<'_,
 // TODO : have one api for casting for cast and this ?
 
 pub(crate) fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val : BasicValueEnum<'llvm_ctx>, val_type : &Type) -> IntValue<'llvm_ctx> {
-    let i64_type = compile_context.context.i64_type();
     match val_type {
-        Type::Integer => val.into_int_value(),
-        Type::Float => compile_context.builder.build_bit_cast(val, i64_type, "bitcast_float_to_val").unwrap().into_int_value(),
-        Type::Bool | Type::Char => compile_context.builder.build_int_z_extend(val.into_int_value(), i64_type, "zextend_bool_to_val").unwrap(),
-        Type::Str | Type::List(_) | Type::Function(_, _, _) => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_to_val").unwrap(),
-        //Type::Never | Type::Unit => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), i64_type, "ptrtoint_nothing_to_val").unwrap(),
-        Type::Never | Type::Unit => {
-            let void_val = get_void_val(compile_context.context);
-            compile_context.builder.build_bit_cast(TryInto::<BasicValueEnum>::try_into(void_val).unwrap(), i64_type, "bitcast_to_uint64_t").unwrap().into_int_value()
-        }, 
+        Type::Integer | Type::Bool | Type::Char | Type::Str | Type::List(_) | Type::Function(_, _, _) | Type::Never | Type::Unit => 
+            cast_val(compile_context, val, val_type, &Type::CType(CType::U64)).into_int_value(),
+        Type::Float => compile_context.builder.build_bit_cast(val, compile_context.context.i64_type(), "bitcast_float_to_val").unwrap().into_int_value(),
         Type::SumType(sumtype) => {
             if sumtype.has_data(){
                 todo!() // TODO
@@ -382,7 +375,7 @@ pub(crate) fn vec_to_c_struct_ptr<'llvm_ctx>(compile_context: &mut CompileContex
 
 pub(crate) fn promote_val_var_arg<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, val_type : &Type, val : BasicValueEnum<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx>{
     match val_type {
-        Type::Bool => compile_context.builder.build_int_z_extend(val.into_int_value(), compile_context.context.i32_type(), "zext_va_arg").unwrap().as_basic_value_enum(),
+        Type::Bool => cast_val(compile_context, val, &Type::Bool, &Type::CType(CType::U32)),
         _ => val,
     }
 }
