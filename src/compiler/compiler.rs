@@ -1690,6 +1690,7 @@ const STD_C_CONTENT: &str = include_str!("../../std.c");
 
 // TODO : add a way to select the path of bdwgc for building it
 // TODO : add static musl (for completely static linking)
+// TODO : add a way to select the path of musl for building it
 
 fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_file : &Path, shared_libs : &[String], opt_level : OptimizationLevel, optional_args : &OptionalArgs){
     // use cc ?
@@ -1700,13 +1701,89 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
     if optional_args.build_bdwgc {
         panic!("Can't link a custom built bdwgc without enabling the build-bdwgc feature");
     }
+
+    // TODO : only make the musl work with linux
+    #[cfg(not(feature = "musl"))]
+    if optional_args.musl {
+        panic!("Can't link a custom built static musl without enabling the musl feature");
+    }
+
+
     let temp_dir = std::env::temp_dir();
+    let current_exe_path = std::env::current_exe().unwrap();
+    let current_exe_folder = current_exe_path.parent().unwrap().to_path_buf();
+
+
+    #[cfg(feature = "musl")]
+    let sysroot_musl = if optional_args.musl {
+        rustaml_context.start_section("build-musl");
+        // TODO : put this in another function
+        let musl_path = current_exe_folder.join("musl");
+
+        let sysroot_musl = musl_path.join("musl_sysroot");
+        if !sysroot_musl.exists(){
+            std::fs::create_dir(&sysroot_musl).unwrap();
+        }
+
+        let mut configure_cmd = Command::new("./configure");
+        configure_cmd.arg("--disable-shared").arg(&format!("--prefix={}", sysroot_musl.to_str().unwrap()));
+        // TODO : make the CFLAGS work in one function/place (to deduplicate code with the cflags handling after that)
+        let mut cflags = format!("-emit-llvm -O{} -fno-stack-protector", opt_level as u32);
+        
+       
+        if !matches!(opt_level, OptimizationLevel::None){
+            cflags += " -DNDEBUG";  // TODO : should I do this ?
+            cflags += " -flto";
+        }
+
+        if optional_args.enable_debuginfos {
+            cflags += " -g";
+        } 
+
+        if optional_args.march_native {
+            cflags += " -march=native";
+        }
+
+        if optional_args.freestanding {
+            panic!("freestanding not supported with musl"); // TODO ?
+        }
+
+        configure_cmd.envs([
+            ("CC", "clang"),
+            ("CFLAGS", &cflags),
+            ("AR", "llvm-ar"),
+            ("RANLIB", "llvm-ranlib"), 
+        ]);
+        configure_cmd.current_dir(&musl_path);
+
+        // TODO : disable stdio by default
+        configure_cmd.spawn().unwrap().wait().unwrap();     
+
+        let available_threads = std::thread::available_parallelism().unwrap().get();
+        let threads_flag = format!("-j{}", available_threads);
+
+        let mut make_cmd = Command::new("make");
+
+        make_cmd.arg(&threads_flag);
+        make_cmd.current_dir(&musl_path);
+
+        make_cmd.spawn().unwrap().wait().unwrap();   
+
+        let mut make_install_cmd = Command::new("make");
+        make_install_cmd.arg("install").arg(&threads_flag);
+        make_install_cmd.current_dir(&musl_path);
+        make_install_cmd.spawn().unwrap().wait().unwrap();
+
+        rustaml_context.end_section("build-musl");
+        Some(sysroot_musl)
+    } else {
+        None
+    };
 
     #[cfg(feature = "build-bdwgc")]
-    let out_bdwgc_path = if optional_args.build_bdwgc {
+    let (out_bdwgc_path, bdwgc_src_path) = if optional_args.build_bdwgc {
         rustaml_context.start_section("build-bdwgc");
-        let current_exe_path = std::env::current_exe().unwrap();
-        let current_exe_folder = current_exe_path.parent().unwrap().to_path_buf();
+        
         let bdwgc_path = current_exe_folder.join("bdwgc");
         let bdwgc_src_path = pathbuf![&bdwgc_path, "extra", "gc.c"];
 
@@ -1717,6 +1794,7 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
         bdwgc_link_cmd.arg(include_flag);
         bdwgc_link_cmd.arg("-o").arg(out_bdwgc_path.as_os_str()).arg(bdwgc_src_path.as_os_str());
         bdwgc_link_cmd.arg(format!("-O{}", opt_level as u32));
+        bdwgc_link_cmd.arg("-DNO_GETCONTEXT");
 
         // TODO : should I do this ?
         if !matches!(opt_level, OptimizationLevel::None){
@@ -1734,15 +1812,18 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
         if optional_args.freestanding {
             panic!("freestanding not supported with build bdwgc"); // TODO ?
         }
-        
+
+        #[cfg(feature = "musl")]
+        if optional_args.musl {
+            bdwgc_link_cmd.arg("-fno-stack-protector").arg(&format!("--sysroot={}", sysroot_musl.as_ref().unwrap().to_str().unwrap()));
+        }        
         
         bdwgc_link_cmd.spawn().unwrap().wait().unwrap();
         rustaml_context.end_section("build-bdwgc");
-        Some(out_bdwgc_path)
+        (Some(out_bdwgc_path), Some(bdwgc_path))
     } else {
-        None
+        (None, None)
     };
-
     
     
     let out_std_path = pathbuf![&temp_dir, "std.bc"];
@@ -1774,6 +1855,19 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
     if optional_args.freestanding {
         clang_std.arg("-ffreestanding").arg("-nostdlib");
     }
+
+    #[cfg(feature = "musl")]
+    if optional_args.musl {
+        clang_std.arg("-fno-stack-protector");
+        clang_std.arg(&format!("--sysroot={}", sysroot_musl.as_ref().unwrap().to_str().unwrap()));
+        clang_std.arg("-v");
+    }
+
+    #[cfg(feature = "build-bdwgc")]
+    if optional_args.build_bdwgc {
+        let include_arg = bdwgc_src_path.unwrap().join("include");
+        clang_std.arg(&format!("-I{}", include_arg.to_str().unwrap()));
+    }
     
     let mut clang_std = clang_std.arg("-").arg("-o").arg(out_std_path_str).stdin(Stdio::piped()).spawn().expect("compiling std failed");
     clang_std.stdin.as_mut().unwrap().write_all(STD_C_CONTENT.as_bytes()).unwrap();
@@ -1799,6 +1893,12 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
 
     if optional_args.freestanding {
         link_cmd.arg("-ffreestanding").arg("-nostdlib");
+    }
+
+    #[cfg(feature = "musl")]
+    if optional_args.musl {
+        link_cmd.arg(&format!("--sysroot={}", sysroot_musl.unwrap().to_str().unwrap()));
+        link_cmd.arg("-static");
     }
 
     for search_path in &optional_args.lib_search_paths {
@@ -1861,13 +1961,14 @@ pub(crate) struct OptionalArgs {
     freestanding : bool,
     march_native : bool,
     build_bdwgc : bool,
-    lib_search_paths : Vec<String>
+    musl : bool,
+    lib_search_paths : Vec<String>, // TODO : use PathBufs instead ?
 }
 
 impl OptionalArgs {
     // TODO : make this a builder pattern ?
     #[allow(unused)]
-    pub(crate) fn new(optimization_level : Option<u8>, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, freestanding : bool, march_native : bool, build_bdwgc : bool, lib_search_paths : Vec<String>) -> OptionalArgs {
+    pub(crate) fn new(optimization_level : Option<u8>, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, freestanding : bool, march_native : bool, build_bdwgc : bool, musl : bool, lib_search_paths : Vec<String>) -> OptionalArgs {
         OptionalArgs { 
             optimization_level: optimization_level.unwrap_or(0), 
             keep_temp, 
@@ -1877,6 +1978,7 @@ impl OptionalArgs {
             freestanding,
             march_native,
             build_bdwgc,
+            musl,
             lib_search_paths,
         }
     }
@@ -1936,6 +2038,7 @@ pub(crate) fn compile(frontend_output : FrontendOutput, rustaml_context: &mut Ru
         let module = context.create_module(filename_str);
 
         Target::initialize_all(&InitializationConfig::default());
+
         let target_triple = TargetMachine::get_default_triple();
 
         let target = Target::from_triple(&target_triple).unwrap();
@@ -1958,10 +2061,7 @@ pub(crate) fn compile(frontend_output : FrontendOutput, rustaml_context: &mut Ru
                 CodeModel::Default,
             )
             .unwrap();
-
         let target_data = target_machine.get_target_data();
-
-        
         
         let data_layout = target_data.get_data_layout();
 

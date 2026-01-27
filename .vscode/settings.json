@@ -11,6 +11,7 @@
         "cache",
         "jit",
         "build-bdwgc",
+        "musl",
     ],
     "files.associations": {
         "io": "llvm",

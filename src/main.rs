@@ -16,7 +16,7 @@ cfg_if! {
         use crate::rustaml::FrontendOutput;
         pub(crate) struct OptionalArgs;
         impl OptionalArgs {
-            pub(crate) fn new(_optimization_level : Option<u8>, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer : bool, _enable_debuginfos : bool, _freestanding : bool, native: bool, _lib_search_paths : Vec<String>) -> OptionalArgs {
+            pub(crate) fn new(_optimization_level : Option<u8>, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer : bool, _enable_debuginfos : bool, _freestanding : bool, _native: bool, _build_bdwgc : bool, _musl : bool, _lib_search_paths : Vec<String>) -> OptionalArgs {
                 OptionalArgs
             }
         }
@@ -158,6 +158,9 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         build_bdwgc : bool,
 
+        #[arg(long, default_value_t = false)]
+        musl : bool,
+
         #[arg(long, short = 'd', default_value_t = false)]
         debug_print : bool,
 
@@ -225,7 +228,7 @@ fn main() -> ExitCode {
 
     let (debug_print, self_profile, profiler_format) = match args.command {
         Some(Commands::Check { filename: _, dump_types: _, dump_dot: _, debug_print, self_profile, profile_format }) => (debug_print, self_profile, profile_format),
-        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, disable_gc: _, enable_sanitizer: _, debug_print, self_profile, profile_format, enable_debuginfos: _, lib_search_paths: _, freestanding: _, march_native: _, build_bdwgc }) => {
+        Some(Commands::Compile { filename: _, filename_out: _, keep_temp: _, optimization_level: _, disable_gc: _, enable_sanitizer: _, debug_print, self_profile, profile_format, enable_debuginfos: _, lib_search_paths: _, freestanding: _, march_native: _, build_bdwgc: _, musl: _ }) => {
             (debug_print, self_profile, profile_format)
         },
         Some(Commands::Interpret { filename: _, dump_jit_ir: _, dump_jit_asm: _, debug_print, self_profile, profile_format }) => {
@@ -253,7 +256,7 @@ fn main() -> ExitCode {
 
             interpreter::interpret(frontend_output.ast, &mut rustaml_context, Some(frontend_output.type_infos), dump_jit_ir, dump_jit_asm);
         }
-        Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _, self_profile: _, profile_format: _, enable_debuginfos, lib_search_paths, freestanding, march_native, build_bdwgc } => {
+        Commands::Compile { filename, filename_out, keep_temp, optimization_level, disable_gc, enable_sanitizer, debug_print: _, self_profile: _, profile_format: _, enable_debuginfos, lib_search_paths, freestanding, march_native, build_bdwgc, musl } => {
 
             let frontend_output = frontend(&filename, &mut rustaml_context);
             let frontend_output = match frontend_output {
@@ -263,7 +266,7 @@ fn main() -> ExitCode {
 
             // TODO : proper error printing
             //debug_println!(debug_print, "var types = {:#?}", DebugWrapContext::new(&vars, &rustaml_context));
-            let compile_argument = OptionalArgs::new(optimization_level, keep_temp, disable_gc, enable_sanitizer, enable_debuginfos, freestanding, march_native, build_bdwgc, lib_search_paths);
+            let compile_argument = OptionalArgs::new(optimization_level, keep_temp, disable_gc, enable_sanitizer, enable_debuginfos, freestanding, march_native, build_bdwgc, musl, lib_search_paths);
             compile(frontend_output, &mut rustaml_context,  &filename, filename_out.as_deref(), compile_argument);
         },
 
