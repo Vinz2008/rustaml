@@ -98,7 +98,7 @@ pub(crate) fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, 'll
             // for now only an int for the tag, will need to support the type of variants, TODO
             get_llvm_type(compile_context, &Type::Integer)
         },
-        Type::Vec(e_type, size) => get_vec_type(compile_context.context, get_llvm_type(compile_context, e_type), *size).into(),
+        Type::Vec(e_type, size) => get_vec_type(get_llvm_type(compile_context, e_type), *size).into(),
         Type::Any => encountered_any_type(),
     }
 }
@@ -122,7 +122,7 @@ pub(crate) fn get_fn_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, llvm_typ
     }
 }
 
-pub(crate) fn get_vec_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, llvm_type : AnyTypeEnum<'llvm_ctx>, size : u32) -> VectorType<'llvm_ctx> {
+pub(crate) fn get_vec_type<'llvm_ctx>(llvm_type : AnyTypeEnum<'llvm_ctx>, size : u32) -> VectorType<'llvm_ctx> {
     match llvm_type {
         AnyTypeEnum::IntType(i) => i.vec_type(size),
         AnyTypeEnum::FloatType(f) => f.vec_type(size),

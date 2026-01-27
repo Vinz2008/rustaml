@@ -94,8 +94,6 @@ cfg_if! {
 
 // TODO : replace clap with lexopt or pico-args ?
 
-// TODO : add simd
-
 // TODO : add modules ? (or at least if not user defined modules for now, builting modules for functions for regex or simd/vec)
 
 #[derive(Subcommand, Debug)]

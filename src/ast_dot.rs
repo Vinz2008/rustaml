@@ -115,6 +115,14 @@ pub(crate) fn _generate_ast_dot(graph : &mut Graph<String, String>, rustaml_cont
             }
             list_node
         }
+        ASTNode::Vec { vec } => {
+            let vec_node = graph.add_node("vec".to_string());
+            for (idx, e) in vec.iter().enumerate() {
+                let vec_element = _generate_ast_dot(graph, rustaml_context, *e);
+                graph.add_edge(vec_node, vec_element, format!("e{}", idx));
+            }
+            vec_node
+        }
         ASTNode::Integer { nb } => {
             graph.add_node(format!("{}", nb))
         },
