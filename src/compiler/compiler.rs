@@ -1755,6 +1755,7 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
             ("RANLIB", "llvm-ranlib"), 
         ]);
         configure_cmd.current_dir(&musl_path);
+        configure_cmd.stdout(Stdio::null());
 
         // TODO : disable stdio by default
         configure_cmd.spawn().unwrap().wait().unwrap();     
@@ -1766,12 +1767,14 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
 
         make_cmd.arg(&threads_flag);
         make_cmd.current_dir(&musl_path);
+        make_cmd.stdout(Stdio::null());
 
         make_cmd.spawn().unwrap().wait().unwrap();   
 
         let mut make_install_cmd = Command::new("make");
         make_install_cmd.arg("install").arg(&threads_flag);
         make_install_cmd.current_dir(&musl_path);
+        make_install_cmd.stdout(Stdio::null());
         make_install_cmd.spawn().unwrap().wait().unwrap();
 
         rustaml_context.end_section("build-musl");
@@ -1860,7 +1863,6 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
     if optional_args.musl {
         clang_std.arg("-fno-stack-protector");
         clang_std.arg(&format!("--sysroot={}", sysroot_musl.as_ref().unwrap().to_str().unwrap()));
-        clang_std.arg("-v");
     }
 
     #[cfg(feature = "build-bdwgc")]
