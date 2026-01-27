@@ -9,7 +9,8 @@
         "debug-llvm",
         "dot-format",
         "cache",
-        "jit"
+        "jit",
+        "build-bdwgc",
     ],
     "files.associations": {
         "io": "llvm",

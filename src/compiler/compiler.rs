@@ -1688,13 +1688,64 @@ fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : O
 // TODO : instead install file in filesystem ?
 const STD_C_CONTENT: &str = include_str!("../../std.c");
 
+// TODO : add a way to select the path of bdwgc for building it
+// TODO : add static musl (for completely static linking)
+
 fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_file : &Path, shared_libs : &[String], opt_level : OptimizationLevel, optional_args : &OptionalArgs){
     // use cc ?
     // TODO : use lld (https://github.com/mun-lang/lld-rs) for linking instead ?
     // TODO : use libclang ? (clang-rs ? https://github.com/llvm/llvm-project/blob/main/clang/tools/driver/cc1_main.cpp#L85 ?)
 
+    #[cfg(not(feature = "build-bdwgc"))]
+    if optional_args.build_bdwgc {
+        panic!("Can't link a custom built bdwgc without enabling the build-bdwgc feature");
+    }
+    let temp_dir = std::env::temp_dir();
+
+    #[cfg(feature = "build-bdwgc")]
+    let out_bdwgc_path = if optional_args.build_bdwgc {
+        rustaml_context.start_section("build-bdwgc");
+        let current_exe_path = std::env::current_exe().unwrap();
+        let current_exe_folder = current_exe_path.parent().unwrap().to_path_buf();
+        let bdwgc_path = current_exe_folder.join("bdwgc");
+        let bdwgc_src_path = pathbuf![&bdwgc_path, "extra", "gc.c"];
+
+        let out_bdwgc_path = pathbuf![&temp_dir, "bdwgc.bc"];
+        let mut bdwgc_link_cmd = Command::new("clang");
+        bdwgc_link_cmd.args(["-emit-llvm", "-c"]);
+        let include_flag = format!("-I{}", bdwgc_path.join("include").to_str().unwrap());
+        bdwgc_link_cmd.arg(include_flag);
+        bdwgc_link_cmd.arg("-o").arg(out_bdwgc_path.as_os_str()).arg(bdwgc_src_path.as_os_str());
+        bdwgc_link_cmd.arg(format!("-O{}", opt_level as u32));
+
+        // TODO : should I do this ?
+        if !matches!(opt_level, OptimizationLevel::None){
+            bdwgc_link_cmd.arg("-DNDEBUG");
+        }
+
+        if optional_args.enable_debuginfos {
+            bdwgc_link_cmd.arg("-g");
+        }
+
+        if optional_args.march_native {
+            bdwgc_link_cmd.arg("-march=native");
+        }
+
+        if optional_args.freestanding {
+            panic!("freestanding not supported with build bdwgc"); // TODO ?
+        }
+        
+        
+        bdwgc_link_cmd.spawn().unwrap().wait().unwrap();
+        rustaml_context.end_section("build-bdwgc");
+        Some(out_bdwgc_path)
+    } else {
+        None
+    };
+
     
-    let out_std_path = pathbuf![&std::env::temp_dir(), "std.bc"];
+    
+    let out_std_path = pathbuf![&temp_dir, "std.bc"];
     let out_std_path_str = out_std_path.as_os_str();
 
     rustaml_context.start_section("std");
@@ -1742,7 +1793,7 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
         link_cmd.arg("-march=native");
     }
 
-    if !optional_args.disable_gc {
+    if !optional_args.disable_gc && !optional_args.build_bdwgc {
         link_cmd.arg("-lgc");
     }
 
@@ -1780,13 +1831,23 @@ fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Path, bitcode_
         //link_cmd.arg("-Wl,--no-gc-sections");
     }
 
+    #[cfg(feature = "build-bdwgc")]
+    if optional_args.build_bdwgc {
+        link_cmd.arg(&out_bdwgc_path.as_ref().unwrap());
+    }
+
     if !link_cmd.spawn().expect("linker failed").wait().unwrap().success() {
-        return;
+        panic!("linker failed");
     }
 
     rustaml_context.end_section("linker");
 
     std::fs::remove_file(&out_std_path).expect("Couldn't delete std bitcode file");
+
+    #[cfg(feature = "build-bdwgc")]
+    if optional_args.build_bdwgc {
+        std::fs::remove_file(&out_bdwgc_path.unwrap()).expect("Couldn't delete bdwgc bitcode file");
+    }
 }
 
 const DEBUGINFO_VERSION: u64 = 3;
@@ -1799,13 +1860,14 @@ pub(crate) struct OptionalArgs {
     enable_debuginfos : bool, 
     freestanding : bool,
     march_native : bool,
+    build_bdwgc : bool,
     lib_search_paths : Vec<String>
 }
 
 impl OptionalArgs {
     // TODO : make this a builder pattern ?
     #[allow(unused)]
-    pub(crate) fn new(optimization_level : Option<u8>, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, freestanding : bool, march_native : bool, lib_search_paths : Vec<String>) -> OptionalArgs {
+    pub(crate) fn new(optimization_level : Option<u8>, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, freestanding : bool, march_native : bool, build_bdwgc : bool, lib_search_paths : Vec<String>) -> OptionalArgs {
         OptionalArgs { 
             optimization_level: optimization_level.unwrap_or(0), 
             keep_temp, 
@@ -1814,6 +1876,7 @@ impl OptionalArgs {
             enable_debuginfos,
             freestanding,
             march_native,
+            build_bdwgc,
             lib_search_paths,
         }
     }

@@ -37,8 +37,10 @@ blake3 = { version = "1.8.2", optional = true }
 [profile.release]
 lto = "fat"
 panic = "abort"
-#strip = "debuginfo"
-debug = "full"
+strip = "debuginfo"
+#debug = "full"
+
+# TODO : add some features to default features (or even remove them after enabling them by default)
 
 [features]
 native = ["dep:inkwell"]
@@ -52,3 +54,4 @@ stack-expand = ["dep:stacker"]
 stack-expand-test-print = ["stack-expand"]
 dot-format = ["dep:petgraph"]
 jit = ["native"]
+build-bdwgc = ["native"]
