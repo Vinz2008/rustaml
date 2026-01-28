@@ -1680,7 +1680,8 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
 fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : OptimizationLevel, sanitizer : bool) {
     // TODO : test with "function(mem2reg)," at the start (like https://github.com/inko-lang/inko/blob/main/compiler/src/llvm/passes.rs#L553)
     // to remove allocas even with no optimizations enabled ?
-    let passes_str = format!("default<O{}>", opt_level as u8);
+    // always run tailcallelim to not have problems with the stack with -O0
+    let passes_str = format!("default<O{}>,tailcallelim,simplifycfg", opt_level as u8);
     
     module.run_passes(&passes_str, target_machine, PassBuilderOptions::create()).unwrap();
 }

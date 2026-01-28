@@ -4,7 +4,7 @@ use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engin
 use libloading::Library;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{CompileContext, JITCpuInfos, cast::cast_val, compile_function, compiler_utils::{add_function, get_fn_type, get_type_tag}, debuginfo::DebugInfo, get_var_id, linker::STD_C_CONTENT}, interpreter::{FunctionBody, FunctionDef, InterpretContext, STD_FUNCTIONS, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
+use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{CompileContext, JITCpuInfos, cast::cast_val, compile_function, compiler_utils::{add_function, get_fn_type, get_type_tag, get_void_val}, debuginfo::DebugInfo, get_var_id, linker::STD_C_CONTENT}, interpreter::{FunctionBody, FunctionDef, InterpretContext, STD_FUNCTIONS, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
 
 #[cfg(feature = "debug-llvm")]
 use inkwell::support::LLVMString;
@@ -80,6 +80,7 @@ fn jit_wrap_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, 
         Type::Integer | Type::Bool | Type::Char | Type::Str => 
             cast_val(compile_context, val, val_type, &Type::CType(CType::U64)).into_int_value(),
         Type::Float => compile_context.builder.build_bit_cast(val, i64_type, "bitcast_float_to_jit_val").unwrap().into_int_value(),
+        Type::Unit => compile_context.context.i64_type().get_undef(), // will not be used
         _ => todo!(), // TODO
     };
     let field_vals: &[BasicValueEnum] = &[
@@ -99,6 +100,7 @@ fn jit_unwrap_val_data<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm
         Type::Integer | Type::Bool | Type::Char => cast_val(compile_context, val_data.as_basic_value_enum(), &Type::CType(CType::U64), val_type),
         Type::Float => compile_context.builder.build_bit_cast(val_data, compile_context.context.f64_type(), "bitcast_jit_val_to_float").unwrap(),
         Type::Str => cast_val(compile_context, val_data.as_basic_value_enum(), &Type::CType(CType::U64), val_type),
+        Type::Unit => get_void_val(compile_context.context),
         _ => panic!("{:?}", val_type) // TODO
     }
 }
@@ -145,7 +147,13 @@ fn generate_jit_fun_wrapper<'llvm_ctx>(compile_context: &mut CompileContext<'_, 
     let res_call = compile_context.builder.build_call(real_fun, &args_val, "call_real_jit_fun").unwrap().try_as_basic_value();
     let res_call = match res_call {
         ValueKind::Basic(b) => b,
-        ValueKind::Instruction(_) => unreachable!(),
+        ValueKind::Instruction(i) => { 
+            if i.get_type().is_void_type(){
+                get_void_val(compile_context.context) // will not be used
+            } else { 
+                unreachable!() 
+            }
+        },
     };
 
     let wrapped_res = jit_wrap_val(compile_context, res_call, &res_type);
@@ -258,7 +266,7 @@ fn is_valid_jit_type(t : &Type, is_return : bool) -> bool {
     /*if !is_return && matches!(t, Type::List(_)) {
         return true;
     }*/
-    matches!(t, Type::Integer | Type::Float | Type::Bool | Type::Char | Type::Str)
+    matches!(t, Type::Integer | Type::Float | Type::Bool | Type::Char | Type::Str | Type::Unit)
 }
 
 pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &FunctionDef) -> bool  {
@@ -315,6 +323,7 @@ enum JITValueTag {
     Str = 4,
     List = 5,
     Char = 6,
+    Unit = 7,
 }
 
 #[repr(C)]
@@ -333,9 +342,10 @@ fn create_jit_value<'llvm_ctx>(rustaml_context : &RustamlContext, val : Val) -> 
             let ptr = s.get_str(&rustaml_context.str_interner).as_ptr();
             (JITValueTag::Str, ptr as u64)
         },
+        Val::Unit => (JITValueTag::Unit, 0 as u64),
         Val::List(_) => todo!(),
         Val::Function(_) => todo!(), // do like ffi
-        Val::Regex(_) | Val::SumType(_) | Val::Vec(_) | Val::Unit => panic!("Unsupported JIT Value {}", val.display(rustaml_context)),
+        Val::Regex(_) | Val::SumType(_) | Val::Vec(_) => panic!("Unsupported JIT Value {}", val.display(rustaml_context)),
     };
     JITValue { 
         tag, 
@@ -447,10 +457,6 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
         
         let is_optimized = false;
 
-        // TODO : deduplicate this code with compiler ?
-        // is this even needed (will not be used by JIT ?)
-        // if really needed, then do it only one time
-        Target::initialize_native(&InitializationConfig::default()).unwrap();
         let target_triple = TargetMachine::get_default_triple();
 
         let target = Target::from_triple(&target_triple).unwrap();
@@ -536,9 +542,14 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
             panic!("LLVM ERROR {}", e.to_string()) 
         }).unwrap();
 
+        // TODO : see what passes add/remove (benchmark it)
+        compile_context.module.run_passes("instcombine,simplifycfg,tailcallelim", &target_machine, PassBuilderOptions::create()).unwrap();
+
         if context.jit_context.dump_jit_ir {
             compile_context.module.print_to_file("jit.ll").unwrap();
         }
+        
+        // TODO : remove this (if I understood well, the optimization level for the execution engine is only for the code generated not the LLVM IR passes)
         if context.jit_context.dump_jit_ir || context.jit_context.dump_jit_asm {
             let passes_str = format!("default<O{}>", optimization_level as u8);
             // run passes to dump the optimized jit IR (simulate the optimizations by the JIT, should be around the same)
@@ -582,5 +593,6 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
             Val::String(str)
         }
         JITValueTag::List => panic!("List unsupported in return type of JIT"),
+        JITValueTag::Unit => Val::Unit,
     }
 }
