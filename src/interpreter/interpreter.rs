@@ -794,7 +794,6 @@ fn interpret_binop_val(context: &mut InterpretContext, op : Operator, lhs_val : 
 }
 
 fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, rhs : ASTRef) -> Val {
-    // TODO : add a short circuiting for bool ops
     match op {
         Operator::And | Operator::Or => return interpret_binop_bool_short_circuiting(context, op, lhs, rhs),
         _ => {}
@@ -856,21 +855,21 @@ fn rustaml_panic(message : &str) -> ! {
     runtime_terminate()
 }
 
-#[derive(DebugWithContext)]
-#[debug_context(RustamlContext)]
-enum FormatChunk {
-    Arg(Val), // TODO ? : put ref instead
+//#[derive(DebugWithContext)]
+//#[debug_context(RustamlContext)]
+enum FormatChunk<'a> {
+    Arg(&'a Val),
     Str(String), // TODO ? : put ref instead
 }
 
-#[derive(DebugWithContext)]
-#[debug_context(RustamlContext)]
-struct FormatChunks {
-    format : Vec<FormatChunk>,
+//#[derive(DebugWithContext)]
+//#[debug_context(RustamlContext)]
+struct FormatChunks<'a> {
+    format : Vec<FormatChunk<'a>>,
 }
 
-impl FormatChunks {
-    fn new() -> FormatChunks {
+impl<'a> FormatChunks<'a> {
+    fn new() -> FormatChunks<'a> {
         FormatChunks {
             format: Vec::new()
         }
@@ -892,39 +891,47 @@ impl FormatChunks {
 fn interpret_format(context: &mut InterpretContext, arg_format_str: StringRef, args_format : &[Val]) -> Val {
     let mut format_chunks = FormatChunks::new();
 
-    let arg_format_chars = arg_format_str.get_str(&context.rustaml_context.str_interner).chars().collect::<Vec<_>>();
     let mut pos = 0;
 
-    let mut arg_pos = 0;
-    while pos < arg_format_chars.len() {
-        match arg_format_chars[pos] {
-            '{' => {
-                if let Some('}') = arg_format_chars.get(pos+1){
-                    format_chunks.format.push(FormatChunk::Arg(args_format[arg_pos].clone()));
-                    arg_pos += 1;
-                    pos += 1; // pass '}'
-                } else {
-                    format_chunks.append('{');
-                }
-                
-            },
-            c => format_chunks.append(c),
+    let formatted_str_ref = if !arg_format_str.get_str(&context.rustaml_context.str_interner).contains("{"){
+        // just a string
+        arg_format_str
+    } else {
+
+        // TODO : optimize this to not do a lot of append ?
+        let arg_format_chars = arg_format_str.get_str(&context.rustaml_context.str_interner).chars().collect::<Vec<_>>();
+        let mut arg_pos = 0;
+        while pos < arg_format_chars.len() {
+            match arg_format_chars[pos] {
+                '{' => {
+                    if let Some('}') = arg_format_chars.get(pos+1){
+                        format_chunks.format.push(FormatChunk::Arg(&args_format[arg_pos]));
+                        arg_pos += 1;
+                        pos += 1; // pass '}'
+                    } else {
+                        format_chunks.append('{');
+                    }
+                    
+                },
+                c => format_chunks.append(c),
+            }
+            pos += 1;
         }
-        pos += 1;
-    }
 
-    //dbg!(DebugWrapContext::new(&format_chunks, context.rustaml_context));
+        //dbg!(DebugWrapContext::new(&format_chunks, context.rustaml_context));
 
-    let mut formatted_str = String::new();
+        let mut formatted_str = String::new();
 
-    for f_c in format_chunks.format {
-        match f_c {
-            FormatChunk::Str(s) => formatted_str.push_str(&s),
-            FormatChunk::Arg(v) => formatted_str.push_str(&format!("{}", v.display(context.rustaml_context))),
+        for f_c in format_chunks.format {
+            match f_c {
+                FormatChunk::Str(s) => formatted_str.push_str(&s),
+                FormatChunk::Arg(v) => formatted_str.push_str(&format!("{}", v.display(context.rustaml_context))),
+            }
         }
-    }
+        context.rustaml_context.str_interner.intern_runtime(&formatted_str)
+    };
 
-    Val::String(context.rustaml_context.str_interner.intern_runtime(&formatted_str))
+    Val::String(formatted_str_ref)
 }
 
 fn interpret_map(context: &mut InterpretContext, list_val : Val, fun_val : Val) -> Val {
