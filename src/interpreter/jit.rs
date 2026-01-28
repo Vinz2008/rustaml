@@ -2,9 +2,9 @@ use std::{ffi::CStr, io::Write, path::Path, process::{Command, Stdio}, time::Dur
 
 use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engine::{ExecutionEngine, JitFunction}, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue, ValueKind}};
 use libloading::Library;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{CompileContext, JITCpuInfos, cast::cast_val, compile_function, compiler_utils::{add_function, get_fn_type, get_type_tag}, debuginfo::DebugInfo, get_var_id, linker::STD_C_CONTENT}, interpreter::{FunctionBody, FunctionDef, InterpretContext, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
+use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{CompileContext, JITCpuInfos, cast::cast_val, compile_function, compiler_utils::{add_function, get_fn_type, get_type_tag}, debuginfo::DebugInfo, get_var_id, linker::STD_C_CONTENT}, interpreter::{FunctionBody, FunctionDef, InterpretContext, STD_FUNCTIONS, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
 
 #[cfg(feature = "debug-llvm")]
 use inkwell::support::LLVMString;
@@ -21,7 +21,7 @@ struct FuncMeta {
 }
 
 pub(crate) struct JitContext {
-    functions_meta : FxHashMap<ASTRef, FuncMeta>, // ASTRef of function
+    functions_meta : FxHashMap<ASTRef, FuncMeta>, // ASTRef of functions that have jit wrapper
     context : &'static Context,
     type_infos : Option<TypeInfos>,
     dump_jit_ir : bool,
@@ -197,7 +197,7 @@ fn register_external_functions<'llvm_ctx>(std_lib : &Library, module : &Module<'
     for fun in module.get_functions(){
         let bytes = fun.get_name().to_bytes();
         match bytes {
-            b"__str_append" | b"__chars" | b"__print_val" => unsafe {
+            b"__str_append" | b"__chars" | b"__print_val" | b"__format_string" => unsafe {
                 let fun_symbol = std_lib.get::<PlaceholderFunType>(bytes).unwrap();
                 execution_engine.add_global_mapping(&fun, fun_symbol.try_as_raw_ptr().unwrap() as usize);
             }
@@ -207,6 +207,7 @@ fn register_external_functions<'llvm_ctx>(std_lib : &Library, module : &Module<'
             b"exit" => {
                 execution_engine.add_global_mapping(&fun, exit as *const () as usize);
             }
+            // TODO : add more
             _ => {}
         }
     }
@@ -342,6 +343,88 @@ fn create_jit_value<'llvm_ctx>(rustaml_context : &RustamlContext, val : Val) -> 
     }
 }
 
+// TODO : optimize the use function algo ?
+
+fn _find_functions_used(context: &InterpretContext, ast : ASTRef, v : &mut FxHashSet<StringRef>){
+    match ast.get(&context.rustaml_context.ast_pool){
+        ASTNode::FunctionCall { callee, args } => {
+            args.iter().for_each(|e| _find_functions_used(context, *e, v));
+            match callee.get(&context.rustaml_context.ast_pool){
+                ASTNode::VarUse { name } => {
+                    v.insert(*name);
+                }
+                _ => {}
+            }
+        }
+        ASTNode::BinaryOp { op: _, lhs, rhs } => {
+            _find_functions_used(context, *lhs, v);
+            _find_functions_used(context, *rhs, v);
+        }
+        ASTNode::Cast { to_type: _, expr } => _find_functions_used(context, *expr, v),
+        ASTNode::IfExpr { cond_expr, then_body, else_body } => {
+            _find_functions_used(context, *cond_expr, v);
+            _find_functions_used(context, *then_body, v);
+            _find_functions_used(context, *else_body, v);
+        }
+        ASTNode::List { list } => list.iter().for_each(|e| _find_functions_used(context, *e, v)),
+        ASTNode::MatchExpr { matched_expr, patterns } => {
+            _find_functions_used(context, *matched_expr, v);
+            patterns.iter().for_each(|pat| _find_functions_used(context, pat.1, v));
+        }
+        ASTNode::UnaryOp { op: _, expr } => _find_functions_used(context, *expr, v),
+        ASTNode::VarDecl { name: _, val, body, var_type: _ } => {
+            _find_functions_used(context, *val, v);
+            body.as_ref().map(|e| _find_functions_used(context, *e, v));
+        }
+        ASTNode::Vec { vec } => vec.iter().for_each(|e| _find_functions_used(context, *e, v)),
+        ASTNode::TopLevel { .. } | ASTNode::ExternFunc { .. } | ASTNode::TypeAlias { .. } => unreachable!(), // these top level nodes can't be in the body of a function
+        ASTNode::FunctionDefinition { .. } => unreachable!(), // unreachable (should it be ?)
+        _ => {}
+    }
+
+}
+
+// get functions used in the function that need to be compiled
+fn _get_functions_to_compile(context: &mut InterpretContext, func_def : &FunctionDef, res : &mut FxHashSet<StringRef>) {
+    if res.contains(&func_def.name){
+        return;
+    }
+
+    res.insert(func_def.name);
+
+    let mut callees = FxHashSet::default();
+
+    match &func_def.body {
+        FunctionBody::Ast(ast) => {
+            _find_functions_used(context, *ast, &mut callees);
+        }
+        FunctionBody::Ffi(_) => return,
+    }
+    
+
+    // find the functions used by these function
+    for &fun_name in callees.iter() {
+        if STD_FUNCTIONS.contains(&fun_name.get_str(&context.rustaml_context.str_interner)){
+            continue;
+        }
+        let fun_val = context.vars.get(&fun_name).unwrap().clone(); // TODO : remove this clone
+        let fun_def = match fun_val {
+            Val::Function(f) => f,
+            _ => unreachable!(),
+        };
+        _get_functions_to_compile(context, &fun_def, res);
+    }
+
+    res.extend(callees);
+
+}
+
+fn get_functions_to_compile(context: &mut InterpretContext, func_def : &FunctionDef) -> Vec<StringRef> {
+    let mut res = FxHashSet::default();
+    _get_functions_to_compile(context, func_def, &mut res);
+    res.into_iter().collect::<Vec<_>>()
+}
+
 type WrapperFN = unsafe extern "C" fn(*mut JITValue) -> JITValue;
 
 
@@ -365,7 +448,8 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
         let is_optimized = false;
 
         // TODO : deduplicate this code with compiler ?
-        // is this even needed (will not be used by JIT)
+        // is this even needed (will not be used by JIT ?)
+        // if really needed, then do it only one time
         Target::initialize_native(&InitializationConfig::default()).unwrap();
         let target_triple = TargetMachine::get_default_triple();
 
@@ -392,9 +476,35 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
         let cpu_infos = JITCpuInfos {
             cpu_features,
             cpu_name,
+
+
         };
+
+        let funcs_to_compile = get_functions_to_compile(context, func_def);
         
         let mut compile_context = CompileContext::new(context.rustaml_context, llvm_context, module, builder, DebugInfo { inner: None }, is_optimized, type_infos, target_data, Some(cpu_infos));
+
+        // TODO : maybe create a module for each function, cache it in a hashmap, and link it each time in the module of the execution engine
+        for func_to_compile in funcs_to_compile {
+            if func_to_compile == func_def.name || STD_FUNCTIONS.contains(&func_to_compile.get_str(&compile_context.rustaml_context.str_interner)) {
+                continue;
+            }
+
+            let fun_val = context.vars.get(&func_to_compile).unwrap();
+            let fun_def = match fun_val {
+                Val::Function(f) => f,
+                _ => unreachable!(),
+            };
+            let fun_def_ast = fun_def.function_def_ast.unwrap();
+            let (args, body) = match fun_def_ast.get(&compile_context.rustaml_context.ast_pool){
+                ASTNode::FunctionDefinition { name: _, args, body, type_annotation: _ } => {
+                    (args.clone(), *body)
+                }
+                _ => unreachable!(),
+            };
+            compile_function(&mut compile_context, fun_def_ast, func_to_compile, args, body);
+        }
+
 
         match function_def_ast.get(&compile_context.rustaml_context.ast_pool).clone() {
             ASTNode::FunctionDefinition { name, args, body, type_annotation: _ } => {

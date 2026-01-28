@@ -1046,7 +1046,7 @@ fn interpret_regex_has_match(context : &InterpretContext, re : Val, str : Val) -
     Val::Bool(b)
 }
 
-const STD_FUNCTIONS : &[&str] = &[
+pub(crate) const STD_FUNCTIONS : &[&str] = &[
     "print",
     "rand",
     "format",

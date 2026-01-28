@@ -802,7 +802,13 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'll
 
     match ret {
         ValueKind::Basic(basic) => basic,
-        ValueKind::Instruction(i) => panic!("error, returning {:?}", i), // TODO ?
+        ValueKind::Instruction(i) => {
+            if i.get_type().is_void_type() {
+                get_void_val(compile_context.context)
+            } else {
+                panic!("error, returning {:?}", i)
+            }
+        }, // TODO ?
     }
 
     /*match ret {
@@ -1543,7 +1549,11 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llv
     //println!("typeinfos function_env : {:?}", DebugWrapContext::new(&compile_context.typeinfos.functions_env, compile_context.rustaml_context));
     let previous_loc = compile_context.debug_info.get_current_debug_location(&compile_context.builder);
 
-    let return_type_llvm = get_llvm_type(compile_context, return_type);
+    let return_type_llvm = match return_type {
+        Type::Unit => compile_context.context.void_type().into(),
+        _ => get_llvm_type(compile_context, return_type),
+    }
+    ;
     let param_types = arg_types;
     debug_println!(compile_context.rustaml_context.is_debug_print, "function {:?} param types : {:?}", DebugWrapContext::new(&name, compile_context.rustaml_context), param_types);
     let param_types_llvm = param_types.iter().map(|t| get_llvm_type(compile_context, t)).collect::<Vec<_>>();
