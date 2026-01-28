@@ -640,25 +640,35 @@ fn interpret_binop_float(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     Val::Float(res_nb)
 }
 
-fn interpret_binop_bool_logical(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
-    
+fn interpret_binop_bool_short_circuiting(context: &mut InterpretContext, op : Operator, lhs : ASTRef, rhs : ASTRef) -> Val {
+    let lhs_val = interpret_node(context, lhs);
     let lhs_bool = match lhs_val {
         Val::Bool(b) => b,
         _ => unreachable!(),
     };
+
+    match op {
+        Operator::And => {
+            if !lhs_bool {
+                return Val::Bool(false);
+            }
+        }
+        Operator::Or => {
+            if lhs_bool {
+                return Val::Bool(true);
+            }
+        }
+        _ => unreachable!(),
+    }
+
+    let rhs_val = interpret_node(context, rhs);
 
     let rhs_bool = match rhs_val {
         Val::Bool(b) => b,
         _ => unreachable!(),
     };
 
-    let ret_bool = match op {
-        Operator::And => lhs_bool && rhs_bool,
-        Operator::Or => lhs_bool || rhs_bool,
-        _ => unreachable!(),
-    };
-
-    Val::Bool(ret_bool)
+    Val::Bool(rhs_bool) // if no short circuiting, just verify if the rhs is true
 }
 
 fn interpret_binop_bool(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
@@ -669,7 +679,6 @@ fn interpret_binop_bool(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
         Operator::InferiorOrEqual => lhs_val <= rhs_val,
         Operator::Superior => lhs_val > rhs_val,
         Operator::Inferior => lhs_val < rhs_val,
-        Operator::And | Operator::Or => return interpret_binop_bool_logical(op, lhs_val, rhs_val),
         _ => unreachable!()
     };
 
@@ -786,6 +795,11 @@ fn interpret_binop_val(context: &mut InterpretContext, op : Operator, lhs_val : 
 
 fn interpret_binop(context: &mut InterpretContext, op : Operator, lhs : ASTRef, rhs : ASTRef) -> Val {
     // TODO : add a short circuiting for bool ops
+    match op {
+        Operator::And | Operator::Or => return interpret_binop_bool_short_circuiting(context, op, lhs, rhs),
+        _ => {}
+    }
+
     let lhs_val = interpret_node(context, lhs);
     let rhs_val = interpret_node(context, rhs);
 
