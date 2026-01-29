@@ -34,3 +34,6 @@ rustc debug 1.95.0-nightly : 9.539s
 rustc release 1.95.0-nightly : 2.528s  
 Go v1.25.6 : 2.982s  
 NodeJS v20.0.0 : 2.566s  
+
+Finding all prime numbers up to 15,000
+TODO
