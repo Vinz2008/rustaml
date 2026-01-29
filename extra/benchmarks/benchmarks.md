@@ -6,7 +6,7 @@ The benchmark are run on a system with a ryzen 9 5900X, 32go of ram and running 
 In all the results using rustaml, it is using LLVM  
 
 Finding the 50th Fibonacci number using a recursive function  
-rustaml interpreter :  
+rustaml interpreter : really too long (to the 48th number is more than 4 hours)  
 rustaml interpreter with JIT : 256.83s  
 rustaml compiler -O0 : 328.428s  
 rustaml compiler -O3 : 70.337s  

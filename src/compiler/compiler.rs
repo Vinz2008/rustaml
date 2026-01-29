@@ -95,9 +95,10 @@ struct GenericFunIdentifier {
 }
 
 #[allow(unused)]
-pub(crate) struct JITCpuInfos {
+pub(crate) struct JITCompileContext<'llvm_ctx> {
     pub(crate) cpu_features : String,
     pub(crate) cpu_name : String,
+    pub(crate) jit_list_unwrap_fun : Option<FunctionValue<'llvm_ctx>>,
 }
 
 pub(crate) struct CompileContext<'context, 'llvm_ctx> {
@@ -128,7 +129,7 @@ pub(crate) struct CompileContext<'context, 'llvm_ctx> {
     pub(crate) monomorphized_internal_fun : FxHashMap<&'static str, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>>, // (Type A, Type B) = function List A -> List B
 
     #[cfg(feature = "jit")]
-    pub(crate) jit_cpu_infos : Option<JITCpuInfos>, // needed for JIT to annotate functions with the target features
+    pub(crate) jit_compile_context : Option<JITCompileContext<'llvm_ctx>>, // needed for JIT to annotate functions with the target features
 }
 
 
@@ -292,7 +293,7 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
             disable_checks : bool,
             type_infos : TypeInfos,
             target_data : TargetData,
-            jit_cpu_infos : Option<JITCpuInfos>,
+            jit_cpu_infos : Option<JITCompileContext<'llvm_ctx>>,
         ) -> CompileContext<'context, 'llvm_ctx> {
         let main_function = get_main_function(context, &module);
         let internal_functions = get_internal_functions(context);
@@ -326,7 +327,7 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
             functions: FxHashMap::default(),
 
             #[cfg(feature = "jit")]
-            jit_cpu_infos,
+            jit_compile_context: jit_cpu_infos,
         }
     }
 

@@ -238,6 +238,14 @@ impl List {
         list_ref
     }
 
+    pub(crate) fn new_from_vals(context: &mut InterpretContext, vals : Vec<Val>) -> ListRef {
+        let mut list_ref = context.rustaml_context.list_node_pool.push(List::None);
+        for val in vals.into_iter().rev() {
+            list_ref = list_push_start(&mut context.rustaml_context.list_node_pool, val, list_ref);
+        }
+        list_ref
+    }
+
     fn add_list_at_end(&mut self, list_pool : &mut ListPool, list : ListRef){
         let mut current_ref = match self {
             List::Node(_, next_ref) => {
@@ -279,7 +287,7 @@ impl List {
         ListIter { current: self, list_pool }
     }
 
-    fn len(&self, list_pool : &ListPool) -> usize {
+    pub(crate) fn len(&self, list_pool : &ListPool) -> usize {
         let mut count = 0;
 
         let mut current: &List = self;

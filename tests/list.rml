@@ -9,7 +9,7 @@ let big_list n =
 
 // for benchmarking only
 // let list = big_list 100000 ;;
-let list = big_list 30 ;;
+let list = big_list 1000 ;;
 
 // TODO : make function generics
 let len l : list[int] -> int = match l with
@@ -17,6 +17,7 @@ let len l : list[int] -> int = match l with
   | e :: li -> 1 + len li ;;
 
 let len_list = len list ;;
+let _ = print len_list ;;
 
 let sum l = match l with 
   | [] -> 0

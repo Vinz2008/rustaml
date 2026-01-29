@@ -8,7 +8,7 @@ pub(crate) fn add_function<'llvm_ctx>(compile_context : &CompileContext<'_, 'llv
     let fun = compile_context.module.add_function(name, ty, linkage); 
 
     #[cfg(feature = "jit")]
-    if let Some(jit_cpu_infos) = &compile_context.jit_cpu_infos {
+    if let Some(jit_cpu_infos) = &compile_context.jit_compile_context {
         use inkwell::attributes::AttributeLoc;
         // TODO : use  TargetMachine::get_host_cpu_name() to get the real name of the cpu, put it in a struct/tuple with the target features, then set it here
         fun.add_attribute(AttributeLoc::Function, compile_context.context.create_string_attribute("target-cpu", &jit_cpu_infos.cpu_name));

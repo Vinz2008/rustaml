@@ -1,10 +1,11 @@
+use core::slice;
 use std::{ffi::CStr, io::Write, path::Path, process::{Command, Stdio}, time::Duration};
 
-use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engine::{ExecutionEngine, JitFunction}, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, FileType, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue, ValueKind}};
+use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engine::{ExecutionEngine, JitFunction}, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, FileType, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, StructValue, ValueKind}};
 use libloading::Library;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{CompileContext, JITCpuInfos, cast::cast_val, compile_function, compiler_utils::{add_function, get_fn_type, get_type_tag, get_void_val}, debuginfo::DebugInfo, get_var_id, linker::STD_C_CONTENT}, interpreter::{FunctionBody, FunctionDef, InterpretContext, STD_FUNCTIONS, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
+use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{CompileContext, JITCompileContext, cast::cast_val, compile_function, compiler_utils::{add_function, get_fn_type, get_type_tag, get_void_val}, debuginfo::DebugInfo, get_var_id, linker::STD_C_CONTENT}, interpreter::{FunctionBody, FunctionDef, InterpretContext, List, STD_FUNCTIONS, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
 
 #[cfg(feature = "debug-llvm")]
 use inkwell::support::LLVMString;
@@ -81,6 +82,7 @@ fn jit_wrap_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, 
             cast_val(compile_context, val, val_type, &Type::CType(CType::U64)).into_int_value(),
         Type::Float => compile_context.builder.build_bit_cast(val, i64_type, "bitcast_float_to_jit_val").unwrap().into_int_value(),
         Type::Unit => compile_context.context.i64_type().get_undef(), // will not be used
+        Type::List(_) => compile_context.builder.build_ptr_to_int(val.into_pointer_value(), compile_context.context.i64_type(), "list_to_jit_val").unwrap(),
         _ => todo!(), // TODO
     };
     let field_vals: &[BasicValueEnum] = &[
@@ -95,16 +97,35 @@ fn jit_wrap_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, 
 }
 
 
+fn jit_unwrap_list_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val_data : IntValue<'llvm_ctx>, element_type : &Type) -> BasicValueEnum<'llvm_ctx> {
+    // TODO : optimize the appending (by reserving the len ? add a function for it in the std ?)
+    // TODO : generate the function only one time ?
+    let jit_list_init_fun = if let Some(fun) =  &compile_context.jit_compile_context.as_ref().unwrap().jit_list_unwrap_fun {
+        *fun
+    } else {    
+        let fun_type = compile_context.context.ptr_type(AddressSpace::default()).fn_type(&[
+            compile_context.context.ptr_type(AddressSpace::default()).into()
+        ], false);
+        let jit_list_init_fun = add_function(compile_context, "__list_node_jit_unwrap_val", fun_type, Some(Linkage::External));
+        *&mut compile_context.jit_compile_context.as_mut().unwrap().jit_list_unwrap_fun = Some(jit_list_init_fun);
+        jit_list_init_fun
+    };
+    let as_ptr = compile_context.builder.build_int_to_ptr(val_data, compile_context.context.ptr_type(AddressSpace::default()), "to_ptr").unwrap();
+    compile_context.builder.build_call(jit_list_init_fun, &[as_ptr.into()], "jit_list_init").unwrap().try_as_basic_value().unwrap_basic()
+}
+
 fn jit_unwrap_val_data<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val_data : IntValue<'llvm_ctx>, val_type : &Type) -> BasicValueEnum<'llvm_ctx> {
     match val_type {
         Type::Integer | Type::Bool | Type::Char => cast_val(compile_context, val_data.as_basic_value_enum(), &Type::CType(CType::U64), val_type),
         Type::Float => compile_context.builder.build_bit_cast(val_data, compile_context.context.f64_type(), "bitcast_jit_val_to_float").unwrap(),
         Type::Str => cast_val(compile_context, val_data.as_basic_value_enum(), &Type::CType(CType::U64), val_type),
         Type::Unit => get_void_val(compile_context.context),
+        Type::List(e) => jit_unwrap_list_val(compile_context, val_data, e.as_ref()),
         _ => panic!("{:?}", val_type) // TODO
     }
 }
 
+// doesn't use tag, TODO : remove it ?
 pub(crate) fn jit_unwrap_val_from_args<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, args_array : PointerValue<'llvm_ctx>, arg_idx: usize, arg_type : &Type) -> BasicMetadataValueEnum<'llvm_ctx> {
     let i64_type = compile_context.context.i64_type();
     let i32_type = compile_context.context.i32_type();
@@ -201,11 +222,11 @@ unsafe extern "C" {
     static mut stderr: *mut ();
 }
 
-fn register_external_functions<'llvm_ctx>(std_lib : &Library, module : &Module<'llvm_ctx>, execution_engine : &ExecutionEngine<'llvm_ctx>){
+fn register_external_functions<'llvm_ctx>(std_lib : &Library, module : &Module<'llvm_ctx>, execution_engine : &ExecutionEngine<'llvm_ctx>, jit_list_unwrap_fun : Option<FunctionValue<'llvm_ctx>>){
     for fun in module.get_functions(){
         let bytes = fun.get_name().to_bytes();
         match bytes {
-            b"__str_append" | b"__chars" | b"__print_val" | b"__format_string" => unsafe {
+            b"__str_append" | b"__list_node_append" | b"__chars" | b"__print_val" | b"__format_string" => unsafe {
                 let fun_symbol = std_lib.get::<PlaceholderFunType>(bytes).unwrap();
                 execution_engine.add_global_mapping(&fun, fun_symbol.try_as_raw_ptr().unwrap() as usize);
             }
@@ -217,6 +238,12 @@ fn register_external_functions<'llvm_ctx>(std_lib : &Library, module : &Module<'
             }
             // TODO : add more
             _ => {}
+        }
+    }
+    if let Some(jit_list_unwrap_fun) = jit_list_unwrap_fun {
+        unsafe {
+            let fun_symbol = std_lib.get::<PlaceholderFunType>("__list_node_jit_unwrap_val").unwrap();
+            execution_engine.add_global_mapping(&jit_list_unwrap_fun, fun_symbol.try_as_raw_ptr().unwrap() as usize);
         }
     }
     for global in module.get_globals(){
@@ -262,11 +289,7 @@ pub(crate) fn update_jit_heuristics_function_end_call(context : &mut InterpretCo
 }
 
 fn is_valid_jit_type(t : &Type, is_return : bool) -> bool {
-    // TODO : enable this after making lists work
-    /*if !is_return && matches!(t, Type::List(_)) {
-        return true;
-    }*/
-    matches!(t, Type::Integer | Type::Float | Type::Bool | Type::Char | Type::Str | Type::Unit)
+    matches!(t, Type::Integer | Type::Float | Type::Bool | Type::Char | Type::Str | Type::List(_) | Type::Unit)
 }
 
 pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &FunctionDef) -> bool  {
@@ -315,6 +338,7 @@ pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &F
 // TODO : while compiling the JIT, find used functions for runtime ?
 // TODO : make the layout of the same the same as the TypeTag in std.c ?
 
+#[derive(Clone)]
 #[repr(u8)]
 enum JITValueTag {
     Integer = 0,
@@ -326,10 +350,17 @@ enum JITValueTag {
     Unit = 7,
 }
 
+#[derive(Clone)]
 #[repr(C)]
 struct JITValue {
     tag : JITValueTag,
     val : u64,
+}
+
+#[repr(C)]
+struct JitWrappedList {
+    vals : *const JITValue,
+    len : u64,
 }
 
 fn create_jit_value<'llvm_ctx>(rustaml_context : &RustamlContext, val : Val) -> JITValue {
@@ -343,7 +374,23 @@ fn create_jit_value<'llvm_ctx>(rustaml_context : &RustamlContext, val : Val) -> 
             (JITValueTag::Str, ptr as u64)
         },
         Val::Unit => (JITValueTag::Unit, 0 as u64),
-        Val::List(_) => todo!(),
+        Val::List(l) => {
+            // TODO : not copy it ? (traverse it in the wrapper ? is it even possible ?)
+            let len = l.get(&rustaml_context.list_node_pool).len(&rustaml_context.list_node_pool);
+            let mut v = Vec::with_capacity(len);
+            for e in l.get(&rustaml_context.list_node_pool).iter(&rustaml_context.list_node_pool) {
+                v.push(create_jit_value(rustaml_context, e.clone())); // TODO : remove this clone
+            }
+            let v = v.leak(); // TODO : don't leak it, put in JitContext and then free it at the end of the call
+            let v_ptr = v.as_ptr();
+            let jit_wrapped_list = JitWrappedList {
+                vals: v_ptr,
+                len: len as u64,
+            };
+            let jit_wrapped_list = Box::new(jit_wrapped_list);
+            let jit_wrapped_list_ptr = Box::leak(jit_wrapped_list) as *mut _; // TODO : don't leak it
+            (JITValueTag::List, jit_wrapped_list_ptr as u64)
+        },
         Val::Function(_) => todo!(), // do like ffi
         Val::Regex(_) | Val::SumType(_) | Val::Vec(_) => panic!("Unsupported JIT Value {}", val.display(rustaml_context)),
     };
@@ -435,7 +482,38 @@ fn get_functions_to_compile(context: &mut InterpretContext, func_def : &Function
     res.into_iter().collect::<Vec<_>>()
 }
 
+fn jit_val_ret_to_interpreter_val(context : &mut InterpretContext, ret : JITValue, lib : &Library) -> Val {
+    match ret.tag {
+        JITValueTag::Integer => Val::Integer(ret.val as i64),
+        JITValueTag::Float => Val::Float(f64::from_bits(ret.val)),
+        JITValueTag::Bool => Val::Bool(ret.val != 0),
+        JITValueTag::Char => Val::Char(char::from_u32(ret.val.try_into().unwrap()).unwrap()),
+        JITValueTag::Str => {
+            let cstr = unsafe { CStr::from_ptr(ret.val as *const i8) };
+            let str = context.rustaml_context.str_interner.intern_runtime(cstr.to_str().unwrap());
+            Val::String(str)
+        }
+        JITValueTag::List => unsafe {
+            // TODO : optimize this ?
+            // TODO : put this in a different function
+            let list_node_ptr = ret.val as *const ListNode;
+            let wrap_return_val_fun = lib.get::<WrapReturnFN>("__list_node_jit_wrap_return_val").unwrap();
+            let wrapped_list = std::ptr::read((*wrap_return_val_fun)(list_node_ptr));
+            let wrapped_list_slice = slice::from_raw_parts(wrapped_list.vals, wrapped_list.len as usize);
+
+            let vals = 
+                wrapped_list_slice.iter().map(|jit_val| jit_val_ret_to_interpreter_val(context, jit_val.clone(), lib)).collect::<Vec<_>>();
+            let list = List::new_from_vals(context, vals);
+            Val::List(list)
+        },
+        JITValueTag::Unit => Val::Unit,
+    }
+}
+
 type WrapperFN = unsafe extern "C" fn(*mut JITValue) -> JITValue;
+
+struct ListNode; // list node opaque
+type WrapReturnFN = unsafe extern "C" fn(*const ListNode) -> *const JitWrappedList;
 
 
 pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val>) -> Val {
@@ -479,11 +557,10 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
         let cpu_name = TargetMachine::get_host_cpu_name().to_str().unwrap().to_owned();
         let cpu_features = TargetMachine::get_host_cpu_features().to_str().unwrap().to_owned();
 
-        let cpu_infos = JITCpuInfos {
+        let cpu_infos = JITCompileContext {
             cpu_features,
             cpu_name,
-
-
+            jit_list_unwrap_fun: None,
         };
 
         let funcs_to_compile = get_functions_to_compile(context, func_def);
@@ -535,7 +612,8 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
         compile_context.builder.position_at_end(last_main_bb);
         compile_context.builder.build_return(Some(&compile_context.context.i32_type().const_int(0, false))).unwrap();
 
-        register_external_functions(&lib, &compile_context.module, &execution_engine);
+        let jit_list_unwrap_fun: Option<FunctionValue<'_>> = compile_context.jit_compile_context.as_ref().unwrap().jit_list_unwrap_fun.clone();
+        register_external_functions(&lib, &compile_context.module, &execution_engine, jit_list_unwrap_fun);
 
         #[cfg(feature = "debug-llvm")]
         compile_context.module.verify().or_else(|e| -> Result<_, LLVMString> { 
@@ -564,6 +642,9 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
             }
         }
 
+        // TODO : do need this ?
+        execution_engine.run_static_constructors();
+
 
         let fun = unsafe { execution_engine.get_function::<WrapperFN>(&wrapper_fun_name) }.unwrap();    
         
@@ -583,17 +664,5 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
 
     let mut val_args = args_val.into_iter().map(|e| create_jit_value(context.rustaml_context, e)).collect::<Box<[JITValue]>>();
     let ret = unsafe { fun.call(val_args.as_mut_ptr()) };
-    match ret.tag {
-        JITValueTag::Integer => Val::Integer(ret.val as i64),
-        JITValueTag::Float => Val::Float(f64::from_bits(ret.val)),
-        JITValueTag::Bool => Val::Bool(ret.val != 0),
-        JITValueTag::Char => Val::Char(char::from_u32(ret.val.try_into().unwrap()).unwrap()),
-        JITValueTag::Str => {
-            let cstr = unsafe { CStr::from_ptr(ret.val as *const i8) };
-            let str = context.rustaml_context.str_interner.intern_runtime(cstr.to_str().unwrap());
-            Val::String(str)
-        }
-        JITValueTag::List => panic!("List unsupported in return type of JIT"),
-        JITValueTag::Unit => Val::Unit,
-    }
+   jit_val_ret_to_interpreter_val(context, ret, &lib)
 }

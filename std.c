@@ -399,6 +399,57 @@ struct ListNode* __list_node_merge(struct ListNode* list1, struct ListNode* list
     return list1_cloned_head;
 }
 
+// used for JIT
+struct JITValue {
+    uint8_t tag; // same layout as the tag for ListNode
+    uint64_t val;
+};
+
+struct JitWrappedList {
+    struct JITValue* vals;  
+    uint64_t len;
+};
+
+struct ListNode* __list_node_jit_unwrap_val(struct JitWrappedList* list){
+    struct ListNode* list_nodes_buf = MALLOC(list->len * sizeof(struct ListNode));
+    struct ListBuilder list_builder = list_builder_init(list_nodes_buf);
+    for (uint64_t i = 0; i < list->len; i++){
+        struct JITValue jit_val = list->vals[i];
+        uint8_t type_tag = jit_val.tag;
+        Val val = jit_val.val; // should be binary compatible (check it ? TODO ?)
+        list_builder_append_back(&list_builder, type_tag, val);
+    }
+    return list_builder.head;
+}
+
+struct JitWrappedList* __list_node_jit_wrap_return_val(struct ListNode* list){
+    struct JitWrappedList* wrapped_list = MALLOC(sizeof(struct JitWrappedList));
+    if (!wrapped_list){
+        ALLOC_ERROR("error in alloc of JitWrappedList");
+    }
+    uint64_t len = (uint64_t)__list_len(list);
+    wrapped_list->vals = MALLOC(sizeof(struct JITValue) * len);
+    if (!wrapped_list->vals){
+        ALLOC_ERROR("error in alloc of vals of JitWrappedList");
+    }
+    wrapped_list->len = len;
+    struct ListNode* current = list;
+    size_t i = 0;
+    while (current){
+        wrapped_list->vals[i] = (struct JITValue){
+            .tag = current->type_tag,
+            .val = current->val,
+        };
+        current = current->next;
+        i++;
+    }
+    
+    return wrapped_list;
+}
+
+// end of code for JIT
+
+
 static bool list_node_cmp(uint8_t tag1, Val val1, uint8_t tag2, Val val2){
     if (tag1 != tag2){
         return false;
