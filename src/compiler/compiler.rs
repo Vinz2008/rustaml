@@ -114,7 +114,8 @@ pub(crate) struct CompileContext<'context, 'llvm_ctx> {
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>, // TODO : replace this with a hashmap ?
     pub(crate) global_strs : FxHashMap<String, PointerValue<'llvm_ctx>>,
     pub(crate) is_optimized : bool,
-    shared_libs : Vec<String>,
+    disable_checks : bool,
+    shared_libs : Vec<String>, // TODO : use a set instead (to dedduplicate)
 
     closure_idx : Cell<u32>, // TODO : can I just put an u32 ? (remove the cell ?)
 
@@ -288,6 +289,7 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
             builder : Builder<'llvm_ctx>, 
             debug_info: DebugInfo<'llvm_ctx>,
             is_optimized : bool,
+            disable_checks : bool,
             type_infos : TypeInfos,
             target_data : TargetData,
             jit_cpu_infos : Option<JITCpuInfos>,
@@ -305,6 +307,7 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
             builder,
             debug_info,
             is_optimized,
+            disable_checks,
             typeinfos: type_infos,
             main_function,
             
@@ -903,14 +906,25 @@ fn compile_binop_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_c
     
     match (lhs_val, rhs_val){
         (BasicValueEnum::IntValue(i),  BasicValueEnum::IntValue(i2)) => {
-            match op {
-                // TODO : add a flag to disable the overflow checks
-                Operator::Plus => compile_check_overflow(compile_context, "llvm.sadd.with.overflow", "Overflow when adding", i, i2, name, range),
-                Operator::Minus => compile_check_overflow(compile_context, "llvm.ssub.with.overflow", "Overflow when substracting", i, i2, name, range),
-                Operator::Mult => compile_check_overflow(compile_context, "llvm.smul.with.overflow", "Overflow when multiplying", i, i2, name, range),
-                Operator::Div => compile_div_or_rem_checked(compile_context, i, i2, true, name, range),
-                Operator::Rem => compile_div_or_rem_checked(compile_context, i, i2, false, name, range),
-                _ => unreachable!(),
+            if compile_context.disable_checks {
+                match op {
+                    Operator::Plus => compile_context.builder.build_int_nsw_add(i, i2, "add_no_check").unwrap(),
+                    Operator::Minus => compile_context.builder.build_int_nsw_sub(i, i2, "sub_no_check").unwrap(),
+                    Operator::Mult => compile_context.builder.build_int_nsw_mul(i, i2, "mult_no_check").unwrap(),
+                    Operator::Div => compile_context.builder.build_int_signed_div(i, i2, "div_no_check").unwrap(),
+                    Operator::Rem => compile_context.builder.build_int_signed_rem(i, i2, "rem_no_check").unwrap(),
+                    _ => unreachable!(),
+                }
+            } else {
+                match op {
+                    // TODO : add a flag to disable the overflow checks (and activate it when -O3 is enabled)
+                    Operator::Plus => compile_check_overflow(compile_context, "llvm.sadd.with.overflow", "Overflow when adding", i, i2, name, range),
+                    Operator::Minus => compile_check_overflow(compile_context, "llvm.ssub.with.overflow", "Overflow when substracting", i, i2, name, range),
+                    Operator::Mult => compile_check_overflow(compile_context, "llvm.smul.with.overflow", "Overflow when multiplying", i, i2, name, range),
+                    Operator::Div => compile_div_or_rem_checked(compile_context, i, i2, true, name, range),
+                    Operator::Rem => compile_div_or_rem_checked(compile_context, i, i2, false, name, range),
+                    _ => unreachable!(),
+                }
             }
         }
         _ => panic!("Invalid type for integer op {:?} (lhs : {:?}, rhs : {:?})", op, lhs_val, rhs_val),
@@ -1690,6 +1704,7 @@ fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : O
 
 const DEBUGINFO_VERSION: u64 = 3;
 
+// TODO : test with a bitflags (benchmark it ?)
 pub(crate) struct OptionalArgs {
     optimization_level : u8,
     keep_temp : bool,
@@ -1699,6 +1714,7 @@ pub(crate) struct OptionalArgs {
     pub(crate) freestanding : bool,
     pub(crate) march_native : bool,
     pub(crate) build_bdwgc : bool,
+    disable_checks : bool, 
     pub(crate) musl : bool,
     pub(crate) lib_search_paths : Vec<String>, // TODO : use PathBufs instead ?
 }
@@ -1706,13 +1722,14 @@ pub(crate) struct OptionalArgs {
 impl OptionalArgs {
     // TODO : make this a builder pattern ?
     #[allow(unused)]
-    pub(crate) fn new(optimization_level : Option<u8>, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, freestanding : bool, march_native : bool, build_bdwgc : bool, musl : bool, lib_search_paths : Vec<String>) -> OptionalArgs {
+    pub(crate) fn new(optimization_level : Option<u8>, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, disable_checks : bool, freestanding : bool, march_native : bool, build_bdwgc : bool, musl : bool, lib_search_paths : Vec<String>) -> OptionalArgs {
         OptionalArgs { 
             optimization_level: optimization_level.unwrap_or(0), 
             keep_temp, 
             disable_gc, 
             enable_sanitizer, 
             enable_debuginfos,
+            disable_checks,
             freestanding,
             march_native,
             build_bdwgc,
@@ -1828,8 +1845,9 @@ pub(crate) fn compile(frontend_output : FrontendOutput, rustaml_context: &mut Ru
             }
         };
         
+        let disable_checks = optional_args.disable_checks || matches!(optimization_level, OptimizationLevel::Aggressive);
 
-        let mut compile_context = CompileContext::new(rustaml_context, &context, module, builder, debug_info, is_optimized, frontend_output.type_infos, target_data, None);
+        let mut compile_context = CompileContext::new(rustaml_context, &context, module, builder, debug_info, is_optimized, disable_checks, frontend_output.type_infos, target_data, None);
 
         let entry_main_bb = compile_context.main_function.get_first_basic_block().unwrap();
         compile_context.builder.position_at_end(entry_main_bb);

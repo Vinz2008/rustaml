@@ -1,6 +1,6 @@
 use std::{ffi::CStr, io::Write, path::Path, process::{Command, Stdio}, time::Duration};
 
-use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engine::{ExecutionEngine, JitFunction}, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue, ValueKind}};
+use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engine::{ExecutionEngine, JitFunction}, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, FileType, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue, ValueKind}};
 use libloading::Library;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -488,7 +488,8 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
 
         let funcs_to_compile = get_functions_to_compile(context, func_def);
         
-        let mut compile_context = CompileContext::new(context.rustaml_context, llvm_context, module, builder, DebugInfo { inner: None }, is_optimized, type_infos, target_data, Some(cpu_infos));
+        // TODO : add a flag to disable checks in JIT ?
+        let mut compile_context = CompileContext::new(context.rustaml_context, llvm_context, module, builder, DebugInfo { inner: None }, is_optimized, false, type_infos, target_data, Some(cpu_infos));
 
         // TODO : maybe create a module for each function, cache it in a hashmap, and link it each time in the module of the execution engine
         for func_to_compile in funcs_to_compile {

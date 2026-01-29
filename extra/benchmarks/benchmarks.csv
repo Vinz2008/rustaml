@@ -1,1 +1,7 @@
 languages,fibonacci,factors
+rustaml interpreter (JIT),256.83,2.963
+Nodejs,307.181,2.566
+rustaml compiler -O3,70.337,2.51
+clang -O3,56.974,2.520
+rustc release,57.514,2.528
+Go,131.091,2.982

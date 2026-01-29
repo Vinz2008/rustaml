@@ -22,3 +22,7 @@ A simple functional language (still very in progress) inspired by ocaml and writ
 - [x] Interpreter
 - [x] Codegen
 - [x] Repl
+
+## Benchmarks
+
+[See here the benchmarks](extra/benchmarks/benchmarks.md)
