@@ -190,6 +190,8 @@ fn mark_and_sweep_strings(context : &mut InterpretContext){
     #[cfg(feature = "gc-test-print")]
     helper_print_strings(&context.rustaml_context.str_interner, true);
 
+    // TODO : mark strings that are contained in lists
+    // TODO merge traversal of vals, lists,etc between strings and lists (to improve latency)
 
     // mark
     for var_val in context.vars.values() {
