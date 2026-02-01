@@ -2091,7 +2091,37 @@ static void free_queue(struct NodeQueue node_pointers){
     FREE(node_pointers.pointers);
 }
 
-#define VISITED(node_ref, pos) visited[(node_ref) * pos_count + (pos)]
+//#define VISITED(node_ref, pos) visited[(node_ref) * pos_count + (pos)]
+
+#define BITSET_BITSIZE 64
+
+// use 64 bits to improve perfomance
+static uint64_t* create_visited(size_t visited_count){
+    size_t size = (visited_count + (BITSET_BITSIZE-1))/BITSET_BITSIZE;
+    uint64_t* visited = MALLOC_NO_PTR(size * sizeof(uint64_t));
+    if (!visited){
+        ALLOC_ERROR("regex match visited NFA");
+    }
+    
+    memset(visited, 0, size * sizeof(uint64_t));
+    
+    return visited;
+}
+
+static void mark_visited(uint64_t* visited, struct NodePointer node_pointer, size_t pos_count){
+    size_t idx = node_pointer.node_ref * pos_count + node_pointer.str_pos;
+    uint64_t* word = visited + idx/BITSET_BITSIZE;
+    uint8_t bit = idx % BITSET_BITSIZE;
+
+    *word = *word | ((uint64_t)1 << bit);
+}
+
+static bool is_visited(const uint64_t* visited, struct NodePointer node_pointer, size_t pos_count){
+    size_t idx = node_pointer.node_ref * pos_count + node_pointer.str_pos;
+    uint8_t word = visited[idx/BITSET_BITSIZE];
+    uint8_t bit = idx % BITSET_BITSIZE;
+    return (word >> bit) & 0x1;
+}
 
 uint8_t __regex_has_match(const struct Regex* restrict re, const char* restrict str){
     struct NodeQueue node_queue = init_queue(4);
@@ -2102,21 +2132,18 @@ uint8_t __regex_has_match(const struct Regex* restrict re, const char* restrict 
     
     size_t pos_count = codepoints_len+1;
     // find if already visited with same pos in str
-    // TODO : if visited too big, create a vec of vec ?
-    // or a bitmask ?
-    size_t visited_size = re->node_count * pos_count * sizeof(bool);
-    bool* visited = MALLOC_NO_PTR(visited_size);
-    if (!visited){
-        ALLOC_ERROR("regex match visited NFA");
-    }
-    memset(visited, 0, visited_size);
+
+    size_t visited_count = re->node_count * pos_count;
+    uint64_t* visited = create_visited(visited_count);
     
     while (node_queue.len != 0){
         struct NodePointer node_pointer = pop_node_pointer(&node_queue);
-        if (VISITED(node_pointer.node_ref, node_pointer.str_pos)){
+
+        if (is_visited(visited, node_pointer, pos_count)){
             continue;
         }
-        VISITED(node_pointer.node_ref, node_pointer.str_pos) = true;
+        mark_visited(visited, node_pointer, pos_count);
+
         if (node_pointer.str_pos == codepoints_len && re->ending_state == node_pointer.node_ref){
             FREE(visited);
             free_queue(node_queue);
@@ -2174,6 +2201,5 @@ void __init(){
     printf("match re re(%s) with \"ab\": %d\n", regex_str, __regex_has_match(re, "ab"));
     printf("match re re(%s) with \"0\": %d\n", regex_str, __regex_has_match(re, "0"));
 }*/
-
 
 // TODO : instead of using the fprintf(stderr, ..) and exit(1), use a macro for errors that would be this in low optimizations levels/with a flag transformed to a trap instruction like __builtin_trap()
