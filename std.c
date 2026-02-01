@@ -8,6 +8,10 @@
 #include <stdbool.h>
 #include <limits.h>
 
+#define PURE __attribute__((pure))
+#define CONST __attribute__((const))
+#define WEAK __attribute__((weak))
+
 #if defined __has_include
 #if __has_include(<inttypes.h>)
 #include <inttypes.h>
@@ -56,7 +60,7 @@ void gc_init(){}
 #else
 // FREESTANDING MODE
 
-__attribute__((weak)) void* memcpy(void* dest, const void* src, size_t size){
+WEAK void* memcpy(void* restrict dest, const void* restrict src, size_t size){
     unsigned char* dest_c = dest;
     const unsigned char* src_c = src;
     size_t idx = 0;
@@ -80,7 +84,8 @@ struct Metadata {
 #define MALLOC_SIZE_WEAK (1024 * 1024) // 1Mib
 
 // weak symbol, can be overriden in freestanding
-__attribute__((weak)) void* malloc(size_t size){
+__attribute__((malloc))
+WEAK void* malloc(size_t size){
     static char buf[MALLOC_SIZE_WEAK] = {};
     static size_t pos = 0;
 
@@ -99,7 +104,7 @@ __attribute__((weak)) void* malloc(size_t size){
     return (void*)(ptr + sizeof(struct Metadata));
 }
 
-__attribute__((weak)) void* realloc(void* ptr, size_t size){
+WEAK void* realloc(void* ptr, size_t size){
     void* new_buf = malloc(size);
     struct Metadata* metadata = (struct Metadata*)(ptr - sizeof(struct Metadata));
     size_t old_size = metadata->size;
@@ -107,7 +112,7 @@ __attribute__((weak)) void* realloc(void* ptr, size_t size){
     return new_buf;
 }
 
-__attribute__((weak)) void free(void* ptr){
+WEAK void free(void* ptr){
     (void)ptr;
 }
 
@@ -116,7 +121,8 @@ __attribute__((weak)) void free(void* ptr){
 #define HIGHS (ONES * (UCHAR_MAX/2+1))
 #define HASZERO(x) ((x)-ONES & ~(x) & HIGHS)
 
-__attribute__((weak)) size_t strlen(const char* s){
+
+WEAK PURE size_t strlen(const char* s){
     const char *a = s;
 #ifdef __GNUC__
 	typedef size_t __attribute__((__may_alias__)) word;
@@ -145,12 +151,12 @@ __attribute__((weak)) size_t strlen(const char* s){
 
 typedef struct {} FILE;
 static FILE stderr_impl;
-__attribute__((weak)) FILE* stderr = &stderr_impl;
+WEAK FILE* stderr = &stderr_impl;
 static FILE stdout_impl;
-__attribute__((weak)) FILE* stdout = &stdout_impl;
+WEAK FILE* stdout = &stdout_impl;
 
 
-__attribute__((weak)) int fprintf(FILE* stream, const char* format, ... ){
+WEAK int fprintf(FILE* stream, const char* format, ... ){
     (void)stream;
     (void)format;
     return 0;
@@ -159,19 +165,19 @@ __attribute__((weak)) int fprintf(FILE* stream, const char* format, ... ){
 
 void exit(int exit_code)  __attribute__ ((__noreturn__));
 
-__attribute__((weak)) void exit(int exit_code) {
+WEAK void exit(int exit_code) {
     (void)exit_code;
     __builtin_trap();
     while(1){}
 }
 
-__attribute__((noreturn)) void __stack_chk_fail(void) {
+WEAK __attribute__((noreturn)) void __stack_chk_fail(void) {
     __builtin_trap();
     while (1) { }
 }
 
 // TODO : remove this
-__attribute__((weak)) int printf(const char* format, ...){
+WEAK int printf(const char* format, ...){
     (void)format;
     return 0;
 }
@@ -180,7 +186,7 @@ __attribute__((weak)) int printf(const char* format, ...){
 #ifdef NDEBUG
 #define assert(e) ((void)0)
 #else
-__attribute__((noinline))
+__attribute__((noinline, cold, noreturn))
 static void assert_fail(){
     __builtin_trap();
     while (1){}
@@ -191,12 +197,14 @@ static void assert_fail(){
 
 #endif
 
-#define ALLOC_ERROR(...) do { \
-        fprintf(stderr, "ALLOC ERROR in %s:", __func__); \
-        fprintf(stderr, __VA_ARGS__); \
-        fprintf(stderr, "\n"); \
-        exit(1); \
-    } while(0);
+__attribute__((cold, noreturn))
+static void alloc_error(const char* func_name, const char* str){
+    fprintf(stderr, "ALLOC ERROR in %s: %s\n", func_name, str);
+    fprintf(stderr, "\n");
+    exit(1);
+}
+
+#define ALLOC_ERROR(s) alloc_error(__func__, s)
 
 #define TODO(str) do { \
         fprintf(stderr, "TODO : " str "\n"); \
@@ -276,6 +284,7 @@ static void _list_node_init(struct ListNode* l, uint8_t type_tag, Val val) {
     l->next = NULL;
 }
 
+__attribute__((malloc, alloc_size(1)))
 static struct ListNode* list_node_init(uint8_t type_tag, Val val) {
     struct ListNode* l = MALLOC(sizeof(struct ListNode));
     if (!l){
@@ -286,6 +295,7 @@ static struct ListNode* list_node_init(uint8_t type_tag, Val val) {
 }
 
 // optimization, improve cache locality
+__attribute__((returns_nonnull))
 struct ListNode* __list_node_init_static(uint8_t type_tag, const Val* vals_static, int64_t len){
     ASSERT_NOT_NULL(vals_static);
     assert(len > 0 && "len should be greater than 0");
@@ -308,6 +318,7 @@ struct ListNode* __list_node_init_static(uint8_t type_tag, const Val* vals_stati
 }
 
 // appends at the front
+__attribute__((returns_nonnull))
 struct ListNode* __list_node_append(struct ListNode* list, uint8_t type_tag, Val val){
     struct ListNode* ret = list_node_init(type_tag, val);
     ASSERT_NOT_NULL(ret);
@@ -316,6 +327,7 @@ struct ListNode* __list_node_append(struct ListNode* list, uint8_t type_tag, Val
     return ret;
 }
 
+__attribute__((returns_nonnull))
 struct ListNode* __list_node_append_back(struct ListNode* list, uint8_t type_tag, Val val){
     if (list == NULL){
         return list_node_init(type_tag, val);
@@ -330,7 +342,7 @@ struct ListNode* __list_node_append_back(struct ListNode* list, uint8_t type_tag
     return list;
 }
 
-int64_t __list_len(struct ListNode* list){
+PURE int64_t __list_len(const struct ListNode* list){
     int64_t count = 0;
     while (list != NULL){
         list = list->next;
@@ -375,8 +387,8 @@ static void list_builder_append_back(struct ListBuilder* list_builder, uint8_t t
 }
 
 // clone the list nodes, but doesn't clone the list vals
-static struct ListBuilder clone_list(struct ListNode* list){
-    struct ListNode* current = list;
+static struct ListBuilder clone_list(const struct ListNode* list){
+    const struct ListNode* current = list;
     int64_t list_len = __list_len(list);
     struct ListNode* list_nodes_buf = MALLOC(list_len * sizeof(struct ListNode));
     struct ListBuilder list_builder = list_builder_init(list_nodes_buf);
@@ -388,7 +400,7 @@ static struct ListBuilder clone_list(struct ListNode* list){
     return list_builder;
 }
 
-struct ListNode* __list_node_merge(struct ListNode* list1, struct ListNode* list2){
+struct ListNode* __list_node_merge(const struct ListNode* list1, struct ListNode* list2){
     struct ListBuilder list1_cloned_builder = clone_list(list1);
     struct ListNode* list1_cloned_head = list1_cloned_builder.head;
     struct ListNode* list1_cloned_tail = list1_cloned_builder.tail;
@@ -413,7 +425,7 @@ struct JitWrappedList {
     uint64_t len;
 };
 
-struct ListNode* __list_node_jit_unwrap_val(struct JitWrappedList* list){
+struct ListNode* __list_node_jit_unwrap_val(const struct JitWrappedList* list){
     struct ListNode* list_nodes_buf = MALLOC(list->len * sizeof(struct ListNode));
     struct ListBuilder list_builder = list_builder_init(list_nodes_buf);
     for (uint64_t i = 0; i < list->len; i++){
@@ -425,7 +437,7 @@ struct ListNode* __list_node_jit_unwrap_val(struct JitWrappedList* list){
     return list_builder.head;
 }
 
-struct JitWrappedList* __list_node_jit_wrap_return_val(struct ListNode* list){
+struct JitWrappedList* __list_node_jit_wrap_return_val(const struct ListNode* list){
     struct JitWrappedList* wrapped_list = MALLOC(sizeof(struct JitWrappedList));
     if (!wrapped_list){
         ALLOC_ERROR("error in alloc of JitWrappedList");
@@ -436,7 +448,7 @@ struct JitWrappedList* __list_node_jit_wrap_return_val(struct ListNode* list){
         ALLOC_ERROR("error in alloc of vals of JitWrappedList");
     }
     wrapped_list->len = len;
-    struct ListNode* current = list;
+    const struct ListNode* current = list;
     size_t i = 0;
     while (current){
         wrapped_list->vals[i] = (struct JITValue){
@@ -453,7 +465,7 @@ struct JitWrappedList* __list_node_jit_wrap_return_val(struct ListNode* list){
 // end of code for JIT
 
 
-static bool list_node_cmp(uint8_t tag1, Val val1, uint8_t tag2, Val val2){
+static PURE bool list_node_cmp(uint8_t tag1, Val val1, uint8_t tag2, Val val2){
     if (tag1 != tag2){
         return false;
     }
@@ -488,7 +500,7 @@ static bool list_node_cmp(uint8_t tag1, Val val1, uint8_t tag2, Val val2){
 }
 
 
-uint8_t __list_cmp(struct ListNode* list1, struct ListNode* list2){
+PURE uint8_t __list_cmp(const struct ListNode* list1, const struct ListNode* list2){
     while (list1 != NULL && list2 != NULL){
         if (!list_node_cmp(list1->type_tag, list1->val, list2->type_tag, list2->val)){
             return false;
@@ -502,7 +514,7 @@ uint8_t __list_cmp(struct ListNode* list1, struct ListNode* list2){
 
 // use this to prevent errors from pessimizing the fast path of execution 
 __attribute__((cold, noreturn))
-static void utf8_error(const char* msg, uint8_t* b){
+static void utf8_error(const char* msg, const uint8_t* b){
     if (b){
         fprintf(stderr, "Invalid UTF-8 : %s (%x)\n", msg, *b);
     } else {
@@ -599,12 +611,16 @@ static uint32_t utf8_decode_char(const char* s, size_t* pos, size_t bytes_len){
     return code_point;
 }
 
+
 struct ListNode* __chars(const char* s){
     size_t bytes_len = strlen(s);
     if (bytes_len == 0){
         return NULL;
     }
     struct ListNode* list_nodes_buf = MALLOC(bytes_len * sizeof(struct ListNode)); // bytes_len is the upper bound
+    if (!list_nodes_buf){
+        ALLOC_ERROR("__chars list nodes buf");
+    }
     struct ListBuilder list_builder = list_builder_init(list_nodes_buf);
     size_t i = 0;
 
@@ -623,7 +639,8 @@ struct ListNode* __chars(const char* s){
     return list_builder.head;
 }
 
-const char* __bool_to_str(bool b){
+__attribute__((returns_nonnull))
+CONST const char* __bool_to_str(bool b){
     if (b) {
         return "true";
     } else {
@@ -650,7 +667,7 @@ static RandState rand_state = {false, 0, 0};
 #endif
 
 #ifndef FREESTANDING
-void fallback_seed() {
+static void fallback_seed() {
 
 #ifdef _WIN32
     time_t t = time(NULL);
@@ -977,7 +994,7 @@ static void format_bool(struct str* str, bool b){
     str->len += bool_str_len;
 }
 
-static void format_str(struct str* str, char* s){
+static void format_str(struct str* str, const char* s){
     size_t len_s = strlen(s);
     ensure_size_string(str, str->len + len_s);
     memcpy(str->buf + str->len, s, len_s);
@@ -1084,14 +1101,19 @@ static void ensure_size_string(struct str* s, size_t size){
 }
 
 static struct str str_init(size_t default_capacity) {
+    char* buf = MALLOC_NO_PTR(sizeof(char) * default_capacity);
+    if (!buf){
+        ALLOC_ERROR("str init");
+    }
     return (struct str){
-        .buf = MALLOC_NO_PTR(sizeof(char) * default_capacity),
+        .buf = buf,
         .capacity = default_capacity,
         .len = 0,
     };
 }
 
-static char* vformat_string(char* format, va_list va){
+__attribute__((returns_nonnull))
+static char* vformat_string(const char* format, va_list va){
     struct str str = str_init(5);
 
     while (*format != '\0'){
@@ -1134,7 +1156,8 @@ static char* vformat_string(char* format, va_list va){
     return str.buf;
 }
 
-char* __format_string(char* format, ...){
+__attribute__((returns_nonnull))
+char* __format_string(const char* format, ...){
     va_list va;
     va_start(va, format);
     char* s = vformat_string(format, va);
@@ -1142,22 +1165,32 @@ char* __format_string(char* format, ...){
     return s;
 }
 
+__attribute__((returns_nonnull))
 const char* __char_to_str(uint32_t c){
     const int buf_size = 5; // 4 bytes max for codepoint + null byte
-    // it should not call realloc on the str, if it does it would do UB
+    char* buf = MALLOC_NO_PTR(sizeof(char) * buf_size);
+    if (!buf){
+        ALLOC_ERROR("char to str");
+    }
+
     struct str s = (struct str){
-        .buf = MALLOC_NO_PTR(sizeof(char) * buf_size),
+        .buf = buf,
         .len = 0,
         .capacity = buf_size,
     };
+    
     format_char(&s, c);
     s.buf[s.len] = '\0';
     return s.buf;
 }
 
 // TODO : return a struct instead ?
-static uint32_t* utf8_decode_str(const char* str, size_t str_len, size_t* codepoints_len){
+__attribute__((malloc, alloc_size(2), returns_nonnull))
+static uint32_t* utf8_decode_str(const char* restrict str, size_t str_len, size_t* restrict codepoints_len){
     uint32_t* codepoint_buf = MALLOC_NO_PTR(sizeof(uint32_t) * str_len);
+    if (!codepoint_buf){
+        ALLOC_ERROR("utf8 decode str");
+    }
     size_t i = 0;
     *codepoints_len = 0;
     while (i < str_len){
@@ -1399,7 +1432,7 @@ static void vwrite_val_file(const char* format, va_list va, FILE* f){
     fwrite(&c, sizeof(char), 1, stdout);
 }
 
-void __print_val(const char* format, ...){
+void __print_val(const char* restrict format, ...){
     va_list va;
     va_start(va, format);
     vwrite_val_file(format, va, stdout);
@@ -1874,7 +1907,7 @@ static struct NFAFragment regex_create_char_class(struct Regex* re, struct CharC
     };
 }
 
-static struct NFAFragment regex_create_from_ast(struct Regex* re, const struct RegexASTNode* ast){
+static struct NFAFragment regex_create_from_ast(struct Regex* restrict re, const struct RegexASTNode* restrict ast){
     NodeRef start;
     NodeRef end;
     switch (ast->tag){
@@ -2060,8 +2093,7 @@ static void free_queue(struct NodeQueue node_pointers){
 
 #define VISITED(node_ref, pos) visited[(node_ref) * pos_count + (pos)]
 
-// TODO : transform in a list of chars instead (a uint32_t list, to support UTF8 ?)
-uint8_t __regex_has_match(struct Regex* re, const char* str){
+uint8_t __regex_has_match(const struct Regex* restrict re, const char* restrict str){
     struct NodeQueue node_queue = init_queue(4);
     push_node_pointer(&node_queue, re->starting_state, 0);
     size_t str_len = strlen(str);
@@ -2073,7 +2105,7 @@ uint8_t __regex_has_match(struct Regex* re, const char* str){
     // TODO : if visited too big, create a vec of vec ?
     // or a bitmask ?
     size_t visited_size = re->node_count * pos_count * sizeof(bool);
-    bool* visited = MALLOC(visited_size);
+    bool* visited = MALLOC_NO_PTR(visited_size);
     if (!visited){
         ALLOC_ERROR("regex match visited NFA");
     }
