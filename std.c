@@ -206,6 +206,9 @@ static void assert_fail(){
 #define ASSERT_BOOL(id_bool) assert(id_bool < 2 && #id_bool " should be true or false")
 #define ASSERT_NOT_NULL(not_null) assert(not_null && #not_null " should not be NULL")
 
+// TODO : use attribute pure and const on some of these functions to optimize them
+
+
 enum TypeTag {
     INT_TYPE = 0,
     FLOAT_TYPE = 1,
