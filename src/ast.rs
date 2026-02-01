@@ -292,7 +292,7 @@ impl Variant {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct SumType {
-    name : Option<Box<str>>,
+    pub(crate) name : Option<Box<str>>,
     pub(crate) variants : Box<[Variant]>,
 }
 

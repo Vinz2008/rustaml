@@ -152,20 +152,18 @@ impl ContentLoc {
 pub(crate) fn get_debug_loc(content_loc : &ContentLoc, range : Range<usize>) -> LineColLoc {
     let newline_idx = content_loc.newlines_idx.partition_point(|e| *e <= range.start);
 
-    let new_line_before_line_offset = if let Some(i) = newline_idx.checked_sub(1) {
-        content_loc.newlines_idx[i]
-    } else {
+    let line_start = if newline_idx == 0 {
         0
+    } else {
+        content_loc.newlines_idx[newline_idx-1] + 1
     };
 
-    let column_nb =  range.start - new_line_before_line_offset;
-    
-    let line_nb = newline_idx + 1;
+    let column_nb =  range.start - line_start;
 
 
     // +1 because 1 indexing
     LineColLoc { 
-        line_nb: (line_nb+1).try_into().unwrap(),
+        line_nb: (newline_idx+1).try_into().unwrap(),
         column: (column_nb + 1).try_into().unwrap(), 
     }
 
@@ -216,7 +214,8 @@ fn get_debug_info_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>, t : &
             let pointer_to_struct_ty = get_list_type(inner);
             let scope = inner.debug_compile_unit.as_debug_info_scope();
             let align_in_bits = inner.target_infos.get_ptr_alignement_in_bits();
-            inner.debug_builder.create_typedef(pointer_to_struct_ty, &format!("list[{}]", e.as_ref()), inner.debug_compile_unit.get_file(), line_nb, scope, align_in_bits).as_type()
+            let file = inner.debug_compile_unit.get_file();
+            inner.debug_builder.create_typedef(pointer_to_struct_ty, &format!("list[{}]", e.as_ref()), file, line_nb, scope, align_in_bits).as_type()
         },
         Type::Function(args, ret, is_variadic) => {
             /*let flags = 0;
@@ -242,7 +241,23 @@ fn get_debug_info_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>, t : &
             inner.debug_builder.create_array_type(element_type, size_in_bits, align_in_bits, subscripts).as_type()
         }
         Type::SumType(s) => {
-            todo!() // TODO
+            if s.has_data() {
+                todo!()
+            } else {
+                let tag_type = get_debug_info_type(inner, &Type::Integer); // TODO : find it dynamically (depending of number of tags) after changing it in the codegen
+                let line_nb = 0;
+                let scope = inner.debug_compile_unit.as_debug_info_scope();
+                let name = s.name.as_deref().unwrap();
+                let file = inner.debug_compile_unit.get_file();
+                let size_in_bits = tag_type.get_size_in_bits(); 
+                let align_in_bits = tag_type.get_align_in_bits();
+                let elements = 
+                    s.variants.iter().enumerate()
+                    .map(|(idx, v)| inner.debug_builder.create_enumerator(v.get_name(), idx as i64, false))
+                    .collect::<Vec<_>>();
+                let enum_type = inner.debug_builder.create_enumeration_type(scope, name, file, line_nb, size_in_bits, align_in_bits, &elements, tag_type);
+                enum_type.as_type()
+            }
         }
         _ => {
             let type_data = inner.type_data.get(t).unwrap_or_else(|| panic!("type inner data not found : {:?}", t));
@@ -323,6 +338,12 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
         }
     }
 
+    pub(crate) fn set_internal_current_debug_loc(&mut self, loc : DILocation<'llvm_ctx>){
+        if let Some(i) = &mut self.inner {
+            i.current_debug_loc = Some(loc);
+        }
+    }
+
     pub(crate) fn set_debug_location(&mut self, builder : &Builder<'llvm_ctx>, loc : DILocation<'llvm_ctx>){
         if let Some(i) = &mut self.inner {
             //dbg!((loc.get_line(), loc.get_column()));
@@ -332,7 +353,7 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
             if loc.get_column() == 0 {
                 panic!("col 0");
             }
-            i.current_debug_loc = Some(loc);
+            self.set_internal_current_debug_loc(loc);
             builder.set_current_debug_location(loc);
         }
     }
@@ -347,11 +368,12 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
         }
     }
 
-    pub(crate) fn end_function(&mut self){
+    pub(crate) fn end_function(&mut self, builder : &Builder<'llvm_ctx>){
         if let Some(i) = &mut self.inner {
             i.last_func_scope.take();
             //i.current_debug_loc.take()
             self.end_lexical_block();
+            builder.unset_current_debug_location();
         }
     }
 
@@ -379,7 +401,7 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
                 None,
             );
             let alloca_inst = storage.as_instruction_value().expect("alloca must be an instruction");*/
-            i.debug_builder.insert_declare_at_end(storage, var_info, expr, debug_loc, current_bb);
+            //i.debug_builder.insert_declare_at_end(storage, var_info, expr, debug_loc, current_bb);
             let debug_builder = i.debug_builder.as_mut_ptr();
             let var_info = var_info.map(|v| v.as_mut_ptr()).unwrap_or(std::ptr::null_mut());
             let expr = expr.unwrap_or_else(|| i.debug_builder.create_expression(vec![])).as_mut_ptr();

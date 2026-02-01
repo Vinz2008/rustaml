@@ -95,7 +95,7 @@ pub(crate) fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, 'll
         Type::CType(c_type) => get_llvm_type_ctype(compile_context.context, c_type),
         Type::Generic(gen_num) => get_llvm_type(compile_context, compile_context.generic_map.get(gen_num).unwrap()),
         Type::SumType(sumtype) => {
-            // for now only an int for the tag, will need to support the type of variants, TODO
+            // for now only an int for the tag, will need to support the type of variants, TODO (TODO : dynamic size of types depending of number of tags)
             get_llvm_type(compile_context, &Type::Integer)
         },
         Type::Vec(e_type, size) => get_vec_type(get_llvm_type(compile_context, e_type), *size).into(),

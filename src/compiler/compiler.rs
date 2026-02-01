@@ -2,7 +2,7 @@ use core::panic;
 use std::{cell::Cell, fs, hash::{Hash, Hasher}, ops::Range, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{cast::cast_val, compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_variant_tag, get_void_val, move_bb_after_current, promote_val_var_arg, vec_to_c_struct_ptr}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}, linker::link_exe}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
-use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, llvm_sys::{core::LLVMPrintValueToString, prelude::LLVMValueRef}, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue, ValueKind}};
+use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue, ValueKind}};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use cfg_if::cfg_if;
@@ -787,7 +787,7 @@ fn compile_function_call<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'll
     let callee_type_llvm = get_llvm_type(compile_context, &callee_type).into_function_type();
     
     
-
+    // TODO : remove this (already code for every ast node ?)
     let function_call_dbg = compile_context.debug_info.create_debug_location(compile_context.context, &compile_context.builder, compile_context.rustaml_context.content.as_ref().unwrap(), range);
     if let Some(function_call_dbg) = function_call_dbg {
         compile_context.builder.set_current_debug_location(function_call_dbg);
@@ -1438,7 +1438,7 @@ fn compile_anon_func<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_c
     compile_context.builder.build_return(return_val).unwrap(); 
 
     compile_context.debug_info.end_lexical_block();
-    compile_context.debug_info.end_function();
+    compile_context.debug_info.end_function(&compile_context.builder);
 
     compile_context.debug_info.enter_top_level();
 
@@ -1532,18 +1532,7 @@ fn default_attributes_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, t : &Ty
     }
 }
 
-/*    #[cfg(feature = "jit")]
-    if is_jit_entrypoint {
-        let arg_array = function.get_first_param().unwrap().into_pointer_value();
-        for (((arg_idx, arg_name), arg_type_llvm), arg_type) in args.iter().enumerate().zip(param_types_llvm).zip(param_types) {
 
-            let arg_unwraped_val = jit_unwrap_val(compile_context, arg_array, arg_idx, arg_type);
-            create_var(compile_context, *arg_name, arg_unwraped_val, arg_type_llvm);
-            compile_context.debug_info.declare_parameter(arg_name.get_str(&compile_context.rustaml_context.str_interner), arg_idx.try_into().unwrap(), arg_type, compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone());
-            //compile_context.debug_info.declare_var(arg_name.get_str(&compile_context.rustaml_context.str_interner), arg_type, var_ptr, compile_context.builder.get_insert_block().unwrap(), compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone());
-        }
-        return;
-    } */
 
 fn declare_function_args<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, function : FunctionValue<'llvm_ctx>, args : &[StringRef], param_types_llvm : Vec<AnyTypeEnum<'llvm_ctx>>, param_types : &[Type], function_range : Range<usize>){
     
@@ -1564,7 +1553,7 @@ fn declare_function_args<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'll
 
 fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, name : StringRef, args : &[StringRef], body : ASTRef, ast_node : ASTRef, arg_types : &[Type], return_type : &Type) -> FunctionValue<'llvm_ctx> {
     //println!("typeinfos function_env : {:?}", DebugWrapContext::new(&compile_context.typeinfos.functions_env, compile_context.rustaml_context));
-    let previous_loc = compile_context.debug_info.get_current_debug_location(&compile_context.builder);
+    //let previous_loc = compile_context.debug_info.get_current_debug_location(&compile_context.builder);
 
     let return_type_llvm = match return_type {
         Type::Unit => compile_context.context.void_type().into(),
@@ -1580,6 +1569,14 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llv
     let function = add_function(compile_context, name.get_str(&compile_context.rustaml_context.str_interner), function_type, Some(Linkage::Internal));
 
     let function_range = ast_node.get_range(&compile_context.rustaml_context.ast_pool);
+            
+    compile_context.functions.insert(name, function);
+            
+    let entry = compile_context.context.append_basic_block(function, "entry");
+    compile_context.builder.position_at_end(entry);
+
+    debug_println!(compile_context.rustaml_context.is_debug_print,"function {:?} param types llvm : {:?}", DebugWrapContext::new(&name, compile_context.rustaml_context), param_types_llvm);
+
     let di_subprogram = compile_context.debug_info.add_function(name.get_str(&compile_context.rustaml_context.str_interner), param_types, return_type, compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone(), compile_context.is_optimized);
     if let Some(di_subprogram) = di_subprogram {
         function.set_subprogram(di_subprogram);
@@ -1587,19 +1584,22 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llv
     }
 
     compile_context.debug_info.create_lexical_block();
-            
-    compile_context.functions.insert(name, function);
-            
-    let entry = compile_context.context.append_basic_block(function, "entry");
-    compile_context.builder.position_at_end(entry);
 
-    if let Some(loc) = compile_context.debug_info.create_debug_location(compile_context.context, &compile_context.builder, compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone()) {
+    let debug_loc = compile_context.debug_info.create_debug_location(compile_context.context, &compile_context.builder, compile_context.rustaml_context.content.as_ref().unwrap(), function_range.clone());
+
+    if let Some(debug_loc) = debug_loc {
+        compile_context.debug_info.set_internal_current_debug_loc(debug_loc)
+    }
+    
+    compile_context.builder.unset_current_debug_location();
+    declare_function_args(compile_context, function, args, param_types_llvm, param_types, function_range.clone());
+
+
+
+    if let Some(loc) = debug_loc {
         compile_context.builder.set_current_debug_location(loc);
     }
 
-    debug_println!(compile_context.rustaml_context.is_debug_print,"function {:?} param types llvm : {:?}", DebugWrapContext::new(&name, compile_context.rustaml_context), param_types_llvm);
-
-    declare_function_args(compile_context, function, args, param_types_llvm, param_types, function_range);
 
     default_attributes_type(compile_context.context, return_type, AttributeLoc::Return, function);
 
@@ -1619,7 +1619,7 @@ fn compile_function_def<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llv
     }
 
     compile_context.debug_info.end_lexical_block();
-    compile_context.debug_info.end_function();
+    compile_context.debug_info.end_function(&compile_context.builder);
 
             // TODO : is it really needed
     compile_context.debug_info.enter_top_level();
