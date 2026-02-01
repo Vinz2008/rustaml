@@ -1,6 +1,7 @@
 use std::{fmt, ops::Range};
 
-use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{AsDIScope, DICompileUnit, DILexicalBlock, DILocation, DISubprogram, DIType, DebugInfoBuilder, LLVMDWARFTypeEncoding}, llvm_sys::debuginfo::{LLVMDIFlagPrivate, LLVMDIFlagPublic}, values::{FunctionValue, PointerValue}};
+use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{AsDIScope, DICompileUnit, DILexicalBlock, DILocation, DISubprogram, DIType, DebugInfoBuilder, LLVMDWARFTypeEncoding}, llvm_sys::debuginfo::{LLVMDIFlagPrivate, LLVMDIFlagPublic}, values::{AsValueRef, FunctionValue, PointerValue}};
+use inkwell::llvm_sys::debuginfo::LLVMDIBuilderInsertDeclareRecordAtEnd;
 use rustc_hash::FxHashMap;
 
 use crate::ast::{CType, Type};
@@ -96,8 +97,8 @@ fn create_main_function<'llvm_ctx>(target_infos : &TargetInfos, debug_builder: &
         &[i32_ty, i8_ptr_ty],
         flags,
     );
-    let line_nb = 0;
-    let scope_line = 0;
+    let line_nb = 1;
+    let scope_line = 1;
     debug_builder.create_function(debug_compile_unit.as_debug_info_scope(), "main", None, debug_compile_unit.get_file(), line_nb, subroutine_type, true, true, scope_line, LLVMDIFlagPublic, is_optimized)
 }
 
@@ -162,9 +163,10 @@ pub(crate) fn get_debug_loc(content_loc : &ContentLoc, range : Range<usize>) -> 
     let line_nb = newline_idx + 1;
 
 
+    // +1 because 1 indexing
     LineColLoc { 
-        line_nb: line_nb.try_into().unwrap(),
-        column: column_nb.try_into().unwrap(),
+        line_nb: (line_nb+1).try_into().unwrap(),
+        column: (column_nb + 1).try_into().unwrap(), 
     }
 
 }
@@ -239,6 +241,9 @@ fn get_debug_info_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>, t : &
             ];
             inner.debug_builder.create_array_type(element_type, size_in_bits, align_in_bits, subscripts).as_type()
         }
+        Type::SumType(s) => {
+            todo!() // TODO
+        }
         _ => {
             let type_data = inner.type_data.get(t).unwrap_or_else(|| panic!("type inner data not found : {:?}", t));
             let di_type = inner.debug_builder.create_basic_type(type_data.name, type_data.size_in_bits, type_data.encoding, LLVMDIFlagPublic).unwrap().as_type();
@@ -303,27 +308,38 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
         }
     }
 
-    pub(crate) fn create_debug_location(&mut self, context : &'llvm_ctx Context, content : &ContentLoc, range : Range<usize>) -> Option<DILocation<'llvm_ctx>>{
+    pub(crate) fn create_debug_location(&mut self, context : &'llvm_ctx Context, builder : &Builder<'llvm_ctx>, content : &ContentLoc, range : Range<usize>) -> Option<DILocation<'llvm_ctx>>{
         // add real lexical blocks instead of creating one for each function call (put them in self)
-        
+
         // TODO : move to a set_function_call_dbg
         if let Some(i) = &mut self.inner {
             let debug_loc = get_debug_loc(content, range);
             let lexical_block = i.current_lexical_block.unwrap();
-            i.current_debug_loc = Some(i.debug_builder.create_debug_location(context, debug_loc.line_nb, debug_loc.column, lexical_block.as_debug_info_scope(), None));
-            i.current_debug_loc
+            let debug_loc = i.debug_builder.create_debug_location(context, debug_loc.line_nb, debug_loc.column, lexical_block.as_debug_info_scope(), None);
+            self.set_debug_location(builder, debug_loc);
+            Some(debug_loc)
         } else {
             None
         }
     }
 
-    pub(crate) fn set_debug_location(&mut self, loc : DILocation<'llvm_ctx>){
+    pub(crate) fn set_debug_location(&mut self, builder : &Builder<'llvm_ctx>, loc : DILocation<'llvm_ctx>){
         if let Some(i) = &mut self.inner {
+            //dbg!((loc.get_line(), loc.get_column()));
+            if loc.get_line() == 0 {
+                panic!("line 0");
+            }
+            if loc.get_column() == 0 {
+                panic!("col 0");
+            }
             i.current_debug_loc = Some(loc);
+            builder.set_current_debug_location(loc);
         }
     }
 
+
     pub(crate) fn get_current_debug_location(&self, builder : &Builder<'llvm_ctx>) -> Option<DILocation<'llvm_ctx>> {
+        // TODO : use Option::map instead ?
         if self.inner.is_some() {
             builder.get_current_debug_location()
         } else {
@@ -352,6 +368,9 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
             let var_info = Some(i.debug_builder.create_auto_variable(scope, name, file, debug_location_var.line_nb, var_ty_debug, always_preserve, flags, align_in_bits));
             let expr = None; // TODO
             let debug_loc = i.current_debug_loc.unwrap();
+
+            // use LLVM sys directly because of bugs with inkwell and LLVM >= 19 (because of change in the API of LLVM)
+            
             /*let debug_loc = i.debug_builder.create_debug_location(
                 context,
                 debug_location_var.line_nb,
@@ -361,11 +380,17 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
             );
             let alloca_inst = storage.as_instruction_value().expect("alloca must be an instruction");*/
             i.debug_builder.insert_declare_at_end(storage, var_info, expr, debug_loc, current_bb);
+            let debug_builder = i.debug_builder.as_mut_ptr();
+            let var_info = var_info.map(|v| v.as_mut_ptr()).unwrap_or(std::ptr::null_mut());
+            let expr = expr.unwrap_or_else(|| i.debug_builder.create_expression(vec![])).as_mut_ptr();
+            unsafe {
+                LLVMDIBuilderInsertDeclareRecordAtEnd(debug_builder, storage.as_value_ref(), var_info, expr, debug_loc.as_mut_ptr(), current_bb.as_mut_ptr());
+            }
             //i.debug_builder.insert_declare_before_instruction(storage, var_info, expr, debug_loc, alloca_inst);
         }
     }
 
-    pub(crate) fn declare_parameter(&mut self, name : &str, arg_no : u32, var_type : &Type, content : &ContentLoc, range : Range<usize>){
+    pub(crate) fn declare_parameter(&mut self, name : &str, arg_idx : u32, var_type : &Type, content : &ContentLoc, range : Range<usize>, storage : PointerValue<'llvm_ctx>, entry_bb : BasicBlock<'llvm_ctx>){
         if let Some(i) = &mut self.inner {
             let scope = i.last_func_scope.unwrap().as_debug_info_scope();
             let file = i.debug_compile_unit.get_file();
@@ -373,7 +398,18 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
             let var_ty_debug = get_debug_info_type(i, var_type);
             let always_preserve = true; // TODO : will it affect optimizations
             let flags = 0; // TODO
-            i.debug_builder.create_parameter_variable(scope, name, arg_no, file, debug_location_var.line_nb, var_ty_debug, always_preserve, flags);
+            let arg_number = arg_idx + 1;
+            let var_info = Some(i.debug_builder.create_parameter_variable(scope, name, arg_number, file, debug_location_var.line_nb, var_ty_debug, always_preserve, flags));
+            let expr = None;
+            let debug_loc = i.current_debug_loc.unwrap();
+
+            let debug_builder = i.debug_builder.as_mut_ptr();
+            let var_info = var_info.map(|v| v.as_mut_ptr()).unwrap_or(std::ptr::null_mut());
+            let expr = expr.unwrap_or_else(|| i.debug_builder.create_expression(vec![])).as_mut_ptr();
+            unsafe {
+                LLVMDIBuilderInsertDeclareRecordAtEnd(debug_builder, storage.as_value_ref(), var_info, expr, debug_loc.as_mut_ptr(), entry_bb.as_mut_ptr());
+            }
+            //i.debug_builder.insert_declare_at_end(storage, Some(local_var), expr, debug_loc, entry_bb);
         }
     }
 

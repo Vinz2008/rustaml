@@ -80,7 +80,7 @@ fn does_list_contain_lists(l : &List) -> bool {
 fn val_to_list_ref_unchecked(val: &Val) -> ListRef {
     match val {
         Val::List(l) => *l,
-        _ => unreachable!(),
+        _ => unreachable!(), // TODO : use unreachable unchecked ? (benchmark this)
     }
 }
 
