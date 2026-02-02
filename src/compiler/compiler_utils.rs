@@ -126,7 +126,8 @@ pub(crate) fn get_vec_type<'llvm_ctx>(llvm_type : AnyTypeEnum<'llvm_ctx>, size :
     match llvm_type {
         AnyTypeEnum::IntType(i) => i.vec_type(size),
         AnyTypeEnum::FloatType(f) => f.vec_type(size),
-        _ => todo!() // TODO
+        AnyTypeEnum::PointerType(p) => p.vec_type(size),
+        _ => unreachable!(),
     }
 }
 
@@ -322,14 +323,15 @@ pub(crate) fn from_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'
 fn get_vec_c_struct_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> StructType<'llvm_ctx> {
     llvm_context.struct_type(&[
         llvm_context.i8_type().into(),
-        llvm_context.ptr_type(AddressSpace::default()).into(),
         llvm_context.i32_type().into(),
+        llvm_context.ptr_type(AddressSpace::default()).into(),
     ], false)
 }
 
 // convert to a struct with this layout (the type tag is the same as for lists) :
 // struct {
-//    uint8_t type_tag; 
+//    uint8_t type_tag;
+//    uint32_t size;
 //    void* ptr;
 // }
 pub(crate) fn vec_to_c_struct_ptr<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, vec : VectorValue<'llvm_ctx>, vec_element_type : &Type) -> PointerValue<'llvm_ctx> {
@@ -349,8 +351,8 @@ pub(crate) fn vec_to_c_struct_ptr<'llvm_ctx>(compile_context: &mut CompileContex
     compile_context.builder.build_store(alloca_array, vec).unwrap();
     let c_struct_fields: [BasicValueEnum; 3] = [
         get_type_tag_val(compile_context.context, vec_element_type).into(),
+        size.into(),
         alloca_array.into(),
-        size.into()
     ];
 
     let struct_type = get_vec_c_struct_type(compile_context.context);

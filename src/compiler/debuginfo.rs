@@ -242,7 +242,7 @@ fn get_debug_info_type<'llvm_ctx>(inner : &mut DebugInfosInner<'llvm_ctx>, t : &
         }
         Type::SumType(s) => {
             if s.has_data() {
-                todo!()
+                todo!() // TODO
             } else {
                 let tag_type = get_debug_info_type(inner, &Type::Integer); // TODO : find it dynamically (depending of number of tags) after changing it in the codegen
                 let line_nb = 0;

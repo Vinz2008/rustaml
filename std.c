@@ -176,12 +176,6 @@ WEAK __attribute__((noreturn)) void __stack_chk_fail(void) {
     while (1) { }
 }
 
-// TODO : remove this
-WEAK int printf(const char* format, ...){
-    (void)format;
-    return 0;
-}
-
 #ifndef assert
 #ifdef NDEBUG
 #define assert(e) ((void)0)
@@ -214,8 +208,6 @@ static void alloc_error(const char* func_name, const char* str){
 #define ASSERT_BOOL(id_bool) assert(id_bool < 2 && #id_bool " should be true or false")
 #define ASSERT_NOT_NULL(not_null) assert(not_null && #not_null " should not be NULL")
 
-// TODO : use attribute pure and const on some of these functions to optimize them
-
 
 enum TypeTag {
     INT_TYPE = 0,
@@ -239,13 +231,11 @@ typedef uint64_t Val;
     }) \
 
 
-// TODO : check the best layout for this (need to also change the compiler)
 struct VecVal {
     uint8_t element_type_tag;
-    void* buf;
     uint32_t size;
+    void* buf;
 };
-
 
 // TODO : optimize by putting the type_tag in a List struct which will have the tag and just the head of the list (so the tag is only stored one time -> 24 to 16 bytes for each node)
 // TODO : put a list len in it ?
