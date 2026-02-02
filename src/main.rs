@@ -16,7 +16,7 @@ cfg_if! {
         use crate::rustaml::FrontendOutput;
         pub(crate) struct OptionalArgs;
         impl OptionalArgs {
-            pub(crate) fn new(_optimization_level : Option<u8>, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer : bool, _enable_debuginfos : bool, _freestanding : bool, _native: bool, _build_bdwgc : bool, _musl : bool, _lib_search_paths : Vec<String>) -> OptionalArgs {
+            pub(crate) fn new(_optimization_level : Option<u8>, _keep_temp : bool, _disable_gc : bool, _enable_sanitizer : bool, _enable_debuginfos : bool, _disable_checks : bool, _freestanding : bool, _native: bool, _build_bdwgc : bool, _musl : bool, _lib_search_paths : Vec<String>) -> OptionalArgs {
                 OptionalArgs
             }
         }

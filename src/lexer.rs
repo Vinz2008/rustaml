@@ -385,7 +385,7 @@ pub(crate) fn lex(content: Vec<char>, is_debug_print : bool) -> Result<Vec<Token
     while let Some(c) = lexer.read_char() {
         let range = lexer.pos-1..lexer.pos;
         let tok: Option<Token> = match c {
-            ' ' | '\t' | '\n' => None,
+            ' ' | '\t' | '\n' | '\r' => None,
             '(' => Some(Token::new(TokenData::ParenOpen, range)),
             ')' => Some(Token::new(TokenData::ParenClose, range)),
             '[' => Some(Token::new(TokenData::ArrayOpen, range)),

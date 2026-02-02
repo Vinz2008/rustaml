@@ -1,5 +1,7 @@
 #include <cmath>
+#include <cstdint>
 
+// TODO : add __declspec(dllexport) for windows ?
 double my_cos(double d){
     return std::cos(d);
 }

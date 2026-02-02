@@ -70,7 +70,7 @@ pub(crate) fn get_ffi_func(context : &mut InterpretContext, name: StringRef, fun
         let lib = libloading::os::unix::Library::this();
 
         #[cfg(windows)]
-        let lib = libloading::windows::unix::Library::this();
+        let lib = libloading::os::windows::Library::this().unwrap();
 
         lib.into()
     };

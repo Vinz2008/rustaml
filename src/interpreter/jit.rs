@@ -11,6 +11,8 @@ use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{CompileContext, JITC
 use inkwell::support::LLVMString;
 
 // TODO : should I migrate to ORC ? (use llvm_sys ? but very limited, or use a custom cpp bindings, but complicated)
+// normally have the necessary parts in llvm_sys but need to improve materialization with multiple modules (one for each function) and making internal functions external
+// or do it dynamically (put cold code in different modules) or just each file in a module for dynamic compilation ?
 
 #[derive(Default, Debug)]
 struct FuncMeta {
@@ -219,7 +221,7 @@ unsafe extern "C" {
     // don't care type, because we just need the ptr
     unsafe fn fprintf() -> i32;
     unsafe fn exit() -> usize;
-    static mut stderr: *mut ();
+    static mut stderr: *mut (); // TODO : not use fprintf(stderr, ), just use a builtin function that does fprintf(stderr) and exit and call it (to make work on windows because it has no global stderr)
 }
 
 fn register_external_functions<'llvm_ctx>(std_lib : &Library, module : &Module<'llvm_ctx>, execution_engine : &ExecutionEngine<'llvm_ctx>, jit_list_unwrap_fun : Option<FunctionValue<'llvm_ctx>>){
