@@ -231,6 +231,7 @@ typedef uint64_t Val;
     }) \
 
 
+// TODO : small vec optimization ?
 struct VecVal {
     uint8_t element_type_tag;
     uint32_t size;
@@ -1606,7 +1607,6 @@ struct RegexParseContext {
         c; \
     })
 
-// TODO : simplify these format_char
 #define PASS(CONTEXT, expected) do { \
         uint32_t c = ADVANCE(context); \
         if (c != (uint32_t)expected){ \
@@ -1640,7 +1640,6 @@ static struct RegexASTNode* parse_char(struct RegexParseContext* context){
     return leaf;
 }
 
-// TODO : reduce the number of args (make patterns and patterns_nb in a struct ?)
 static void add_char_class_range(struct CharClassRanges* ranges, struct CharClassRange range){
     if (!ranges->ranges){
         ranges->ranges = MALLOC_NO_PTR(sizeof(struct CharClassRange));
