@@ -1691,12 +1691,16 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
     }
 }
 
-fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : OptimizationLevel, sanitizer : bool) {
+fn run_passes_on(module: &Module, target_machine : &TargetMachine, opt_level : OptimizationLevel, disable_all_opt : bool, sanitizer : bool) {
     // TODO : test with "function(mem2reg)," at the start (like https://github.com/inko-lang/inko/blob/main/compiler/src/llvm/passes.rs#L553)
     // to remove allocas even with no optimizations enabled ?
     // always run tailcallelim to not have problems with the stack with -O0
-    let passes_str = format!("default<O{}>,tailcallelim,simplifycfg", opt_level as u8);
-    
+    let passes_str = if disable_all_opt {
+        "default<O0>".to_owned() 
+    } else {
+        format!("default<O{}>,tailcallelim,simplifycfg", opt_level as u8)
+    };
+
     module.run_passes(&passes_str, target_machine, PassBuilderOptions::create()).unwrap();
 }
 
@@ -1716,13 +1720,14 @@ pub(crate) struct OptionalArgs {
     pub(crate) build_bdwgc : bool,
     disable_checks : bool, 
     pub(crate) musl : bool,
+    disable_all_opt : bool,
     pub(crate) lib_search_paths : Vec<String>, // TODO : use PathBufs instead ?
 }
 
 impl OptionalArgs {
     // TODO : make this a builder pattern ?
     #[allow(unused)]
-    pub(crate) fn new(optimization_level : Option<u8>, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, disable_checks : bool, freestanding : bool, march_native : bool, build_bdwgc : bool, musl : bool, lib_search_paths : Vec<String>) -> OptionalArgs {
+    pub(crate) fn new(optimization_level : Option<u8>, keep_temp : bool, disable_gc : bool, enable_sanitizer : bool, enable_debuginfos : bool, disable_checks : bool, freestanding : bool, march_native : bool, build_bdwgc : bool, musl : bool, disable_all_opt : bool, lib_search_paths : Vec<String>) -> OptionalArgs {
         OptionalArgs { 
             optimization_level: optimization_level.unwrap_or(0), 
             keep_temp, 
@@ -1734,6 +1739,7 @@ impl OptionalArgs {
             march_native,
             build_bdwgc,
             musl,
+            disable_all_opt,
             lib_search_paths,
         }
     }
@@ -1894,7 +1900,7 @@ pub(crate) fn compile(frontend_output : FrontendOutput, rustaml_context: &mut Ru
         compile_context.rustaml_context.end_section("llvm-codegen");
 
         compile_context.rustaml_context.start_section("llvm-opt");
-        run_passes_on(&compile_context.module, &target_machine, optimization_level, optional_args.enable_sanitizer);
+        run_passes_on(&compile_context.module, &target_machine, optimization_level, optional_args.disable_all_opt, optional_args.enable_sanitizer);
         compile_context.rustaml_context.end_section("llvm-opt");
 
         if optional_args.keep_temp {
