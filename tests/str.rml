@@ -5,6 +5,7 @@ let gen_str len = match len with
 let str = gen_str 10000 ;;
 
 // TODO : make it possible to have aux in the gen_str_tail_rec function
+// need for it to add mangling of local functions, and to fix type system (because get the type of the function from the AST, but the AST need to have as a type the type of the in expr)
 
 let aux acc len = 
     match len with
