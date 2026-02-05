@@ -18,6 +18,11 @@ rustc debug 1.95.0-nightly : 222.946s
 rustc release 1.95.0-nightly : 57.514s  
 Go v1.25.6 : 131.091s  
 NodeJS v20.0.0 : 307.181s  
+Haskwell GHC -O0 v9.6.7 : TODO
+Haskwell GHC -O3 v9.6.7 : 137.152s  
+Ocaml interpreter v5.4.0 : TODO
+OCaml ocamlopt v5.4.0 : TODO
+Python 3.13.2 : TODO  
 
 ![Fibonacci benchmark](fibonacci.png)
 
@@ -34,6 +39,27 @@ rustc debug 1.95.0-nightly : 9.539s
 rustc release 1.95.0-nightly : 2.528s  
 Go v1.25.6 : 2.982s  
 NodeJS v20.0.0 : 2.566s  
+Haskwell GHC -O0 v9.6.7 : 209.424s  
+Haskwell GHC -O3 v9.6.7 : 3.863s  
+Ocaml interpreter v5.4.0 : 21,050s  
+OCaml ocamlopt v5.4.0 : 2.988s  
+Python 3.13.2 : TODO  
 
-Finding all prime numbers up to 15,000
-TODO
+Finding all prime numbers up to 15,000  
+rustaml interpreter : 352.412s  
+rustaml interpreter with JIT : 371.6ms  
+rustaml compiler -O0 : 413.8ms  
+rustaml compiler -O3 : 145.2ms  
+gcc -O0 v15.2.1 : 146.4ms  
+gcc -O3 v15.2.1 : 143.7ms  
+clang -O0 v21.1.6 : 147.7ms  
+clang -O3 v21.1.6 : 143.8ms  
+rustc debug 1.95.0-nightly : 775.0ms  
+rustc release 1.95.0-nightly : 145.7ms  
+Go v1.25.6 : 171.6ms  
+NodeJS v20.0.0 : 175.7ms  
+Haskwell GHC -O0 v9.6.7 : 2.401s  
+Haskwell GHC -O3 v9.6.7 : 203.0ms  
+Ocaml interpreter v5.4.0 : TODO
+OCaml ocamlopt v5.4.0 : TODO
+Python 3.13.2 : 6.63s   

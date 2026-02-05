@@ -20,6 +20,7 @@ use crate::string_intern::StringRef;
 use crate::types::TypeInfos;
 use crate::{ast::{ASTNode, Type, Pattern}, lexer::Operator};
 
+// TODO : have trampolines to help with recursion ? is it even needed because there is JIT ?
 
 
 #[cfg(feature = "gc-test-collect")] 
@@ -238,6 +239,7 @@ impl List {
         list_ref
     }
 
+    #[cfg(feature = "jit")]
     pub(crate) fn new_from_vals(context: &mut InterpretContext, vals : Vec<Val>) -> ListRef {
         let mut list_ref = context.rustaml_context.list_node_pool.push(List::None);
         for val in vals.into_iter().rev() {
@@ -1145,6 +1147,8 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_bo
     }
 }
 
+// TODO : try to have smallvec for vecs of args that are reused a lot (or have vec in the context that is reused by calling reset ?)
+
 pub(crate) fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val>) -> Val {
     match &func_def.body {
         FunctionBody::Ast(a) => {
@@ -1161,16 +1165,20 @@ pub(crate) fn call_function(context: &mut InterpretContext, func_def : &Function
                 }
             }
             
-            let mut old_vals : Vec<(StringRef, Val)> = Vec::new();
+            let mut new_vars : Vec<StringRef> = Vec::with_capacity(func_def.args.len()); // new vars vecs to known which are needed to be removed (which are the one that have no old_vals so they will not be replaced)
+            let mut old_vals : Vec<(StringRef, Val)> = Vec::with_capacity(func_def.args.len());
             context.vars.reserve(func_def.args.len());
             for (arg_name, arg_val) in func_def.args.iter().zip(args_val) {
                 let old_val = context.vars.insert(*arg_name, arg_val);
-                if let Some(old_val) = old_val {
-                    old_vals.push((*arg_name, old_val));
+                match old_val {
+                    Some(old_val) => old_vals.push((*arg_name, old_val)),
+                    None => new_vars.push(*arg_name),
                 }
             }
-            
+
             let res_val = ensure_stack(|| interpret_node(context, *a));
+            
+             
 
             cfg_if! {
                 if #[cfg(feature = "jit")]{
@@ -1180,8 +1188,8 @@ pub(crate) fn call_function(context: &mut InterpretContext, func_def : &Function
                 }
             }
 
-            for arg_name in &func_def.args {
-                context.vars.remove(arg_name);
+            for arg_name in new_vars {
+                context.vars.remove(&arg_name);
             }
             for (old_name, old_val) in old_vals {
                 context.vars.insert(old_name, old_val);
@@ -1190,7 +1198,7 @@ pub(crate) fn call_function(context: &mut InterpretContext, func_def : &Function
         },
         
         FunctionBody::Ffi(f) => call_ffi_function(context, f, &args_val),
-    }    
+    } 
 }
 
 fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args : &[ASTRef]) -> Val {
@@ -1481,15 +1489,20 @@ pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val
         ASTNode::VarDecl { name, val, body, var_type: _ } => {
             let val_node = interpret_node(context, val);
             let is_underscore = name.get_str(&context.rustaml_context.str_interner) == "_";
-            if !is_underscore {
-                context.vars.insert(name, val_node);
-            }
+            let old_val = if !is_underscore {
+                context.vars.insert(name, val_node)
+            } else {
+                None
+            };
             try_gc_collect(context);
             match body {
                 Some(b) => {
                     let body_val = interpret_node(context, b);
                     if !is_underscore {
-                        context.vars.remove(&name);
+                        match old_val {
+                            Some(old_val) => context.vars.insert(name, old_val),
+                            None => context.vars.remove(&name),
+                        };
                     }
                     body_val
                 },
