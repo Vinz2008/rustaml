@@ -46,7 +46,7 @@ OCaml ocamlopt v5.4.0 : 2.988s
 Python 3.13.2 : TODO  
 
 Finding all prime numbers up to 15,000  
-rustaml interpreter : 352.412s  
+rustaml interpreter : 407.382s  
 rustaml interpreter with JIT : 371.6ms  
 rustaml compiler -O0 : 413.8ms  
 rustaml compiler -O3 : 145.2ms  
