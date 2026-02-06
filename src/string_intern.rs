@@ -1,4 +1,4 @@
-use std::{cmp::max, fmt};
+use std::{cmp::max, fmt, hash::Hash};
 
 use rustc_hash::FxHashMap;
 
@@ -39,8 +39,16 @@ impl StrInterned {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub(crate) struct StringRef(u32);
+
+impl Hash for StringRef {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u32(self.0)
+    }
+}
+
+impl nohash::IsEnabled for StringRef {}
 
 impl StringRef {
 

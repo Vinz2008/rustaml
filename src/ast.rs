@@ -1,3 +1,4 @@
+use std::hash::Hash;
 use std::path::PathBuf;
 use std::{ops::Range, path::Path};
 use std::fmt::{Debug, Display, Write};
@@ -129,8 +130,16 @@ impl ASTPool {
 }
 
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ASTRef(u32);
+
+impl Hash for ASTRef {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u32(self.0);
+    }
+}
+
+impl nohash::IsEnabled for ASTRef {}
 
 impl ASTRef {
     #[inline]

@@ -1,8 +1,8 @@
 use debug_with_context::{DebugWithContext, DebugWrapContext};
 use enum_tags::Tag;
-use rustc_hash::FxHashMap;
+use nohash::IntMap;
 // TODO : replace these with use std::range::Range when https://github.com/rust-lang/rust/issues/125687 is added without a feature, then remove all the ranges clones because the new version is Copy
-use std::ops::Range;
+use std::{hash::{Hash, Hasher}, ops::Range};
 
 use crate::{ast::{ASTNode, ASTRef, Pattern, PatternRef, Type}, debug_println, lexer::Operator, rustaml::{nearest_string, RustamlContext}, string_intern::StringRef};
 
@@ -64,12 +64,20 @@ pub(crate) enum TypesErrData {
 
 #[derive(Default, Clone)]
 pub(crate) struct TypeInfos {
-    pub(crate) vars_env : FxHashMap<VarId, Type>,
-    pub(crate) ast_var_ids : FxHashMap<ASTRef, VarId>
+    pub(crate) vars_env : IntMap<VarId, Type>,
+    pub(crate) ast_var_ids : IntMap<ASTRef, VarId>
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct VarId(u32);
+
+impl Hash for VarId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u32(self.0);
+    }
+}
+
+impl nohash::IsEnabled for VarId {}
 
 impl DebugWithContext<RustamlContext> for VarId {
     // just print the var id
@@ -99,14 +107,14 @@ pub(crate) struct TypeContext<'a> {
     constraints : Vec<Constraint>,
     constraints_ranges : Vec<Range<usize>>,
 
-    node_type_vars : FxHashMap<ASTRef, TypeVarId>,
+    node_type_vars : IntMap<ASTRef, TypeVarId>,
 
-    current_vars : FxHashMap<StringRef, Vec<Var>>,
+    current_vars : IntMap<StringRef, Vec<Var>>,
     max_var_id : u32,
 
     generic_type_idx: u32,
 
-    vars_type_vars : FxHashMap<VarId, TypeVarId>,
+    vars_type_vars : IntMap<VarId, TypeVarId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -142,7 +150,7 @@ impl<'a> TypeContext<'a> {
     }
 
     // when entering an anonymous function, that can't keep the local vars
-    fn remove_current_local_vars(&mut self) -> FxHashMap<StringRef, Vec<Var>> {
+    fn remove_current_local_vars(&mut self) -> IntMap<StringRef, Vec<Var>> {
         let ret = self.current_vars.clone();
 
         /*let mut emptied_var_name = Vec::new();
@@ -179,7 +187,7 @@ impl<'a> TypeContext<'a> {
         ret
     }
 
-    fn readd_local_vars(&mut self, vars_to_add : FxHashMap<StringRef, Vec<Var>> ) {
+    fn readd_local_vars(&mut self, vars_to_add : IntMap<StringRef, Vec<Var>> ) {
         self.current_vars = vars_to_add;
     }
 
@@ -1120,11 +1128,11 @@ pub(crate) fn resolve_and_typecheck(rustaml_context: &mut RustamlContext, ast : 
         table: TypeVarTable::default(),
         constraints: Vec::new(),
         constraints_ranges: Vec::new(),
-        node_type_vars: FxHashMap::default(),
-        current_vars: FxHashMap::default(),
+        node_type_vars: IntMap::default(),
+        current_vars: IntMap::default(),
         max_var_id: 0,
         generic_type_idx: 0,
-        vars_type_vars: FxHashMap::default(),
+        vars_type_vars: IntMap::default(),
     };
 
     std_functions_constraints_types(&mut context);

@@ -1,10 +1,11 @@
 use core::panic;
 use std::{cell::Cell, fs, hash::{Hash, Hasher}, ops::Range, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
+use nohash::{IntMap, IntSet};
 use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{cast::cast_val, compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_variant_tag, get_void_val, move_bb_after_current, promote_val_var_arg, vec_to_c_struct_ptr}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}, linker::link_exe}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue, ValueKind}};
 use pathbuf::pathbuf;
-use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
+use rustc_hash::{FxHashMap, FxHasher};
 use cfg_if::cfg_if;
 
 // TODO : add generic enums to have results for error handling
@@ -86,6 +87,33 @@ cfg_if! {
 }
 
 
+// used to be hashed as ptrs
+#[repr(transparent)]
+pub(crate) struct StaticStr(&'static str);
+
+impl Hash for StaticStr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_usize(self.0.as_ptr() as usize);
+    }
+}
+
+impl nohash::IsEnabled for StaticStr {}
+
+impl PartialEq for StaticStr {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.0.as_ptr(), other.0.as_ptr())
+    }
+}
+
+
+impl Eq for StaticStr {}
+
+impl From<&'static str> for StaticStr {
+    fn from(value: &'static str) -> StaticStr {
+        StaticStr(value)
+    }
+}
+
 // what is used a specific monomorphised for a generic function (used to verify if already generated)
 #[derive(Eq, Hash, PartialEq)]
 struct GenericFunIdentifier {
@@ -108,10 +136,11 @@ pub(crate) struct CompileContext<'context, 'llvm_ctx> {
     pub(crate) builder : Builder<'llvm_ctx>,
     pub(crate) debug_info : DebugInfo<'llvm_ctx>,
     pub(crate) typeinfos : TypeInfos,
-    functions : FxHashMap<StringRef, FunctionValue<'llvm_ctx>>,
+    functions : IntMap<StringRef, FunctionValue<'llvm_ctx>>,
     pub(crate) main_function : FunctionValue<'llvm_ctx>,
-    pub(crate) var_vals : FxHashMap<StringRef, PointerValue<'llvm_ctx>>,
-    pub(crate) external_symbols_declared : FxHashSet<&'static str>,
+    pub(crate) var_vals : IntMap<StringRef, PointerValue<'llvm_ctx>>,
+    // TODO : use a wrapper for static str, same as below
+    pub(crate) external_symbols_declared : IntSet<StaticStr>,
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>, // TODO : replace this with a hashmap ?
     pub(crate) global_strs : FxHashMap<String, PointerValue<'llvm_ctx>>,
     pub(crate) is_optimized : bool,
@@ -123,10 +152,11 @@ pub(crate) struct CompileContext<'context, 'llvm_ctx> {
     pub(crate) target_data : TargetData,
 
     generic_functions : FxHashMap<GenericFunIdentifier, FunctionValue<'llvm_ctx>>,
-    pub(crate) generic_map : FxHashMap<u32, Type>,
-    generic_func_def_ast_node : FxHashMap<StringRef, ASTRef>,
+    pub(crate) generic_map : IntMap<u32, Type>,
+    generic_func_def_ast_node : IntMap<StringRef, ASTRef>,
 
-    pub(crate) monomorphized_internal_fun : FxHashMap<&'static str, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>>, // (Type A, Type B) = function List A -> List B
+    // TOOD : use a wrapper for static str, implement Hash by casting th ptr to usize and hashing, and then use IntMap then
+    pub(crate) monomorphized_internal_fun : IntMap<StaticStr, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>>, // (Type A, Type B) = function List A -> List B
 
     #[cfg(feature = "jit")]
     pub(crate) jit_compile_context : Option<JITCompileContext<'llvm_ctx>>, // needed for JIT to annotate functions with the target features
@@ -317,14 +347,14 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
             
             monomorphized_internal_fun: init_monomorphized_internal_fun(),
             closure_idx: Cell::new(0),
-            var_vals: FxHashMap::default(),
-            external_symbols_declared: FxHashSet::default(),
+            var_vals: IntMap::default(),
+            external_symbols_declared: IntSet::default(),
             global_strs: FxHashMap::default(),
             shared_libs: Vec::new(),
-            generic_map: FxHashMap::default(),
+            generic_map: IntMap::default(),
             generic_functions: FxHashMap::default(),
-            generic_func_def_ast_node: FxHashMap::default(),
-            functions: FxHashMap::default(),
+            generic_func_def_ast_node: IntMap::default(),
+            functions: IntMap::default(),
 
             #[cfg(feature = "jit")]
             jit_compile_context: jit_cpu_infos,
@@ -332,7 +362,7 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
     }
 
     pub(crate) fn get_internal_function(&mut self, name : &'static str) -> FunctionValue<'llvm_ctx> {
-        if self.external_symbols_declared.contains(name){
+        if self.external_symbols_declared.contains(&name.into()){
             self.module.get_function(name).unwrap()
         } else {
             // use find instead of a hashmap because the number of internal functions is low
@@ -342,7 +372,7 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
             for &(attr_loc, attr) in &builtin_function.attributes {
                 function_decl.add_attribute(attr_loc, attr);
             }
-            self.external_symbols_declared.insert(name);
+            self.external_symbols_declared.insert(name.into());
             function_decl
         }
     }
@@ -351,12 +381,12 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
     // TODO : if this function become more used, make a list like the internal function for builtin_global_vars types
     // or use an enum for name because it is static
     pub(crate) fn get_internal_global_var(&mut self, name : &'static str, type_var : BasicTypeEnum<'llvm_ctx>) -> GlobalValue<'llvm_ctx> {
-        if self.external_symbols_declared.contains(name){
+        if self.external_symbols_declared.contains(&name.into()){
             self.module.get_global(name).unwrap()
         } else {
             let global = self.module.add_global(type_var, None, "stderr");
             global.set_linkage(inkwell::module::Linkage::External);
-            self.external_symbols_declared.insert(name);
+            self.external_symbols_declared.insert(name.into());
             global
         }
     }

@@ -2,8 +2,8 @@
 
 [The benchmarks](https://github.com/Vinz2008/Language-benchmarks)
 
-The benchmark are run on a system with a ryzen 9 5900X, 32go of ram and running Manjaro with linux 6.12.67-1.  
-In all the results using rustaml, it is using LLVM  
+The benchmark are run on a system with a ryzen 9 5900X, 32go of ram and running Manjaro with linux 6.12.  
+In all the results using rustaml, it is using LLVM 21.1 
 
 Finding the 50th Fibonacci number using a recursive function  
 rustaml interpreter : really too long (to the 48th number is more than 4 hours)  
@@ -23,6 +23,8 @@ Haskwell GHC -O3 v9.6.7 : 137.152s
 Ocaml interpreter v5.4.0 : TODO
 OCaml ocamlopt v5.4.0 : TODO
 Python 3.13.2 : TODO  
+PyPy : TODO
+Java : TODO
 
 ![Fibonacci benchmark](fibonacci.png)
 
@@ -44,6 +46,9 @@ Haskwell GHC -O3 v9.6.7 : 3.863s
 Ocaml interpreter v5.4.0 : 21,050s  
 OCaml ocamlopt v5.4.0 : 2.988s  
 Python 3.13.2 : TODO  
+PyPy : TODO
+Java : TODO
+
 
 Finding all prime numbers up to 15,000  
 rustaml interpreter : 407.382s  
@@ -63,3 +68,5 @@ Haskwell GHC -O3 v9.6.7 : 203.0ms
 Ocaml interpreter v5.4.0 : TODO
 OCaml ocamlopt v5.4.0 : TODO
 Python 3.13.2 : 6.63s   
+PyPy : TODO
+Java : TODO

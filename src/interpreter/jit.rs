@@ -3,7 +3,7 @@ use std::{ffi::CStr, io::Write, path::Path, process::{Command, Stdio}, time::Dur
 
 use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engine::{ExecutionEngine, JitFunction}, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, FileType, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, StructValue, ValueKind}};
 use libloading::Library;
-use rustc_hash::{FxHashMap, FxHashSet};
+use nohash::{IntMap, IntSet};
 
 use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{CompileContext, JITCompileContext, cast::cast_val, compile_function, compiler_utils::{add_function, get_fn_type, get_type_tag, get_void_val}, debuginfo::DebugInfo, get_var_id, linker::STD_C_CONTENT}, interpreter::{FunctionBody, FunctionDef, InterpretContext, List, STD_FUNCTIONS, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
 
@@ -24,7 +24,7 @@ struct FuncMeta {
 }
 
 pub(crate) struct JitContext {
-    functions_meta : FxHashMap<ASTRef, FuncMeta>, // ASTRef of functions that have jit wrapper
+    functions_meta : IntMap<ASTRef, FuncMeta>, // ASTRef of functions that have jit wrapper
     context : &'static Context,
     type_infos : Option<TypeInfos>,
     dump_jit_ir : bool,
@@ -39,7 +39,7 @@ impl JitContext {
         
 
         JitContext { 
-            functions_meta: FxHashMap::default(),
+            functions_meta: IntMap::default(),
             context,
             type_infos,
             dump_jit_ir,
@@ -404,7 +404,7 @@ fn create_jit_value<'llvm_ctx>(rustaml_context : &RustamlContext, val : Val) -> 
 
 // TODO : optimize the use function algo ?
 
-fn _find_functions_used(context: &InterpretContext, ast : ASTRef, v : &mut FxHashSet<StringRef>){
+fn _find_functions_used(context: &InterpretContext, ast : ASTRef, v : &mut IntSet<StringRef>){
     match ast.get(&context.rustaml_context.ast_pool){
         ASTNode::FunctionCall { callee, args } => {
             args.iter().for_each(|e| _find_functions_used(context, *e, v));
@@ -444,14 +444,14 @@ fn _find_functions_used(context: &InterpretContext, ast : ASTRef, v : &mut FxHas
 }
 
 // get functions used in the function that need to be compiled
-fn _get_functions_to_compile(context: &mut InterpretContext, func_def : &FunctionDef, res : &mut FxHashSet<StringRef>) {
+fn _get_functions_to_compile(context: &mut InterpretContext, func_def : &FunctionDef, res : &mut IntSet<StringRef>) {
     if res.contains(&func_def.name){
         return;
     }
 
     res.insert(func_def.name);
 
-    let mut callees = FxHashSet::default();
+    let mut callees = IntSet::default();
 
     match &func_def.body {
         FunctionBody::Ast(ast) => {
@@ -479,7 +479,7 @@ fn _get_functions_to_compile(context: &mut InterpretContext, func_def : &Functio
 }
 
 fn get_functions_to_compile(context: &mut InterpretContext, func_def : &FunctionDef) -> Vec<StringRef> {
-    let mut res = FxHashSet::default();
+    let mut res = IntSet::default();
     _get_functions_to_compile(context, func_def, &mut res);
     res.into_iter().collect::<Vec<_>>()
 }

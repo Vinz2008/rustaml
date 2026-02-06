@@ -1,5 +1,5 @@
+use nohash::IntMap;
 use regex::Regex;
-use rustc_hash::FxHashMap;
 use std::cmp::max;
 use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
@@ -534,7 +534,7 @@ impl FunctionDef {
 }
 
 pub(crate) struct InterpretContext<'context> {
-    pub(crate) vars: FxHashMap<StringRef, Val>,
+    pub(crate) vars: IntMap<StringRef, Val>,
     pub(crate) rustaml_context : &'context mut RustamlContext,
     pub(crate) gc_context : GcContext,
     rng : ThreadRng,
@@ -1533,7 +1533,7 @@ pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val
 
 pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlContext, type_infos : Option<TypeInfos>, dump_jit_ir : bool, dump_jit_asm : bool) -> Val {
     let mut context = InterpretContext {
-        vars: FxHashMap::default(),
+        vars: IntMap::default(),
         // functions: FxHashMap::default(),
         rustaml_context,
         gc_context: GcContext::new(),

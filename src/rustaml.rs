@@ -1,6 +1,7 @@
 use cfg_if::cfg_if;
 use levenshtein::levenshtein;
-use rustc_hash::{FxHashMap, FxHashSet};
+use nohash::IntMap;
+use rustc_hash::FxHashSet;
 
 use crate::{ast::{self, ASTPool, ASTRef, PatternPool, Type}, check::check_ast, interpreter::ListPool, lexer, print_error::{self, print_check_error}, profiler::{Profiler, ProfilerFormat}, string_intern::{StrInterner, StringRef}, types::{TypeInfos, resolve_and_typecheck}};
 use std::{fs, path::{Path, PathBuf}};
@@ -27,7 +28,7 @@ pub(crate) struct RustamlContext {
     pub(crate) ast_pool : ASTPool,
     pub(crate) pattern_pool : PatternPool,
     pub(crate) list_node_pool : ListPool,
-    pub(crate) type_aliases : FxHashMap<StringRef, Type>,
+    pub(crate) type_aliases : IntMap<StringRef, Type>,
 
     pub(crate) is_debug_print : bool,
     pub(crate) self_profiler : Option<Profiler>, // TODO : box this to lower the size of the struct ?
@@ -42,7 +43,7 @@ impl RustamlContext {
             ast_pool: ASTPool::new(),
             pattern_pool: PatternPool::new(),
             list_node_pool: ListPool::new(),
-            type_aliases: FxHashMap::default(),
+            type_aliases: IntMap::default(),
             is_debug_print,
             self_profiler: if self_profile {
                 Some(Profiler::new())

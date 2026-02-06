@@ -701,6 +701,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "nohash"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0f889fb66f7acdf83442c35775764b51fed3c606ab9cee51500dbde2cf528ca"
+
+[[package]]
 name = "ntapi"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -964,6 +970,7 @@ dependencies = [
  "libloading",
  "macro_static_str_to_char",
  "mangler",
+ "nohash",
  "pathbuf",
  "petgraph",
  "rand",
