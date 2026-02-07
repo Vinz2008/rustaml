@@ -5,7 +5,7 @@ use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engin
 use libloading::Library;
 use nohash::{IntMap, IntSet};
 
-use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{CompileContext, JITCompileContext, cast::cast_val, compile_function, compiler_utils::{add_function, get_fn_type, get_type_tag, get_void_val}, debuginfo::DebugInfo, get_var_id, linker::STD_C_CONTENT}, interpreter::{FunctionBody, FunctionDef, InterpretContext, List, STD_FUNCTIONS, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
+use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{CompileContext, JITCompileContext, cast::cast_val, compile_function, compiler_utils::{add_function, get_fn_type, get_type_tag, get_void_val}, debuginfo::DebugInfo, get_var_id, linker::STD_C_CONTENT}, interpreter::{ArgsVec, FunctionBody, FunctionDef, InterpretContext, List, STD_FUNCTIONS, Val}, rustaml::RustamlContext, string_intern::StringRef, types::TypeInfos};
 
 #[cfg(feature = "debug-llvm")]
 use inkwell::support::LLVMString;
@@ -518,7 +518,7 @@ struct ListNode; // list node opaque
 type WrapReturnFN = unsafe extern "C" fn(*const ListNode) -> *const JitWrappedList;
 
 
-pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val>) -> Val {
+pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &FunctionDef, args_val : ArgsVec) -> Val {
     let function_def_ast = func_def.function_def_ast.unwrap();
 
 

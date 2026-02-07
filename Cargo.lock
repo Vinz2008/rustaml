@@ -979,6 +979,7 @@ dependencies = [
  "rustyline",
  "serde",
  "serde_json",
+ "smallvec",
  "stacker",
 ]
 

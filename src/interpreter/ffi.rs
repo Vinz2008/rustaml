@@ -1,6 +1,6 @@
 use std::{ffi::{CStr, CString, c_char}, mem::{ManuallyDrop, MaybeUninit}, ops::Deref, os::raw::c_void, panic::{AssertUnwindSafe, catch_unwind}, ptr, rc::Rc};
 
-use crate::{ast::{CType, ExternLang, Type}, interpreter::{call_function, FunctionBody, FunctionDef, InterpretContext, Val}, mangle::mangle_name_external, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{CType, ExternLang, Type}, interpreter::{ArgsVec, FunctionBody, FunctionDef, InterpretContext, Val, call_function}, mangle::mangle_name_external, rustaml::RustamlContext, string_intern::StringRef};
 
 use debug_with_context::{DebugWithContext, DebugWrapContext};
 use libffi::{low::CodePtr, middle::{Arg, Cif, Closure, Type as FFIType}, raw::ffi_cif};
@@ -210,7 +210,7 @@ unsafe extern "C" fn function_ptr_trampoline(cif: &ffi_cif, result : &mut c_void
             };
             //dbg!(arg_types);
 
-            let args_val = args.into_iter().zip(arg_types).map(|(i, arg_type)| get_val_from_arg(context.rustaml_context, i, &arg_type)).collect::<Vec<_>>();
+            let args_val = args.into_iter().zip(arg_types).map(|(i, arg_type)| get_val_from_arg(context.rustaml_context, i, &arg_type)).collect::<ArgsVec>();
 
             let res_val = call_function(context, func_def, args_val);
 
@@ -483,12 +483,12 @@ pub(crate) fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFI
                 let func_ptr : *const c_void = ffi_func.cif.call(ffi_func.code_ptr, &args);
                 let ret_type_ffi = get_ffi_type(ret_type.as_ref());
                 let arg_types = arg_types.iter().map(get_ffi_type).collect::<Vec<_>>();
-                Val::Function(FunctionDef::new_ffi(context, FFIFunc { 
+                Val::Function(Rc::new(FunctionDef::new_ffi(context, FFIFunc { 
                     _lib: None, 
                     code_ptr: CodePtr::from_ptr(func_ptr), 
                     cif: Cif::new(arg_types, ret_type_ffi), 
                     ret_type: ret_type.as_ref().to_owned() 
-                }))
+                })))
             },
             Type::CType(c_type) => match c_type {
                 CType::U8 => {

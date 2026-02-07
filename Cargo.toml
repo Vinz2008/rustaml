@@ -22,6 +22,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 regex = "1.12.2"
 macro_static_str_to_char = "0.1.0"
 nohash = "0.2.0"
+smallvec = { version = "1.15.1", features = ["union"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 libffi = "5.1.0"
@@ -38,8 +39,8 @@ blake3 = { version = "1.8.2", optional = true }
 [profile.release]
 lto = "fat"
 panic = "abort"
-strip = "debuginfo"
-#debug = "full"
+#strip = "debuginfo"
+debug = "full"
 
 # TODO : add some features to default features (or even remove them after enabling them by default)
 

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::{ops::Range, path::Path};
 use std::fmt::{Debug, Display, Write};
 
+use macro_static_str_to_char::str_to_char;
 use rustc_hash::FxHashSet;
 
 use enum_tags::{Tag, TaggedEnum};
@@ -531,7 +532,7 @@ fn parse_float(parser: &mut Parser, nb: f64, range : Range<usize>) -> ASTRef {
 }
 
 fn parse_string(parser: &mut Parser, buf : &[char], range : Range<usize>) -> ASTRef {
-    parser.rustaml_context.ast_pool.push(ASTNode::String { str: parser.rustaml_context.str_interner.intern_compiler(&buf.iter().collect::<String>()) }, range)
+    parser.rustaml_context.ast_pool.push(ASTNode::String { str: parser.rustaml_context.str_interner.intern_compiler_owned(buf.iter().collect::<String>()) }, range)
 }
 
 
@@ -542,21 +543,21 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
     //dbg!(&tok);
     match &tok.tok_data {
         TokenData::Identifier(b) => {
-            let type_annot = match b.iter().collect::<String>().as_str() {
-                "int" => Type::Integer,
-                "bool" => Type::Bool,
-                "float" => Type::Float,
-                "char" => Type::Char,
-                "regex" => Type::Regex,
-                "str" => Type::Str,
-                "list" => {
+            let type_annot = match b.as_ref() {
+                str_to_char!("int") => Type::Integer,
+                str_to_char!("bool") => Type::Bool,
+                str_to_char!("float") => Type::Float,
+                str_to_char!("char") => Type::Char,
+                str_to_char!("regex") => Type::Regex,
+                str_to_char!("str") => Type::Str,
+                str_to_char!("list") => {
                     parser.eat_tok(Some(TokenDataTag::ArrayOpen))?;
                     let (elem_type, _) = parse_annotation_simple(parser)?; // TODO : replace with parse_annotation to have access to more complicated types ?
                     let array_close_tok = parser.eat_tok(Some(TokenDataTag::ArrayClose))?;
                     let type_annot = Type::List(Box::new(elem_type));
                     return Ok((type_annot, array_close_tok.range.end));
                 },
-                "vec" => {
+                str_to_char!("vec") => {
                     parser.eat_tok(Some(TokenDataTag::ArrayOpen))?;
                     let (elem_type, _) = parse_annotation_simple(parser)?; // TODO : verify if the elem_type in the type checking (or in check.rs ?) and also validate types that can be used with vectors
                     parser.eat_tok(Some(TokenDataTag::Comma))?;
@@ -570,7 +571,7 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
                     let type_annot = Type::Vec(Box::new(elem_type), vec_size);
                     return Ok((type_annot, array_close_tok.range.end));
                 },
-                "c_type" => {
+                str_to_char!("c_type") => {
                     parser.eat_tok(Some(TokenDataTag::Dot))?;
                     let c_type_name_tok = parser.eat_tok(Some(TokenDataTag::Identifier))?;
                     let c_type_name = match c_type_name_tok.tok_data {
@@ -595,9 +596,10 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
 
                     return Ok((Type::CType(c_type) , c_type_name_tok.range.end))
                 }
-                s => {
-                    if parser.rustaml_context.str_interner.is_str_present(s){ 
-                        let s = parser.rustaml_context.str_interner.intern_compiler(s);
+                _ => {
+                    let s = b.into_iter().collect::<String>();
+                    if parser.rustaml_context.str_interner.is_str_present(&s){ 
+                        let s = parser.rustaml_context.str_interner.intern_compiler(&s);
                         if let Some(t) = parser.rustaml_context.type_aliases.get(&s) {
                             return Ok((t.clone(), tok.range.end));
                         }
@@ -620,12 +622,14 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
         },
         TokenData::Apostrophe => {
             let identifier_generic = parser.eat_tok(Some(TokenDataTag::Identifier))?;
-            let type_generic = match identifier_generic.tok_data {
-                TokenData::Identifier(i) => i.iter().collect::<String>(),
+            let first_c = match identifier_generic.tok_data {
+                TokenData::Identifier(i) => {
+                    assert!(i.len() == 1); // TODO : better error handling
+                    *i.first().unwrap()
+                },
                 _ => unreachable!(),
             };
-            assert!(type_generic.len() == 1); // TODO : better error handling
-            let first_c = type_generic.chars().next().unwrap();
+
             assert!(first_c.is_alphabetic());
             let gen_nb = (first_c as u32) - ('a' as u32);
             Ok((Type::Generic(gen_nb), identifier_generic.range.end))
@@ -730,14 +734,14 @@ fn parse_type_alias(parser : &mut Parser) -> Result<ASTRef, ParserErr> {
 fn parse_let(parser: &mut Parser, let_range_start : usize) -> Result<ASTRef, ParserErr> {
     let name_tok = parser.eat_tok(Some(TokenDataTag::Identifier))?;
     let name = match name_tok.tok_data {
-        TokenData::Identifier(s) => parser.rustaml_context.str_interner.intern_compiler(&s.iter().collect::<String>()),
+        TokenData::Identifier(s) => parser.rustaml_context.str_interner.intern_compiler_owned(s.iter().collect::<String>()),
         _ => unreachable!(),
     };
     let mut end_range;
     let node = if matches!(parser.current_tok_data(), Some(TokenData::Identifier(_))) {
         // function definition
         let mut arg_names = Vec::new();
-        let mut arg_ranges = Vec::new();
+        let mut last_range = None;
         while matches!(parser.current_tok_data(), Some(TokenData::Identifier(_))) {
             let arg_identifier = parser.eat_tok(Some(TokenDataTag::Identifier)).unwrap();
             let arg_name = match arg_identifier.tok_data {
@@ -745,12 +749,12 @@ fn parse_let(parser: &mut Parser, let_range_start : usize) -> Result<ASTRef, Par
                 _ => unreachable!(),
             };
 
-            arg_ranges.push(arg_identifier.range);
+            last_range = Some(arg_identifier.range);
 
             arg_names.push(arg_name);
         }
 
-        let function_type_range_start = arg_ranges.last().unwrap().end;
+        let function_type_range_start = last_range.unwrap().end; // unwrap because last_range will always be some
 
         let function_type = match parser.current_tok_data() {
             Some(TokenData::Colon) => {
@@ -891,10 +895,10 @@ fn parse_function_call(parser: &mut Parser, mut callee : ASTRef) -> Result<ASTRe
 }
 
 fn parse_identifier_expr(parser: &mut Parser, identifier_buf : &[char], identifier_range : Range<usize>) -> Result<ASTRef, ParserErr> {
-    let s = identifier_buf.iter().collect::<String>();
-    if s == "vec" {
+    if identifier_buf == str_to_char!("vec") {
         return parse_static_vec(parser, identifier_range.start); 
     }
+    let s = identifier_buf.iter().collect::<String>();
     let identifier = parser.rustaml_context.str_interner.intern_compiler(&s);
     for t in parser.rustaml_context.type_aliases.values() {
         match t {
@@ -978,7 +982,7 @@ fn parse_integer_pattern(parser : &mut Parser, token : &Token) -> Result<(i64, u
     }
 }
 
-fn is_a_variant(parser : &mut Parser, name : &str) -> bool {
+fn is_a_variant(parser : &Parser, name : &str) -> bool {
     for t in parser.rustaml_context.type_aliases.values() {
         match t {
             Type::SumType(s) => {
@@ -1000,12 +1004,13 @@ fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
 
     let (mut pattern, mut range) = match pattern_tok.tok_data {
         TokenData::Identifier(buf) => {
-            let s = buf.iter().collect::<String>();
-            let p = match s.as_str() {
-                "_" => Pattern::Underscore,
-                s_ref => {
-                    let interned_str = parser.rustaml_context.str_interner.intern_compiler(s_ref);
-                    if is_a_variant(parser, s_ref) {
+            
+            let p = match buf.as_ref() {
+                str_to_char!("_") => Pattern::Underscore,
+                _ => {
+                    let s = buf.iter().collect::<String>();
+                    let interned_str = parser.rustaml_context.str_interner.intern_compiler_owned(s);
+                    if is_a_variant(parser, interned_str.get_str(&parser.rustaml_context.str_interner)) {
                         Pattern::SumTypeVariant(interned_str)
                     } else {
                         Pattern::VarName(interned_str)
@@ -1035,7 +1040,7 @@ fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
         TokenData::Float(nb) => (Pattern::Float(nb), pattern_first_tok_range),
         TokenData::True => (Pattern::Bool(true) , pattern_first_tok_range),
         TokenData::False => (Pattern::Bool(false), pattern_first_tok_range),
-        TokenData::String(s) => (Pattern::String(parser.rustaml_context.str_interner.intern_compiler(&s.iter().collect::<String>())), pattern_first_tok_range),
+        TokenData::String(s) => (Pattern::String(parser.rustaml_context.str_interner.intern_compiler_owned(s.iter().collect::<String>())), pattern_first_tok_range),
         TokenData::ArrayOpen => {
             let (elems, range_end) = parse_list_form(parser, parse_pattern)?;
 
@@ -1130,7 +1135,6 @@ fn parse_static_vec(parser : &mut Parser, vec_open_start : usize) -> Result<ASTR
 
 fn parse_anonymous_function(parser: &mut Parser, function_range_start : usize) -> Result<ASTRef, ParserErr> {
     let mut arg_names = Vec::new();
-    let mut arg_ranges = Vec::new();
     while matches!(parser.current_tok_data(), Some(TokenData::Identifier(_))) {
         let arg_identifier = parser.eat_tok(Some(TokenDataTag::Identifier)).unwrap();
         let arg_name = match arg_identifier.tok_data {
@@ -1138,9 +1142,7 @@ fn parse_anonymous_function(parser: &mut Parser, function_range_start : usize) -
             _ => unreachable!(),
         };
 
-        arg_ranges.push(arg_identifier.range);
-
-        arg_names.push(parser.rustaml_context.str_interner.intern_compiler(&arg_name));
+        arg_names.push(parser.rustaml_context.str_interner.intern_compiler_owned(arg_name));
     }
 
     let function_type = match parser.current_tok_data() {
@@ -1188,15 +1190,15 @@ fn parse_unary_op(parser: &mut Parser, op : Operator, unary_range_start : usize)
 
 fn parse_extern_func(parser: &mut Parser, extern_range_start : usize) -> Result<ASTRef, ParserErr> {
     let str_lang_tok = parser.eat_tok(Some(TokenDataTag::String))?;
-    let s = match str_lang_tok.tok_data {
-        TokenData::String(s) => s.into_iter().collect::<String>(),
+    let lang_buf = match str_lang_tok.tok_data {
+        TokenData::String(s) => s,
         _ => unreachable!(),
     };
 
-    let extern_lang = match s.as_str() {
-        "C" => ExternLang::C,
-        "C++" | "Cpp" => ExternLang::Cpp,
-        _ => panic!("Unknown lang in extern function {}", s), // TODO : better error handling
+    let extern_lang = match lang_buf.as_ref() {
+        str_to_char!("C") => ExternLang::C,
+        str_to_char!("C++") | str_to_char!("Cpp") => ExternLang::Cpp,
+        _ => panic!("Unknown lang in extern function {}", lang_buf.into_iter().collect::<String>()), // TODO : better error handling
     };
 
     parser.eat_tok(Some(TokenDataTag::Function))?;
@@ -1218,7 +1220,7 @@ fn parse_extern_func(parser: &mut Parser, extern_range_start : usize) -> Result<
         let so_str_tok = parser.eat_tok(None)?;
         so_str = match so_str_tok.tok_data {
             TokenData::String(s) => {
-                let s = parser.rustaml_context.str_interner.intern_compiler(&s.iter().collect::<String>());
+                let s = parser.rustaml_context.str_interner.intern_compiler_owned(s.iter().collect::<String>());
                 Some(s)
             },
             _ => unreachable!(),
@@ -1232,7 +1234,7 @@ fn parse_extern_func(parser: &mut Parser, extern_range_start : usize) -> Result<
     }
 
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::ExternFunc { 
-        name: parser.rustaml_context.str_interner.intern_compiler(&func_name), 
+        name: parser.rustaml_context.str_interner.intern_compiler_owned(func_name), 
         type_annotation, 
         lang: extern_lang,
         so_str,

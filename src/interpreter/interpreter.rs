@@ -1,10 +1,12 @@
 use nohash::IntMap;
 use regex::Regex;
+use smallvec::SmallVec;
+use smallvec::smallvec;
 use std::cmp::max;
 use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
-use std::mem;
-use std::panic;
+use std::rc::Rc;
+use std::{mem, panic};
 use debug_with_context::DebugWithContext;
 use rand::prelude::*;
 
@@ -399,6 +401,10 @@ pub(crate) struct VecVal {
     vec : Box<[Val]>,
 }
 
+
+// TODO : instead of boxed function def and regex, use Refs to a pool ?
+// TODO : also pooled vecs ? or only for non inlined (see the TODO on top of the VecVal struct)
+
 #[derive(Clone, PartialEq, DebugWithContext)]
 #[debug_context(RustamlContext)]
 pub(crate) enum Val {
@@ -408,9 +414,9 @@ pub(crate) enum Val {
     String(StringRef),
     Char(char),
     List(ListRef),
-    Function(FunctionDef),
+    Function(Rc<FunctionDef>),
     SumType(SumTypeVal),
-    Regex(RegexWrapper),
+    Regex(Box<RegexWrapper>),
     Vec(VecVal),
     Unit,
 }
@@ -425,6 +431,8 @@ impl PartialOrd for Val {
         }
     }
 }
+
+pub(crate) type ArgsVec = SmallVec<[Val; 4]>;
 
 pub(crate) struct ValWrapDisplay<'a> {
     val : &'a Val,
@@ -971,7 +979,7 @@ fn interpret_map(context: &mut InterpretContext, list_val : Val, fun_val : Val) 
     
     // TODO : create a function which will be another new_from to create from a val slice to not go throught the whole list at each append ?
     for v in vals.into_iter().rev() {
-        let new_val = call_function(context, &fun_val, vec![v]);
+        let new_val = call_function(context, &fun_val, smallvec![v]);
         new_list_ref = list_push_start(&mut context.rustaml_context.list_node_pool, new_val, new_list_ref);
     }
 
@@ -1005,7 +1013,7 @@ fn interpret_filter(context: &mut InterpretContext, list_val : Val, fun_val : Va
 
     // TODO : create a function which will be another new_from to create from a val slice to not go throught the whole list at each append ?
     for v in vals.into_iter().rev() {
-        let should_append = call_function(context, &fun_val, vec![v.clone()]);
+        let should_append = call_function(context, &fun_val, smallvec![v.clone()]);
         let should_append_bool = match should_append {
             Val::Bool(b) => b,
             _ => unreachable!(),
@@ -1040,7 +1048,7 @@ fn interpret_regex_create(context : &InterpretContext, str : Val) -> Val {
         Ok(re) => re,
         Err(e) => runtime_error(&format!("Error when creating regex : {}", e)),
     };
-    Val::Regex(re)
+    Val::Regex(Box::new(re))
 }
 
 fn interpret_regex_has_match(context : &InterpretContext, re : Val, str : Val) -> Val {
@@ -1069,7 +1077,7 @@ pub(crate) const STD_FUNCTIONS : &[&str] = &[
     "black_box",
 ];
 
-fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args_val : Vec<Val>) -> Val {
+fn interpret_std_function(context: &mut InterpretContext, name : StringRef, args_val : ArgsVec) -> Val {
     // TODO : better error handling for wrong nb of args
     match name.get_str(&context.rustaml_context.str_interner) {
         "print" => {
@@ -1149,7 +1157,7 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_bo
 
 // TODO : try to have smallvec for vecs of args that are reused a lot (or have vec in the context that is reused by calling reset ?)
 
-pub(crate) fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : Vec<Val>) -> Val {
+pub(crate) fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : ArgsVec) -> Val {
     match &func_def.body {
         FunctionBody::Ast(a) => {
             cfg_if! {
@@ -1203,7 +1211,7 @@ pub(crate) fn call_function(context: &mut InterpretContext, func_def : &Function
 
 fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args : &[ASTRef]) -> Val {
 
-    let args_val = args.iter().map(|e| interpret_node(context, *e)).collect::<Vec<_>>();
+    let args_val = args.iter().map(|e| interpret_node(context, *e)).collect::<ArgsVec>();
 
     if let ASTNode::VarUse { name } = callee.get(&context.rustaml_context.ast_pool) 
             && STD_FUNCTIONS.contains(&name.get_str(&context.rustaml_context.str_interner)){
@@ -1457,7 +1465,7 @@ pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val
                 body: FunctionBody::Ast(body),
                 function_def_ast: Some(ast),
             };
-            context.vars.insert(name, Val::Function(func_def));
+            context.vars.insert(name, Val::Function(Rc::new(func_def)));
             //context.functions.insert(name, func_def);
             Val::Unit
         },
@@ -1468,7 +1476,7 @@ pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val
                 body: FunctionBody::Ast(body),
                 function_def_ast: Some(ast),
             };
-            Val::Function(func_def)
+            Val::Function(Rc::new(func_def))
         }
         ASTNode::ExternFunc { name, type_annotation, lang, so_str } => {
             //call_function_ffi(context, name, type_annotation, lang)
@@ -1479,7 +1487,7 @@ pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val
                 body: FunctionBody::Ffi(ffi_fun),
                 function_def_ast: Some(ast),
             };
-            context.vars.insert(name, Val::Function(func_def));
+            context.vars.insert(name, Val::Function(Rc::new(func_def)));
             Val::Unit
         }
         ASTNode::Float { nb } => Val::Float(nb),

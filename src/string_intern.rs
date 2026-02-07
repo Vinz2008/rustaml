@@ -1,4 +1,4 @@
-use std::{cmp::max, fmt, hash::Hash};
+use std::{borrow::Cow, cmp::max, fmt, hash::Hash};
 
 use rustc_hash::FxHashMap;
 
@@ -102,30 +102,40 @@ impl StrInterner {
         }
     }
 
-    fn intern(&mut self, name : &str, is_runtime : bool) -> StringRef {
+    fn intern<'a>(&mut self, name : Cow<'a, str>, is_runtime : bool) -> StringRef {
 
-        if let Some(idx) = self.map.get(name) {
+        if let Some(idx) = self.map.get(name.as_ref()) {
             return StringRef(*idx);
         }
 
+        let name_str = name.into_owned();
+
         let idx = self.strs.len() as u32;
-        self.map.insert(name.to_owned(), idx);
+        self.map.insert(name_str.clone(), idx);
         let intern_str = if is_runtime {
-            StrInterned::Runtime(Some(Gc::new(name.to_owned())))
+            StrInterned::Runtime(Some(Gc::new(name_str)))
         } else {
-            StrInterned::Compiler(name.to_owned())
+            StrInterned::Compiler(name_str)
         };
         self.strs.push(intern_str);
 
         StringRef(idx)
     }
 
+    pub(crate) fn intern_compiler_owned(&mut self, name : String) -> StringRef {
+        self.intern(Cow::Owned(name), false)
+    }
+
+    fn intern_runtime_owned(&mut self, name : String) -> StringRef {
+        self.intern(Cow::Owned(name), true)
+    }
+
     pub(crate) fn intern_compiler(&mut self, name : &str) -> StringRef {
-        self.intern(name, false)
+        self.intern(Cow::Borrowed(name), false)
     }
 
     pub(crate) fn intern_runtime(&mut self, name : &str) -> StringRef {
-        self.intern(name, true)
+        self.intern(Cow::Borrowed(name), true)
     }
 
     fn lookup_interned(&self, idx : StringRef) -> &StrInterned {
