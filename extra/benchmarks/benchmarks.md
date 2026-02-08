@@ -51,7 +51,7 @@ Java : TODO
 
 
 Finding all prime numbers up to 15,000  
-rustaml interpreter : 244.345s  
+rustaml interpreter : 248.594s  
 rustaml interpreter with JIT : 371.6ms  
 rustaml compiler -O0 : 413.8ms  
 rustaml compiler -O3 : 145.2ms  

@@ -12,6 +12,7 @@ use rand::prelude::*;
 
 use crate::ast::ASTRef;
 use crate::ast::PatternRef;
+use crate::ast::TypeTag;
 use crate::debug_println;
 
 use crate::interpreter::gc::{try_gc_collect, Gc, GcContext};
@@ -800,12 +801,12 @@ fn interpret_binop_vec(context: &mut InterpretContext, op : Operator, lhs_val : 
 
 fn interpret_binop_val(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     match op.get_res_type() {
-        Type::Integer => interpret_binop_int(op, lhs_val, rhs_val),
-        Type::Float => interpret_binop_float(op, lhs_val, rhs_val),
-        Type::Bool => interpret_binop_bool(op, lhs_val, rhs_val),
-        Type::Str => interpret_binop_str(context, op, lhs_val, rhs_val),
-        Type::List(_) => interpret_binop_list(context, op, lhs_val, rhs_val),
-        Type::Vec(_, _) => interpret_binop_vec(context, op, lhs_val, rhs_val),
+        TypeTag::Integer => interpret_binop_int(op, lhs_val, rhs_val),
+        TypeTag::Float => interpret_binop_float(op, lhs_val, rhs_val),
+        TypeTag::Bool => interpret_binop_bool(op, lhs_val, rhs_val),
+        TypeTag::Str => interpret_binop_str(context, op, lhs_val, rhs_val),
+        TypeTag::List => interpret_binop_list(context, op, lhs_val, rhs_val),
+        TypeTag::Vec => interpret_binop_vec(context, op, lhs_val, rhs_val),
         _ => unreachable!(),
     }
 

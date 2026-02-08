@@ -2,7 +2,7 @@ use core::panic;
 use std::{cell::Cell, fs, hash::{Hash, Hasher}, ops::Range, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use nohash::{IntMap, IntSet};
-use crate::{ast::{ASTNode, ASTRef, CType, Type}, compiler::{cast::cast_val, compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_variant_tag, get_void_val, move_bb_after_current, promote_val_var_arg, vec_to_c_struct_ptr}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}, linker::link_exe}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, CType, Type, TypeTag}, compiler::{cast::cast_val, compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_variant_tag, get_void_val, move_bb_after_current, promote_val_var_arg, vec_to_c_struct_ptr}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}, linker::link_exe}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue, ValueKind}};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHasher};
@@ -1241,12 +1241,12 @@ fn compile_binop<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>,
     let lhs_type = lhs.get_type(&compile_context.rustaml_context.ast_pool).clone();
 
     match op.get_res_type() {
-        Type::Integer => compile_binop_int(compile_context, op, lhs_val, rhs_val, &name, range).into(),
-        Type::Float => compile_binop_float(compile_context, op, lhs_val, rhs_val, &name).into(),
-        Type::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, &lhs_type, &name).into(),
-        Type::Str => compile_binop_str(compile_context, op, lhs_val, rhs_val, &name),
-        Type::List(_) => compile_binop_list(compile_context, op, lhs_val, rhs_val, &lhs_type),
-        Type::Vec(_, _) => compile_binop_vec(compile_context, op, lhs_val, rhs_val),
+        TypeTag::Integer => compile_binop_int(compile_context, op, lhs_val, rhs_val, &name, range).into(),
+        TypeTag::Float => compile_binop_float(compile_context, op, lhs_val, rhs_val, &name).into(),
+        TypeTag::Bool => compile_binop_bool(compile_context, op, lhs_val, rhs_val, &lhs_type, &name).into(),
+        TypeTag::Str => compile_binop_str(compile_context, op, lhs_val, rhs_val, &name),
+        TypeTag::List => compile_binop_list(compile_context, op, lhs_val, rhs_val, &lhs_type),
+        TypeTag::Vec => compile_binop_vec(compile_context, op, lhs_val, rhs_val),
         _ => unreachable!(),
     }
 }

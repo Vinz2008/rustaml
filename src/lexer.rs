@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::{ast::Type, debug_println, rustaml::RustamlContext, types_debug::PrintTypedContext};
+use crate::{ast::TypeTag, debug_println, rustaml::RustamlContext, types_debug::PrintTypedContext};
 
 use debug_with_context::DebugWithContext;
 use enum_tags::Tag;
@@ -39,17 +39,20 @@ pub(crate) enum Operator {
     DivVec // /| 
 }
 
+
 impl Operator {
     pub(crate) const OPERATORS: [&'static str; 26] = ["+", "-", "*", "/", "%", "+.", "-.", "*.", "/.", "%.", "+|", "-|", "*|", "/|", "==", "!=", ">=", "<=", ">", "<", "&&", "||", "^", "::", "!", "@"];
     pub(crate) const OPERATORS_COUNT : usize = Operator::OPERATORS.len();
-    pub(crate) fn get_res_type(&self) -> Type {
+    
+    // this is used heavily in the interpreter, so this is heavily optimized
+    pub(crate) fn get_res_type(&self) -> TypeTag {
         match self {
-            Self::Plus | Self::Minus | Self::Mult | Self::Div | Self::Rem => Type::Integer,
-            Self::PlusFloat | Self::MinusFloat | Self::MultFloat | Self::DivFloat | Self::RemFloat => Type::Float,
-            Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior | Self::Or | Self::And => Type::Bool,
-            Self::StrAppend => Type::Str,
-            Self::ListAppend | Self::ListMerge => Type::List(Box::new(Type::Any)),
-            Self::PlusVec | Self::MinusVec | Self::MultVec | Self::DivVec => Type::Vec(Box::new(Type::Any), 0),
+            Self::Plus | Self::Minus | Self::Mult | Self::Div | Self::Rem => TypeTag::Integer,
+            Self::PlusFloat | Self::MinusFloat | Self::MultFloat | Self::DivFloat | Self::RemFloat => TypeTag::Float,
+            Self::IsEqual | Self::IsNotEqual | Self::SuperiorOrEqual | Self::InferiorOrEqual | Self::Superior | Self::Inferior | Self::Or | Self::And => TypeTag::Bool,
+            Self::StrAppend => TypeTag::Str,
+            Self::ListAppend | Self::ListMerge => TypeTag::List,
+            Self::PlusVec | Self::MinusVec | Self::MultVec | Self::DivVec => TypeTag::Vec,
             Self::Not => unreachable!(),
         }
     }

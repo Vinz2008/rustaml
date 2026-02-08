@@ -126,10 +126,6 @@ impl StrInterner {
         self.intern(Cow::Owned(name), false)
     }
 
-    fn intern_runtime_owned(&mut self, name : String) -> StringRef {
-        self.intern(Cow::Owned(name), true)
-    }
-
     pub(crate) fn intern_compiler(&mut self, name : &str) -> StringRef {
         self.intern(Cow::Borrowed(name), false)
     }
