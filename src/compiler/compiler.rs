@@ -654,7 +654,7 @@ fn compile_regex_has_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '
 }
 
 // TODO : generate a monomorphized black_box function to not have a lot of junk stack allocations because of it in the function ?
-fn compile_black_box<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, arg : BasicValueEnum<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
+fn compile_black_box<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, arg : BasicValueEnum<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
     let arg_llvm_type = arg.get_type();
     let buf_ptr = create_entry_block_alloca(compile_context, "buf_blackbox", arg_llvm_type.as_any_type_enum());
     
@@ -959,7 +959,7 @@ fn compile_binop_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_c
     
 }
 
-fn compile_binop_float<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, op : Operator, lhs_val : BasicValueEnum<'llvm_ctx>, rhs_val : BasicValueEnum<'llvm_ctx>, name : &str) -> FloatValue<'llvm_ctx>{
+fn compile_binop_float<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, op : Operator, lhs_val : BasicValueEnum<'llvm_ctx>, rhs_val : BasicValueEnum<'llvm_ctx>, name : &str) -> FloatValue<'llvm_ctx>{
     match (lhs_val, rhs_val){
         (BasicValueEnum::FloatValue(f),  BasicValueEnum::FloatValue(f2)) => {
             match op {
@@ -1058,7 +1058,7 @@ fn compile_binop_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_
     }
 }
 
-fn compile_binop_vec<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, op : Operator, lhs_val : BasicValueEnum<'llvm_ctx>, rhs_val : BasicValueEnum<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
+fn compile_binop_vec<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, op : Operator, lhs_val : BasicValueEnum<'llvm_ctx>, rhs_val : BasicValueEnum<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
     let lhs_vec = lhs_val.into_vector_value();
     let rhs_vec = rhs_val.into_vector_value();
     let vec_element_type = lhs_vec.get_type().get_element_type();
@@ -1488,7 +1488,7 @@ fn compile_cast<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, 
     cast_val(compile_context, start_val, &start_type, to_type)
 }
 
-fn compile_variant<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, name : StringRef, _arg : Option<ASTRef>) -> BasicValueEnum<'llvm_ctx> {
+fn compile_variant<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, name : StringRef, _arg : Option<ASTRef>) -> BasicValueEnum<'llvm_ctx> {
     let variant_nb = get_variant_tag(compile_context.rustaml_context, name);
     create_int(compile_context, variant_nb as i128).into()
 }
@@ -1498,7 +1498,7 @@ pub(crate) fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '
     
     // TODO : simplify this with an helper function ?
     
-    compile_context.debug_info.create_debug_location(&compile_context.context, &compile_context.builder, compile_context.rustaml_context.content.as_ref().unwrap(), range.clone());
+    compile_context.debug_info.create_debug_location(compile_context.context, &compile_context.builder, compile_context.rustaml_context.content.as_ref().unwrap(), range.clone());
     
     match ast_node.get(&compile_context.rustaml_context.ast_pool).clone(){
         ASTNode::Integer { nb } => create_int(compile_context, nb).as_basic_value_enum().into(), // TODO : sign extend or not ?

@@ -75,7 +75,7 @@ pub(crate) fn get_jit_entry_function_type<'llvm_ctx>(llvm_context : &'llvm_ctx C
     get_fn_type(llvm_context, value_struct.into(), &[llvm_context.ptr_type(AddressSpace::default()).into()], false)
 }
 
-fn jit_wrap_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val : BasicValueEnum<'llvm_ctx>, val_type : &Type) -> StructValue<'llvm_ctx> {
+fn jit_wrap_val<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, val : BasicValueEnum<'llvm_ctx>, val_type : &Type) -> StructValue<'llvm_ctx> {
     let value_struct_ty = get_value_struct_type(compile_context.context);
     let type_tag = get_type_tag(val_type);
     let i64_type = compile_context.context.i64_type();
@@ -109,7 +109,7 @@ fn jit_unwrap_list_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm
             compile_context.context.ptr_type(AddressSpace::default()).into()
         ], false);
         let jit_list_init_fun = add_function(compile_context, "__list_node_jit_unwrap_val", fun_type, Some(Linkage::External));
-        *&mut compile_context.jit_compile_context.as_mut().unwrap().jit_list_unwrap_fun = Some(jit_list_init_fun);
+        compile_context.jit_compile_context.as_mut().unwrap().jit_list_unwrap_fun = Some(jit_list_init_fun);
         jit_list_init_fun
     };
     let as_ptr = compile_context.builder.build_int_to_ptr(val_data, compile_context.context.ptr_type(AddressSpace::default()), "to_ptr").unwrap();
@@ -183,7 +183,7 @@ fn generate_jit_fun_wrapper<'llvm_ctx>(compile_context: &mut CompileContext<'_, 
     compile_context.builder.build_return(Some(&wrapped_res)).unwrap();
 }
 
-fn get_shared_library_std<'llvm_ctx>(context : &mut InterpretContext) -> Library {
+fn get_shared_library_std() -> Library {
     // TODO : save the library in the JitContext
     let temp_folder = std::env::temp_dir();
     let std_so = temp_folder.join("std.so");
@@ -365,7 +365,7 @@ struct JitWrappedList {
     len : u64,
 }
 
-fn create_jit_value<'llvm_ctx>(rustaml_context : &RustamlContext, val : Val) -> JITValue {
+fn create_jit_value(rustaml_context : &RustamlContext, val : Val) -> JITValue {
     let (tag, data) = match val {
         Val::Integer(i) => (JITValueTag::Integer, i as u64),
         Val::Float(f) => (JITValueTag::Float, f.to_bits()),
@@ -375,7 +375,7 @@ fn create_jit_value<'llvm_ctx>(rustaml_context : &RustamlContext, val : Val) -> 
             let ptr = s.get_str(&rustaml_context.str_interner).as_ptr();
             (JITValueTag::Str, ptr as u64)
         },
-        Val::Unit => (JITValueTag::Unit, 0 as u64),
+        Val::Unit => (JITValueTag::Unit, 0),
         Val::List(l) => {
             // TODO : not copy it ? (traverse it in the wrapper ? is it even possible ?)
             let len = l.get(&rustaml_context.list_node_pool).len(&rustaml_context.list_node_pool);
@@ -433,7 +433,9 @@ fn _find_functions_used(context: &InterpretContext, ast : ASTRef, v : &mut IntSe
         ASTNode::UnaryOp { op: _, expr } => _find_functions_used(context, *expr, v),
         ASTNode::VarDecl { name: _, val, body, var_type: _ } => {
             _find_functions_used(context, *val, v);
-            body.as_ref().map(|e| _find_functions_used(context, *e, v));
+            if let Some(e) = body.as_ref() {
+                _find_functions_used(context, *e, v);
+            }
         }
         ASTNode::Vec { vec } => vec.iter().for_each(|e| _find_functions_used(context, *e, v)),
         ASTNode::TopLevel { .. } | ASTNode::ExternFunc { .. } | ASTNode::TypeAlias { .. } => unreachable!(), // these top level nodes can't be in the body of a function
@@ -444,7 +446,7 @@ fn _find_functions_used(context: &InterpretContext, ast : ASTRef, v : &mut IntSe
 }
 
 // get functions used in the function that need to be compiled
-fn _get_functions_to_compile(context: &mut InterpretContext, func_def : &FunctionDef, res : &mut IntSet<StringRef>) {
+fn _get_functions_to_compile(context: &InterpretContext, func_def : &FunctionDef, res : &mut IntSet<StringRef>) {
     if res.contains(&func_def.name){
         return;
     }
@@ -478,7 +480,7 @@ fn _get_functions_to_compile(context: &mut InterpretContext, func_def : &Functio
 
 }
 
-fn get_functions_to_compile(context: &mut InterpretContext, func_def : &FunctionDef) -> Vec<StringRef> {
+fn get_functions_to_compile(context: &InterpretContext, func_def : &FunctionDef) -> Vec<StringRef> {
     let mut res = IntSet::default();
     _get_functions_to_compile(context, func_def, &mut res);
     res.into_iter().collect::<Vec<_>>()
@@ -523,7 +525,7 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
 
 
     // TODO : cache the lib
-    let lib = get_shared_library_std(context);
+    let lib = get_shared_library_std();
 
     let fun = if let Some(fun_meta) = context.jit_context.functions_meta.get(&function_def_ast) && let Some(cached_fun) = fun_meta.cached_fun.clone() {  // only clone small rc
         cached_fun
@@ -614,7 +616,7 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
         compile_context.builder.position_at_end(last_main_bb);
         compile_context.builder.build_return(Some(&compile_context.context.i32_type().const_int(0, false))).unwrap();
 
-        let jit_list_unwrap_fun: Option<FunctionValue<'_>> = compile_context.jit_compile_context.as_ref().unwrap().jit_list_unwrap_fun.clone();
+        let jit_list_unwrap_fun: Option<FunctionValue<'_>> = compile_context.jit_compile_context.as_ref().unwrap().jit_list_unwrap_fun;
         register_external_functions(&lib, &compile_context.module, &execution_engine, jit_list_unwrap_fun);
 
         #[cfg(feature = "debug-llvm")]
@@ -640,7 +642,7 @@ pub(crate) fn call_jit_function(context : &mut InterpretContext, func_def : &Fun
                 tmp_module.print_to_file("jit-opt.ll").unwrap();
             }
             if context.jit_context.dump_jit_asm {
-                target_machine.write_to_file(&tmp_module, FileType::Assembly, &Path::new("jit.s")).unwrap();
+                target_machine.write_to_file(&tmp_module, FileType::Assembly, Path::new("jit.s")).unwrap();
             }
         }
 

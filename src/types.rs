@@ -136,11 +136,7 @@ impl<'a> TypeContext<'a> {
 
         let new_var = Var::new(ret, is_global);
 
-        if self.current_vars.contains_key(&name) {
-            self.current_vars.get_mut(&name).unwrap().push(new_var);
-        } else {
-            self.current_vars.insert(name, vec![new_var]);
-        }
+        self.current_vars.entry(name).or_default().push(new_var);
 
         ret
     } 

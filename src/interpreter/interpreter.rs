@@ -1414,7 +1414,7 @@ fn interpret_cast(context : &mut InterpretContext, _to_type : Type, expr : ASTRe
     val
 }
 
-fn interpret_variant(context : &mut InterpretContext, name : StringRef, _arg : Option<ASTRef>) -> Val {
+fn interpret_variant(context : &InterpretContext, name : StringRef, _arg : Option<ASTRef>) -> Val {
     let mut sum_type_name_variant_nb = None;
     for (k, t) in &context.rustaml_context.type_aliases {
         match t {
@@ -1482,7 +1482,7 @@ pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val
             let (name, type_annotation, lang, so_str) = (*name, type_annotation.clone(), *lang, *so_str);
             let ffi_fun = get_ffi_func(context, name, type_annotation, lang, so_str);
             let func_def = FunctionDef { 
-                name: name, 
+                name, 
                 args: Box::new([]), // unused (TODO ?, not need to pass this ?)
                 body: FunctionBody::Ffi(ffi_fun),
                 function_def_ast: Some(ast),

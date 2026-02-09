@@ -55,7 +55,7 @@ fn get_ffi_type(t : &Type) -> FFIType {
 }
 
 // TODO : return a result and do better error handling
-pub(crate) fn get_ffi_func(context : &mut InterpretContext, name: StringRef, func_type : Type, external_lang : ExternLang, so_str : Option<StringRef>) -> FFIFunc {
+pub(crate) fn get_ffi_func(context : &InterpretContext, name: StringRef, func_type : Type, external_lang : ExternLang, so_str : Option<StringRef>) -> FFIFunc {
     let mangled_name = mangle_name_external(name.get_str(&context.rustaml_context.str_interner), &func_type, external_lang);
 
 

@@ -388,7 +388,6 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
             let flags = 0; // TODO
             let align_in_bits = 0; // TODO
             let var_info = Some(i.debug_builder.create_auto_variable(scope, name, file, debug_location_var.line_nb, var_ty_debug, always_preserve, flags, align_in_bits));
-            let expr = None; // TODO
             let debug_loc = i.current_debug_loc.unwrap();
 
             // use LLVM sys directly because of bugs with inkwell and LLVM >= 19 (because of change in the API of LLVM)
@@ -404,7 +403,7 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
             //i.debug_builder.insert_declare_at_end(storage, var_info, expr, debug_loc, current_bb);
             let debug_builder = i.debug_builder.as_mut_ptr();
             let var_info = var_info.map(|v| v.as_mut_ptr()).unwrap_or(std::ptr::null_mut());
-            let expr = expr.unwrap_or_else(|| i.debug_builder.create_expression(vec![])).as_mut_ptr();
+            let expr = i.debug_builder.create_expression(vec![]).as_mut_ptr();
             unsafe {
                 LLVMDIBuilderInsertDeclareRecordAtEnd(debug_builder, storage.as_value_ref(), var_info, expr, debug_loc.as_mut_ptr(), current_bb.as_mut_ptr());
             }
@@ -422,12 +421,11 @@ impl<'llvm_ctx> DebugInfo<'llvm_ctx> {
             let flags = 0; // TODO
             let arg_number = arg_idx + 1;
             let var_info = Some(i.debug_builder.create_parameter_variable(scope, name, arg_number, file, debug_location_var.line_nb, var_ty_debug, always_preserve, flags));
-            let expr = None;
             let debug_loc = i.current_debug_loc.unwrap();
 
             let debug_builder = i.debug_builder.as_mut_ptr();
             let var_info = var_info.map(|v| v.as_mut_ptr()).unwrap_or(std::ptr::null_mut());
-            let expr = expr.unwrap_or_else(|| i.debug_builder.create_expression(vec![])).as_mut_ptr();
+            let expr = i.debug_builder.create_expression(vec![]).as_mut_ptr();
             unsafe {
                 LLVMDIBuilderInsertDeclareRecordAtEnd(debug_builder, storage.as_value_ref(), var_info, expr, debug_loc.as_mut_ptr(), entry_bb.as_mut_ptr());
             }

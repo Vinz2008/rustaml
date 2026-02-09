@@ -3,7 +3,7 @@ use inkwell::{types::BasicTypeEnum, values::BasicValueEnum};
 use crate::{ast::{CType, Type}, compiler::{CompileContext, compiler_utils::{get_llvm_type, get_void_val}}};
 
 pub(crate) fn cast_val<'llvm_ctx>(compile_context : &CompileContext<'_, 'llvm_ctx>, val : BasicValueEnum<'llvm_ctx>, from_ty : &Type, to_ty : &Type) -> BasicValueEnum<'llvm_ctx> {
-    let to_ty_llvm = get_llvm_type(compile_context, &to_ty);
+    let to_ty_llvm = get_llvm_type(compile_context, to_ty);
     let to_ty_llvm_basic : BasicTypeEnum = to_ty_llvm.try_into().unwrap();
     match (from_ty, to_ty){
         (t1, t2) if t1 == t2 => val,

@@ -103,7 +103,7 @@ pub(crate) fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, 'll
     }
 }
 
-pub(crate) fn create_int<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, nb : i128) -> IntValue<'llvm_ctx> {
+pub(crate) fn create_int<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, nb : i128) -> IntValue<'llvm_ctx> {
     let nb : i64 = nb.try_into().unwrap(); // TODO : better error handling
     compile_context.context.i64_type().const_int(nb as u64, true)
 }
@@ -135,7 +135,7 @@ pub(crate) fn get_current_function<'llvm_ctx>(builder: &Builder<'llvm_ctx>) -> F
     builder.get_insert_block().unwrap().get_parent().unwrap()
 }
 
-pub(crate) fn move_bb_after_current<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, bb : BasicBlock<'llvm_ctx>){
+pub(crate) fn move_bb_after_current<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, bb : BasicBlock<'llvm_ctx>){
     let current_bb = compile_context.builder.get_insert_block().unwrap();
     bb.move_after(current_bb).unwrap();
 }
@@ -154,7 +154,7 @@ pub(crate) fn any_type_to_basic<'llvm_ctx>(context : &'llvm_ctx Context, t : Any
     }
 }
 
-pub(crate) fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, name : &str, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> 
+pub(crate) fn create_entry_block_alloca<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, name : &str, alloca_type : AnyTypeEnum<'llvm_ctx>) -> PointerValue<'llvm_ctx> 
 {
     let builder = compile_context.context.create_builder();
     let entry = get_current_function(&compile_context.builder).get_first_basic_block().unwrap();
@@ -166,7 +166,7 @@ pub(crate) fn create_entry_block_alloca<'llvm_ctx>(compile_context: &mut Compile
     builder.build_alloca(any_type_to_basic(compile_context.context, alloca_type), name).unwrap()
 }
 
-pub(crate) fn create_entry_block_array_alloca<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, name : &str, alloca_type : AnyTypeEnum<'llvm_ctx>, size : IntValue<'llvm_ctx>) -> PointerValue<'llvm_ctx> 
+pub(crate) fn create_entry_block_array_alloca<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, name : &str, alloca_type : AnyTypeEnum<'llvm_ctx>, size : IntValue<'llvm_ctx>) -> PointerValue<'llvm_ctx> 
 {
     let builder = compile_context.context.create_builder();
     let entry = get_current_function(&compile_context.builder).get_first_basic_block().unwrap();
@@ -234,7 +234,7 @@ fn is_last_instruction_terminator<'llvm_ctx>(compile_context: &CompileContext<'_
     }
 }
 
-pub(crate) fn create_br_conditional<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, comparison: IntValue<'llvm_ctx>, then_block: BasicBlock<'llvm_ctx>, else_block: BasicBlock<'llvm_ctx>) -> bool {
+pub(crate) fn create_br_conditional<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, comparison: IntValue<'llvm_ctx>, then_block: BasicBlock<'llvm_ctx>, else_block: BasicBlock<'llvm_ctx>) -> bool {
     if !is_last_instruction_terminator(compile_context) {
         compile_context.builder.build_conditional_branch(comparison, then_block, else_block).unwrap();
         true
@@ -243,7 +243,7 @@ pub(crate) fn create_br_conditional<'llvm_ctx>(compile_context: &mut CompileCont
     }
 }
 
-pub(crate) fn create_br_unconditional<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, dest_bb: BasicBlock<'llvm_ctx>) -> bool {
+pub(crate) fn create_br_unconditional<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, dest_bb: BasicBlock<'llvm_ctx>) -> bool {
     if !is_last_instruction_terminator(compile_context) {
         compile_context.builder.build_unconditional_branch(dest_bb).unwrap();
         true
@@ -258,14 +258,14 @@ pub(crate) fn create_br_unconditional<'llvm_ctx>(compile_context: &mut CompileCo
     compile_context.builder.build_load(compile_context.context.i8_type(), gep_ptr, "load_tag_gep").unwrap().into_int_value()
 }*/
 
-pub(crate) fn load_list_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, elem_type : &Type, list : PointerValue<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
+pub(crate) fn load_list_val<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, elem_type : &Type, list : PointerValue<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
     let list_type = get_list_type(compile_context.context);
     let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 1, "load_list_val_gep").unwrap();
     let load_i64 = compile_context.builder.build_load(compile_context.context.i64_type(), gep_ptr, "load_val_gep").unwrap().into_int_value();
     from_val_in_list(compile_context, load_i64, elem_type)
 }
 
-pub(crate) fn load_list_tail<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, list : PointerValue<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
+pub(crate) fn load_list_tail<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, list : PointerValue<'llvm_ctx>) -> PointerValue<'llvm_ctx> {
     let list_type = get_list_type(compile_context.context);
     let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 0, "load_list_tail_gep").unwrap();
     compile_context.builder.build_load(compile_context.context.ptr_type(AddressSpace::default()), gep_ptr, "load_tail_gep").unwrap().into_pointer_value()
@@ -273,7 +273,7 @@ pub(crate) fn load_list_tail<'llvm_ctx>(compile_context: &mut CompileContext<'_,
 
 // TODO : have one api for casting for cast and this ?
 
-pub(crate) fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val : BasicValueEnum<'llvm_ctx>, val_type : &Type) -> IntValue<'llvm_ctx> {
+pub(crate) fn as_val_in_list<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, val : BasicValueEnum<'llvm_ctx>, val_type : &Type) -> IntValue<'llvm_ctx> {
     match val_type {
         Type::Integer | Type::Bool | Type::Char | Type::Str | Type::List(_) | Type::Function(_, _, _) | Type::Never | Type::Unit => 
             cast_val(compile_context, val, val_type, &Type::CType(CType::U64)).into_int_value(),
@@ -294,7 +294,7 @@ pub(crate) fn as_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_,
 }
 
 
-pub(crate) fn from_val_in_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val : IntValue<'llvm_ctx>, to_type : &Type) -> BasicValueEnum<'llvm_ctx> {
+pub(crate) fn from_val_in_list<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, val : IntValue<'llvm_ctx>, to_type : &Type) -> BasicValueEnum<'llvm_ctx> {
     match to_type {
         Type::Integer => val.into(),
         Type::Float => compile_context.builder.build_bit_cast(val, compile_context.context.f64_type(), "bitcast_val_to_float").unwrap(),
@@ -334,7 +334,7 @@ fn get_vec_c_struct_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Struct
 //    uint32_t size;
 //    void* ptr;
 // }
-pub(crate) fn vec_to_c_struct_ptr<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, vec : VectorValue<'llvm_ctx>, vec_element_type : &Type) -> PointerValue<'llvm_ctx> {
+pub(crate) fn vec_to_c_struct_ptr<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, vec : VectorValue<'llvm_ctx>, vec_element_type : &Type) -> PointerValue<'llvm_ctx> {
     let vec_llvm_type = vec.get_type();
 
     let llvm_element_type = vec_llvm_type.get_element_type().as_any_type_enum();
@@ -360,7 +360,7 @@ pub(crate) fn vec_to_c_struct_ptr<'llvm_ctx>(compile_context: &mut CompileContex
     let alloca_struct = create_entry_block_alloca(compile_context, "vec_to_c_struct", struct_type.as_any_type_enum());
     
     let i32_type = compile_context.context.i32_type();
-    let const_zero = i32_type.const_int(0 as u64, false);
+    let const_zero = i32_type.const_int(0, false);
 
     for (idx, field) in c_struct_fields.iter().enumerate() {
         let indexes = &[
