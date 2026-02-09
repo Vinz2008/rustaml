@@ -24,7 +24,7 @@ fn build_musl(current_exe_folder : &Path, opt_level : OptimizationLevel, optiona
     }
 
     let mut configure_cmd = Command::new("./configure");
-    configure_cmd.arg("--disable-shared").arg(&format!("--prefix={}", sysroot_musl.to_str().unwrap()));
+    configure_cmd.arg("--disable-shared").arg(format!("--prefix={}", sysroot_musl.to_str().unwrap()));
     // TODO : make the CFLAGS work in one function/place (to deduplicate code with the cflags handling after that)
     let mut cflags = format!("-emit-llvm -O{} -fno-stack-protector", opt_level as u32);
         
@@ -111,7 +111,7 @@ fn build_bdwgc(current_exe_folder : &Path, temp_dir : &Path, sysroot_musl : &Pat
 
     #[cfg(feature = "musl")]
     if optional_args.musl {
-        bdwgc_link_cmd.arg("-fno-stack-protector").arg(&format!("--sysroot={}", sysroot_musl.to_str().unwrap()));
+        bdwgc_link_cmd.arg("-fno-stack-protector").arg(format!("--sysroot={}", sysroot_musl.to_str().unwrap()));
     }        
         
     bdwgc_link_cmd.spawn().unwrap().wait().unwrap();
@@ -200,13 +200,13 @@ pub(crate) fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Pat
     #[cfg(feature = "musl")]
     if optional_args.musl {
         clang_std.arg("-fno-stack-protector");
-        clang_std.arg(&format!("--sysroot={}", sysroot_musl.as_ref().unwrap().to_str().unwrap()));
+        clang_std.arg(format!("--sysroot={}", sysroot_musl.as_ref().unwrap().to_str().unwrap()));
     }
 
     #[cfg(feature = "build-bdwgc")]
     if optional_args.build_bdwgc {
         let include_arg = bdwgc_src_path.unwrap().join("include");
-        clang_std.arg(&format!("-I{}", include_arg.to_str().unwrap()));
+        clang_std.arg(format!("-I{}", include_arg.to_str().unwrap()));
     }
     
     let mut clang_std = clang_std.arg("-").arg("-o").arg(out_std_path_str).stdin(Stdio::piped()).spawn().expect("compiling std failed");
@@ -237,7 +237,7 @@ pub(crate) fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Pat
 
     #[cfg(feature = "musl")]
     if optional_args.musl {
-        link_cmd.arg(&format!("--sysroot={}", sysroot_musl.unwrap().to_str().unwrap()));
+        link_cmd.arg(format!("--sysroot={}", sysroot_musl.unwrap().to_str().unwrap()));
         link_cmd.arg("-static");
     }
 
@@ -273,7 +273,7 @@ pub(crate) fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Pat
 
     #[cfg(feature = "build-bdwgc")]
     if optional_args.build_bdwgc {
-        link_cmd.arg(&out_bdwgc_path.as_ref().unwrap());
+        link_cmd.arg(out_bdwgc_path.as_ref().unwrap());
     }
 
     if !link_cmd.spawn().expect("linker failed").wait().unwrap().success() {
@@ -286,6 +286,6 @@ pub(crate) fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Pat
 
     #[cfg(feature = "build-bdwgc")]
     if optional_args.build_bdwgc {
-        std::fs::remove_file(&out_bdwgc_path.unwrap()).expect("Couldn't delete bdwgc bitcode file");
+        std::fs::remove_file(out_bdwgc_path.unwrap()).expect("Couldn't delete bdwgc bitcode file");
     }
 }

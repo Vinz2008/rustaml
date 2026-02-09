@@ -99,7 +99,7 @@ fn jit_wrap_val<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, val 
 }
 
 
-fn jit_unwrap_list_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val_data : IntValue<'llvm_ctx>, element_type : &Type) -> BasicValueEnum<'llvm_ctx> {
+fn jit_unwrap_list_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, val_data : IntValue<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
     // TODO : optimize the appending (by reserving the len ? add a function for it in the std ?)
     // TODO : generate the function only one time ?
     let jit_list_init_fun = if let Some(fun) =  &compile_context.jit_compile_context.as_ref().unwrap().jit_list_unwrap_fun {
@@ -122,7 +122,7 @@ fn jit_unwrap_val_data<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm
         Type::Float => compile_context.builder.build_bit_cast(val_data, compile_context.context.f64_type(), "bitcast_jit_val_to_float").unwrap(),
         Type::Str => cast_val(compile_context, val_data.as_basic_value_enum(), &Type::CType(CType::U64), val_type),
         Type::Unit => get_void_val(compile_context.context),
-        Type::List(e) => jit_unwrap_list_val(compile_context, val_data, e.as_ref()),
+        Type::List(e) => jit_unwrap_list_val(compile_context, val_data),
         _ => panic!("{:?}", val_type) // TODO
     }
 }
@@ -290,7 +290,7 @@ pub(crate) fn update_jit_heuristics_function_end_call(context : &mut InterpretCo
     }
 }
 
-fn is_valid_jit_type(t : &Type, is_return : bool) -> bool {
+fn is_valid_jit_type(t : &Type) -> bool {
     matches!(t, Type::Integer | Type::Float | Type::Bool | Type::Char | Type::Str | Type::List(_) | Type::Unit)
 }
 
@@ -310,7 +310,7 @@ pub(crate) fn should_use_jit_function(context : &InterpretContext, func_def : &F
     };
 
     // for now only this type
-    if args.as_ref().iter().any(|e| !is_valid_jit_type(e, false)) || !is_valid_jit_type(ret.as_ref(), true) {
+    if args.as_ref().iter().any(|e| !is_valid_jit_type(e)) || !is_valid_jit_type(ret.as_ref()) {
         return false;
     }
 
