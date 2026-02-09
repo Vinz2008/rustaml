@@ -39,8 +39,8 @@ blake3 = { version = "1.8.2", optional = true }
 [profile.release]
 lto = "fat"
 panic = "abort"
-#strip = "debuginfo"
-debug = "full"
+strip = "debuginfo"
+#debug = "full"
 
 # TODO : add some features to default features (or even remove them after enabling them by default)
 
