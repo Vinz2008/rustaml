@@ -897,6 +897,115 @@ static void int_to_string_impl(char* buf, int64_t integer, int digit_number){
 #define MAX_INT_BUF_SIZE 22
 #define MAX_DOUBLE_BUF_SIZE 24
 
+#define MANTISSA_NB_BITS 52
+#define DOUBLE_BIAS 1023
+
+#define EXPONENT_ALL_1 0x7FF
+
+// represent a double that is of value mantissa * 10^exponent
+struct double_decimal {
+    int32_t exponent; // exponent in base 10
+    uint64_t mantissa;
+};
+
+// to enable fast path for doubles that are can be represented as just an int
+// in the small int case, also create the double_decimal struct
+static bool is_small_int(uint64_t ieeeMantissa, uint32_t ieeeExponent, struct double_decimal* v){
+    uint64_t mantissa2 = (1ULL << MANTISSA_NB_BITS) | ieeeMantissa; // create a 1 then the digits of the mantissa (1[MANTISSA]) to have the same as 1.mantissa
+    // the 1.mantissa is mantissa2/2^52; but the double value is mantissa * 2^(exponent-bias) = (mantissa2/2^52) * 2^(exponent-bias)
+    // = mantissa2 * 2^(exponent - bias - 53)
+    int32_t exponent2 = (int32_t)(ieeeExponent - DOUBLE_BIAS - MANTISSA_NB_BITS);
+
+    if (exponent2 > 0){
+        // don't consider as a small int a number that has a bigger exponent than 0, so that fills the 53 bits of the mantissa2 (value >= 2^53)
+        return false;
+    }
+
+    if (exponent2 < -52){
+        // is necessarily a non whole number
+        return false;
+    }
+
+    // exponent 2 is 0 or negative
+    // find if the "fractionnal" part (after the division by 2^(-exponent2)) is 0
+    uint64_t mask = (1ULL << (-exponent2)) - 1; // is 2^(-exponent2)-1 so -exponent1 1 bits in the lower part
+    uint64_t fraction = mantissa2 & mask;
+    if (fraction != 0){
+        return false;
+    }
+
+    v->mantissa = mantissa2 >> -exponent2; // mantissa2 / 2^(-exponent2)
+    v->exponent = 0;
+    return true;
+}
+
+// create a double decimal, except for the small int case
+static struct double_decimal create_double_decimal(uint64_t ieeeMantissa, uint32_t ieeeExponent){
+    TODO();
+}
+
+#define INF_STR "inf"
+#define NAN_STR "nan"
+#define ZERO_STR "0"
+
+static size_t double_to_str_special_strings(char* buf, bool is_negative, uint32_t ieeeExponent, uint64_t ieeeMantissa, size_t max_char_nb){
+    if (ieeeMantissa != 0){
+        memcpy(buf, NAN_STR, sizeof(NAN_STR));
+        return sizeof(NAN_STR);
+    }
+
+    size_t pos = 0;
+    if (is_negative){
+        *buf = '-';
+        pos = 1;
+    }
+
+    if (ieeeExponent != 0){
+        // infinite
+        memcpy(buf + pos, INF_STR, sizeof(INF_STR));
+        return sizeof(INF_STR) + pos;
+    } else {
+        memcpy(buf + pos, ZERO_STR, sizeof(ZERO_STR));
+        return sizeof(ZERO_STR) + pos;
+    }
+}
+
+static size_t ryu_double_to_string_impl(char* buf, double d, size_t max_char_nb) {
+    uint64_t d_bits = INTO_TYPE(uint64_t, d);
+    bool is_negative = (d_bits >> 63) & 0x1;
+    uint32_t ieeeExponent = (uint32_t)((d_bits >> MANTISSA_NB_BITS) & EXPONENT_ALL_1);
+    uint64_t ieeeMantissa = d_bits & ((1ULL << MANTISSA_NB_BITS) - 1);
+
+
+    if ((ieeeExponent == 0 && ieeeMantissa == 0) || ieeeExponent == EXPONENT_ALL_1){
+        return double_to_str_special_strings(buf, is_negative, ieeeExponent, ieeeMantissa, max_char_nb);
+    }
+
+    struct double_decimal v;
+    bool is_small_integer = is_small_int(ieeeMantissa, ieeeExponent, &v);
+
+    if (is_small_integer){
+        // small integers in the range [1, 2^53)
+        // remove trailing zeros in the mantissa
+        while (true){
+            uint64_t quotient = v.mantissa / 10;
+            uint32_t rest = v.mantissa - quotient * 10; // same as v.mantissa % 10
+
+            if (rest != 0){
+                break;
+            }
+
+            v.mantissa = quotient;
+            v.exponent++;
+        }
+    } else {
+        v = create_double_decimal(ieeeMantissa, ieeeExponent);
+        TODO();
+    }
+
+    TODO();
+}
+
 // TODO : implement ryu or grisu implementation (or both with grisu with ryu as fallback ?)
 static size_t double_to_string_impl(char* buf, double d, size_t max_char_nb){
     const int MAX_DECIMAL_PLACES = 6;
