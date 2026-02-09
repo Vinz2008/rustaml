@@ -18,13 +18,16 @@ rustc debug 1.95.0-nightly : 222.946s
 rustc release 1.95.0-nightly : 57.514s  
 Go v1.25.6 : 131.091s  
 NodeJS v20.0.0 : 307.181s  
-Haskwell GHC -O0 v9.6.7 : TODO
+Haskwell GHC -O0 v9.6.7 : TODO  
 Haskwell GHC -O3 v9.6.7 : 137.152s  
-Ocaml interpreter v5.4.0 : TODO
-OCaml ocamlopt v5.4.0 : TODO
-Python 3.13.2 : TODO  
-PyPy : TODO
-Java : TODO
+Ocaml interpreter v5.4.0 : TODO  
+OCaml ocamlopt v5.4.0 : TODO  
+Python 3.14.2 : 2705.748s  
+PyPy v7.3.20 : 304.902s  
+Java OpenJDK v17.0.18 : 79s  
+LuaJIT v2.1.1767980792 : 360.67s  
+Lua v5.4.8 : 1899.48s  
+Swift : TODO  
 
 ![Fibonacci benchmark](fibonacci.png)
 
@@ -45,9 +48,12 @@ Haskwell GHC -O0 v9.6.7 : 209.424s
 Haskwell GHC -O3 v9.6.7 : 3.863s  
 Ocaml interpreter v5.4.0 : 21,050s  
 OCaml ocamlopt v5.4.0 : 2.988s  
-Python 3.13.2 : TODO  
-PyPy : TODO
+Python 3.14.2 : 155.114s 
+PyPy v7.3.20 : 3.052s  
 Java : TODO
+LuaJIT : TODO
+Lua : TODO
+Swift : TODO  
 
 
 Finding all prime numbers up to 15,000  
@@ -67,6 +73,9 @@ Haskwell GHC -O0 v9.6.7 : 2.401s
 Haskwell GHC -O3 v9.6.7 : 203.0ms  
 Ocaml interpreter v5.4.0 : TODO
 OCaml ocamlopt v5.4.0 : TODO
-Python 3.13.2 : 6.63s   
-PyPy : TODO
+Python 3.14.2 : 6.725s   
+PyPy : 245.2ms
 Java : TODO
+LuaJIT : TODO
+Lua : TODO
+Swift : TODO  
