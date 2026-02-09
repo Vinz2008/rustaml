@@ -149,32 +149,6 @@ impl<'a> TypeContext<'a> {
     fn remove_current_local_vars(&mut self) -> IntMap<StringRef, Vec<Var>> {
         let ret = self.current_vars.clone();
 
-        /*let mut emptied_var_name = Vec::new();
-
-        for (name, vars) in self.current_vars.iter_mut() {
-            let mut elements_to_remove = Vec::new();
-
-            for var in vars.iter() {
-                // for now only not remove global functions, because globals in rustaml are just local variables of the main function, so it either need to either 1. become real globals 2. be automatically passed in a struct like in closure 
-                if !var.is_global_function {
-                    elements_to_remove.push(var.clone());
-                }
-            }
-
-            for element in elements_to_remove {
-                let idx = vars.iter().position(|e| e == &element).unwrap();
-                vars.remove(idx);
-            }
-
-            if vars.is_empty() {
-                emptied_var_name.push(*name);
-            }
-        }
-
-        for name in emptied_var_name {
-            self.current_vars.remove(&name);
-        }*/
-
         self.current_vars.retain(|_name, vars| {
             vars.retain(|var| var.is_global_function);
             !vars.is_empty()
@@ -314,13 +288,14 @@ fn get_variant_type(rustaml_context: &RustamlContext, name : StringRef) -> Type 
 fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : TypeVarId, pattern: PatternRef) {
     let range = pattern.get_range(&context.rustaml_context.pattern_pool);
     // TODO : remove clone
-    match pattern.get(&context.rustaml_context.pattern_pool).clone() {
+    match pattern.get(&context.rustaml_context.pattern_pool) {
         Pattern::Integer(_) | Pattern::Range(_, _, _) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Integer), range),
         Pattern::Float(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Float), range),
         Pattern::Bool(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Bool), range),
         Pattern::String(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Str), range),
         Pattern::Char(_) => context.push_constraint(Constraint::IsType(matched_type_var, Type::Char), range), 
         Pattern::List(pattern_list) => {
+            let pattern_list = pattern_list.clone();
             context.push_constraint(Constraint::ListType(matched_type_var), range.clone());
             context.reserve_constraints(pattern_list.len());
             for p in pattern_list {
@@ -330,26 +305,23 @@ fn collect_constraints_pattern(context : &mut TypeContext, matched_type_var : Ty
             }
         },
         Pattern::ListDestructure(e, l) => {
+            let (e, l) = (*e, *l);
             let element_type_var = context.table.new_type_var();
-            /*let is_var_underscore= is_underscore(context.rustaml_context, e); 
-            if !is_var_underscore {
-                create_var(context, e, false, element_type_var);
-            }*/
             context.push_constraint(Constraint::IsListElementOf { element: element_type_var, list: matched_type_var }, range.clone());
             collect_constraints_pattern(context, element_type_var, e);
             collect_constraints_pattern(context, matched_type_var, l);
         }
         Pattern::VarName(n) => { 
             let var_type_var = context.table.new_type_var();
-            if !is_underscore(context.rustaml_context, n) {
+            if !is_underscore(context.rustaml_context, *n) {
                 debug_println!(context.rustaml_context.is_debug_print, "add pattern var {:?}", DebugWrapContext::new(&n, context.rustaml_context));
-                create_var(context, n, false, var_type_var);
+                create_var(context, *n, false, var_type_var);
             }
             
             context.push_constraint(Constraint::SameType(var_type_var, matched_type_var), range);
         },
         Pattern::SumTypeVariant(n) => {
-            let sum_type = get_variant_type(context.rustaml_context, n);
+            let sum_type = get_variant_type(context.rustaml_context, *n);
             context.push_constraint(Constraint::IsType(matched_type_var, sum_type), range);
         }
         Pattern::Underscore => {}, // no constraints
@@ -378,11 +350,11 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
     let new_type_var = context.table.new_type_var();
     context.node_type_vars.insert(ast, new_type_var);
 
-    let a = ast.get(&context.rustaml_context.ast_pool).clone();
     let range = ast.get_range(&context.rustaml_context.ast_pool);
 
-    match a {
+    match ast.get(&context.rustaml_context.ast_pool) {
         ASTNode::TopLevel { nodes } => {
+            let nodes = nodes.clone();
             for n in nodes {
                 collect_constraints(context, n)?;
             }
@@ -394,10 +366,11 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         ASTNode::Boolean { .. } => context.push_constraint(Constraint::IsType(new_type_var, Type::Bool), range),
         ASTNode::Char { .. } => context.push_constraint(Constraint::IsType(new_type_var, Type::Char), range),
         ASTNode::Variant { name, arg: _ } => {
-            let sum_type = get_variant_type(context.rustaml_context, name);
+            let sum_type = get_variant_type(context.rustaml_context, *name);
             context.push_constraint(Constraint::IsType(new_type_var, sum_type), range)
         },
         ASTNode::List { list } => {
+            let list = list.clone();
             context.push_constraint(Constraint::ListType(new_type_var), range.clone());
 
             let mut first_element = None;
@@ -418,6 +391,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         }
 
         ASTNode::Vec { vec } => {
+            let vec = vec.clone();
             context.push_constraint(Constraint::VecType(new_type_var), range.clone());
             context.push_constraint(Constraint::IsVecSize { size: vec.len().try_into().unwrap(), vec: new_type_var }, range.clone());
             let mut first_element = None;
@@ -436,12 +410,13 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         }
 
         ASTNode::Cast { to_type, expr } => {
+            let (to_type, expr) = (to_type.clone(), *expr);
             collect_constraints(context, expr)?;
             context.push_constraint(Constraint::IsType(new_type_var, to_type), range);
         }
 
         ASTNode::VarUse { name } => {
-            let var_id = get_var_id(context, name, range.clone())?;
+            let var_id = get_var_id(context, *name, range.clone())?;
 
             // use the var id instead of the name here
             let var_type_var = get_var_type_var(context, var_id);
@@ -450,6 +425,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         }
 
         ASTNode::BinaryOp { op, lhs, rhs } => {
+            let (op, lhs, rhs) = (*op, *lhs, *rhs);
             let lhs_type_var = collect_constraints(context, lhs)?;
             let rhs_type_var = collect_constraints(context, rhs)?;
 
@@ -523,6 +499,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         }
 
         ASTNode::UnaryOp { op, expr } => {
+            let (op, expr) = (*op, *expr);
             let expr_type_var = collect_constraints(context, expr)?;
 
             match op {
@@ -540,11 +517,12 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         }
 
         ASTNode::FunctionDefinition { name, args, body, type_annotation } => {
+            let (name, args, body, type_annotation) = (*name, args.clone(), *body, type_annotation.clone());
             let function_id = create_function(context, name, new_type_var);
             context.type_infos.ast_var_ids.insert(ast, function_id);
 
             let (return_type, arg_type_annotations) = match type_annotation {
-                Some(Type::Function(args, ret, _)) => (Some(*ret), Some(args)),
+                Some(Type::Function(args, ret, _)) => (Some(ret), Some(args)),
                 Some(t) => return Err(TypesErr::new(TypesErrData::FunctionTypeExpected { wrong_type: t }, range)),
                 _ => (None, None),
             };
@@ -555,9 +533,9 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
                 arg_vars.push(arg_type_var);
 
                 if let Some(arg_type_annotations) = &arg_type_annotations {
-                    let arg_type = arg_type_annotations[arg_idx].clone();
+                    let arg_type = &arg_type_annotations[arg_idx];
                     if !matches!(arg_type, Type::Any){
-                        context.push_constraint(Constraint::IsType(arg_type_var, arg_type), range.clone());
+                        context.push_constraint(Constraint::IsType(arg_type_var, arg_type.clone()), range.clone());
                     }
                 }
                 
@@ -568,9 +546,9 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             }
 
             let ret_type_var = context.table.new_type_var();
-            if let Some(return_type) = &return_type {
-                if !matches!(return_type, Type::Any){
-                    context.push_constraint(Constraint::IsType(ret_type_var, return_type.clone()), range.clone());
+            if let Some(return_type) = return_type {
+                if !matches!(return_type.as_ref(), Type::Any){
+                    context.push_constraint(Constraint::IsType(ret_type_var, *return_type), range.clone());
                 }
             }
 
@@ -597,13 +575,13 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         }
 
         ASTNode::AnonFunc { args: arg_names, body, type_annotation } => {
-
+            let (arg_names, body, type_annotation) = (arg_names.clone(), *body, type_annotation.clone());
             let old_vars = context.remove_current_local_vars();
 
             let mut arg_vars = Vec::new();
 
             let (return_type, arg_type_annotations) = match type_annotation {
-                Some(Type::Function(args, ret, _)) => (Some(*ret), Some(args)),
+                Some(Type::Function(args, ret, _)) => (Some(ret), Some(args)),
                 Some(t) => return Err(TypesErr::new(TypesErrData::FunctionTypeExpected { wrong_type: t }, range)),
                 _ => (None, None),
             };
@@ -625,7 +603,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
 
             let ret_type_var = context.table.new_type_var();
             if let Some(return_type) = return_type {
-                context.push_constraint(Constraint::IsType(ret_type_var, return_type), range.clone());
+                context.push_constraint(Constraint::IsType(ret_type_var, *return_type), range.clone());
             }
 
             let body_type_var = collect_constraints(context, body)?;
@@ -649,6 +627,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         }
 
         ASTNode::ExternFunc { name, type_annotation, lang: _, so_str: _ } => {
+            let (name, type_annotation) = (*name, type_annotation.clone());
             let function_id = create_function(context, name, new_type_var);
             context.type_infos.ast_var_ids.insert(ast, function_id);
 
@@ -677,6 +656,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         }
 
         ASTNode::FunctionCall { callee, args } => {
+            let (callee, args) = (*callee, args.clone());
             let callee_type_var = collect_constraints(context, callee)?;
 
             let ret_type_var = new_type_var;
@@ -699,6 +679,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         }
 
         ASTNode::VarDecl { name, val, body, var_type } => {
+            let (name, val, body, var_type) = (*name, *val, *body, var_type.clone());
             let val_type_var = collect_constraints(context, val)?;
 
             if let Some(v_t) = var_type {
@@ -726,6 +707,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         }
 
         ASTNode::IfExpr { cond_expr, then_body, else_body } => {
+            let (cond_expr, then_body, else_body) = (*cond_expr, *then_body, *else_body);
             let cond_type_var = collect_constraints(context, cond_expr)?;
             context.push_constraint(Constraint::IsType(cond_type_var, Type::Bool), range.clone());
 
@@ -737,6 +719,7 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         }
 
         ASTNode::MatchExpr { matched_expr, patterns } => {
+            let (matched_expr, patterns) = (*matched_expr, patterns.clone());
             let matched_type_var = collect_constraints(context, matched_expr)?;
 
             // put all the constraints to one root to improve performance (test ?)
