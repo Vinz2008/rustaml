@@ -1500,30 +1500,32 @@ pub(crate) fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '
     
     compile_context.debug_info.create_debug_location(compile_context.context, &compile_context.builder, compile_context.rustaml_context.content.as_ref().unwrap(), range.clone());
     
-    match ast_node.get(&compile_context.rustaml_context.ast_pool).clone(){
-        ASTNode::Integer { nb } => create_int(compile_context, nb).as_basic_value_enum().into(), // TODO : sign extend or not ?
-        ASTNode::Float { nb } => compile_context.context.f64_type().const_float(nb).as_basic_value_enum().into(),
-        ASTNode::Boolean { b } => compile_context.context.bool_type().const_int(b as u64, false).as_basic_value_enum().into(),
-        ASTNode::Char { c } => compile_context.context.i32_type().const_int(c as u64, false).as_basic_value_enum().into(),
-        ASTNode::String { str } => compile_str(compile_context, str).as_basic_value_enum().into(),
-        ASTNode::VarDecl { name, val, body, var_type: _ } => compile_var_decl(compile_context, ast_node, name, val, body, false),
-        ASTNode::IfExpr { cond_expr, then_body, else_body } => compile_if(compile_context, cond_expr, then_body, else_body).into(),
-        ASTNode::FunctionCall { callee, args } => compile_function_call(compile_context, callee, &args, range).into(),
-        ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, op, lhs, rhs, range).into(),
-        ASTNode::UnaryOp { op, expr } => compile_unop(compile_context, op, expr).into(),
-        ASTNode::VarUse { name } => compile_var_use(compile_context, ast_node, name),
+    match ast_node.get(&compile_context.rustaml_context.ast_pool){
+        ASTNode::Integer { nb } => create_int(compile_context, *nb).as_basic_value_enum().into(), // TODO : sign extend or not ?
+        ASTNode::Float { nb } => compile_context.context.f64_type().const_float(*nb).as_basic_value_enum().into(),
+        ASTNode::Boolean { b } => compile_context.context.bool_type().const_int(*b as u64, false).as_basic_value_enum().into(),
+        ASTNode::Char { c } => compile_context.context.i32_type().const_int(*c as u64, false).as_basic_value_enum().into(),
+        ASTNode::String { str } => compile_str(compile_context, *str).as_basic_value_enum().into(),
+        ASTNode::VarDecl { name, val, body, var_type: _ } => compile_var_decl(compile_context, ast_node, *name, *val, *body, false),
+        ASTNode::IfExpr { cond_expr, then_body, else_body } => compile_if(compile_context, *cond_expr, *then_body, *else_body).into(),
+        ASTNode::FunctionCall { callee, args } => compile_function_call(compile_context, *callee, &args.clone(), range).into(),
+        ASTNode::BinaryOp { op, lhs, rhs } => compile_binop(compile_context, *op, *lhs, *rhs, range).into(),
+        ASTNode::UnaryOp { op, expr } => compile_unop(compile_context, *op, *expr).into(),
+        ASTNode::VarUse { name } => compile_var_use(compile_context, ast_node, *name),
         ASTNode::List { list } => { 
+            let list = list.clone();
             let t = ast_node.get_type(&compile_context.rustaml_context.ast_pool).clone();
             compile_static_list(compile_context, &list, &t).into()
         },
         ASTNode::Vec { vec } => {
+            let vec = vec.clone();
             let t = ast_node.get_type(&compile_context.rustaml_context.ast_pool).clone();
             compile_static_vec(compile_context, &vec, &t).into()
         }
-        ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, matched_expr, &patterns).into(),
-        ASTNode::AnonFunc { args, body, type_annotation: _ } => compile_anon_func(compile_context, ast_node, &args, body).into(),
-        ASTNode::Cast { to_type, expr } => compile_cast(compile_context, &to_type, expr).into(),
-        ASTNode::Variant { name, arg } => compile_variant(compile_context, name, arg).into(),
+        ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, *matched_expr, &patterns.clone()).into(),
+        ASTNode::AnonFunc { args, body, type_annotation: _ } => compile_anon_func(compile_context, ast_node, &args.clone(), *body).into(),
+        ASTNode::Cast { to_type, expr } => compile_cast(compile_context, &to_type.clone(), *expr).into(),
+        ASTNode::Variant { name, arg } => compile_variant(compile_context, *name, *arg).into(),
         ASTNode::Unit => get_void_val(compile_context.context).into(),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(&t, compile_context.rustaml_context)), 
     }
@@ -1684,13 +1686,13 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
 
     let ast_range = ast_node.get_range(&compile_context.rustaml_context.ast_pool);
 
-    match ast_node.get(&compile_context.rustaml_context.ast_pool).clone() {
+    match ast_node.get(&compile_context.rustaml_context.ast_pool) {
         ASTNode::FunctionDefinition { name, args, body, type_annotation: _ } => {
-            compile_function(compile_context, ast_node, name, args, body);
+            compile_function(compile_context, ast_node, *name, args.clone(), *body);
         },
 
         ASTNode::VarDecl { name, val, body, var_type: _ } => {
-
+            let (name, val, body) = (*name, *val, *body);
             let last_main_bb = compile_context.main_function.get_last_basic_block().unwrap();
             compile_context.builder.position_at_end(last_main_bb);
             if let Some(loc) = compile_context.debug_info.create_debug_location(compile_context.context, &compile_context.builder, compile_context.rustaml_context.content.as_ref().unwrap(), ast_range) {
@@ -1700,6 +1702,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
             compile_var_decl(compile_context, ast_node, name, val, body, true);
         },
         ASTNode::ExternFunc { name, type_annotation, lang, so_str } => {
+            let (name, type_annotation, lang, so_str) = (*name, type_annotation.clone(), *lang, *so_str);
             let function_ty = get_llvm_type(compile_context, &type_annotation).into_function_type();
             let name_mangled = mangle_name_external(name.get_str(&compile_context.rustaml_context.str_interner), &type_annotation, lang);
             
@@ -1711,6 +1714,7 @@ fn compile_top_level_node(compile_context: &mut CompileContext, ast_node : ASTRe
         }
         ASTNode::TypeAlias { name: _, type_alias: _ } => {}
         ASTNode::TopLevel { nodes } => {
+            let nodes = nodes.clone();
             // placeholder for imports (TODO ?)
             for n in nodes {
                 compile_top_level_node(compile_context, n);
