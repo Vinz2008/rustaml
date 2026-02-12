@@ -1679,8 +1679,8 @@ static struct double_decimal create_double_decimal(uint64_t ieeeMantissa, uint32
 
 static size_t double_to_str_special_strings(char* buf, bool is_negative, uint32_t ieeeExponent, uint64_t ieeeMantissa){
     if (ieeeMantissa != 0){
-        memcpy(buf, NAN_STR, sizeof(NAN_STR));
-        return sizeof(NAN_STR);
+        memcpy(buf, NAN_STR, sizeof(NAN_STR) - 1);
+        return sizeof(NAN_STR) - 1;
     }
 
     size_t pos = 0;
@@ -1691,11 +1691,11 @@ static size_t double_to_str_special_strings(char* buf, bool is_negative, uint32_
 
     if (ieeeExponent != 0){
         // infinite
-        memcpy(buf + pos, INF_STR, sizeof(INF_STR));
-        return sizeof(INF_STR) + pos;
+        memcpy(buf + pos, INF_STR, sizeof(INF_STR) - 1);
+        return sizeof(INF_STR) - 1 + pos;
     } else {
-        memcpy(buf + pos, ZERO_STR, sizeof(ZERO_STR));
-        return sizeof(ZERO_STR) + pos;
+        memcpy(buf + pos, ZERO_STR, sizeof(ZERO_STR)-1); // -1 for the null byte
+        return sizeof(ZERO_STR) - 1 + pos;
     }
 }
 
