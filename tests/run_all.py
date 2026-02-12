@@ -8,6 +8,10 @@ from yaspin.spinners import Spinners
 from difflib import unified_diff
 
 
+# TODO : now that formatting is ryu, merge the compiler and interpreter and have only one 
+# (for this, either add the warnings in the compiler output, or remove them in the interpreter output - removing it can also be useful for windows support because of escape sequences) 
+# also fix the formatting of whole number like 67 that are in my runtime 67.0 and in rust 67
+
 scripts_dir = os.path.basename(os.path.dirname(__file__))
 scripts_dir = os.path.relpath(scripts_dir, start=os.getcwd()) # get relative path from cwd, not use realpath to not leak user infos in tests outputs
 
@@ -16,7 +20,6 @@ root_project_dir = os.getcwd()
 if "Cargo.toml" not in os.listdir(root_project_dir):
     root_project_dir = os.path.join(os.getcwd(), os.pardir)
 
-# TODO : add release mode support ?
 exe_path = None
 
 excluded_files = [
