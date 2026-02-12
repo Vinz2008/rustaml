@@ -1677,7 +1677,7 @@ static struct double_decimal create_double_decimal(uint64_t ieeeMantissa, uint32
 #define NAN_STR "nan"
 #define ZERO_STR "0.0"
 
-static size_t double_to_str_special_strings(char* buf, bool is_negative, uint32_t ieeeExponent, uint64_t ieeeMantissa, size_t max_char_nb){
+static size_t double_to_str_special_strings(char* buf, bool is_negative, uint32_t ieeeExponent, uint64_t ieeeMantissa){
     if (ieeeMantissa != 0){
         memcpy(buf, NAN_STR, sizeof(NAN_STR));
         return sizeof(NAN_STR);
@@ -1725,104 +1725,94 @@ static uint32_t decimalLength17(uint64_t v) {
     return 1;
 }
 
-static int double_decimal_to_chars(struct double_decimal v, bool sign, char* result){
+
+static int double_decimal_to_chars(struct double_decimal v, bool sign, char* result) {
     int index = 0;
+
     if (sign){
         result[index++] = '-';
     }
 
-    uint64_t output = v.mantissa;
-    uint32_t olength = decimalLength17(output);
+    uint64_t mantissa = v.mantissa;
+    int32_t exp10 = v.exponent;
 
-    // Print the decimal digits.
-    // The following code is equivalent to:
-    // for (uint32_t i = 0; i < olength - 1; ++i) {
-    //   const uint32_t c = output % 10; output /= 10;
-    //   result[index + olength - i] = (char) ('0' + c);
-    // }
-    // result[index] = '0' + output % 10;
+    uint32_t length = decimalLength17(mantissa);
 
-    uint32_t i = 0;
-    // We prefer 32-bit operations, even on 64-bit platforms.
-    // We have at most 17 digits, and uint32_t can store 9 digits.
-    // If output doesn't fit into uint32_t, we cut off 8 digits,
-    // so the rest will fit into uint32_t.
-    if ((output >> 32) != 0) {
-        // Expensive 64-bit division.
-        uint64_t q = output / 100000000;
-        uint32_t output2 = ((uint32_t) output) - 100000000 * ((uint32_t) q);
-        output = q;
-        uint32_t c = output2 % 10000;
-        output2 /= 10000;
-        uint32_t d = output2 % 10000;
-        uint32_t c0 = (c % 100) << 1;
-        uint32_t c1 = (c / 100) << 1;
-        uint32_t d0 = (d % 100) << 1;
-        uint32_t d1 = (d / 100) << 1;
-        memcpy(result + index + olength - 1, digit_pairs + c0, 2);
-        memcpy(result + index + olength - 3, digit_pairs + c1, 2);
-        memcpy(result + index + olength - 5, digit_pairs + d0, 2);
-        memcpy(result + index + olength - 7, digit_pairs + d1, 2);
-        i += 8;
-    }
-    uint32_t output2 = (uint32_t) output;
-    while (output2 >= 10000) {
-        uint32_t c = output2 % 10000;
-        output2 /= 10000;
-        uint32_t c0 = (c % 100) << 1;
-        uint32_t c1 = (c / 100) << 1;
-        memcpy(result + index + olength - i - 1, digit_pairs + c0, 2);
-        memcpy(result + index + olength - i - 3, digit_pairs + c1, 2);
-        i += 4;
-    }
-    if (output2 >= 100){
-        uint32_t c = (output2 % 100) << 1;
-        output2 /= 100;
-        memcpy(result + index + olength - i - 1, digit_pairs + c, 2);
-        i += 2;
+    int32_t kk = (int32_t)length + exp10;
+
+    if (-5 < kk && kk <= 16){
+        // fixed format
+        if (exp10 >= 0){
+            // integer
+            int_to_string_impl(result + index, (int64_t)mantissa, length);
+
+            index += length;
+            memset(result + index, '0', exp10);
+            index += exp10;
+
+            // append ".0"
+            result[index++] = '.';
+            result[index++] = '0';
+            return index;
+        } else if (kk > 0){
+            // decimal inside digits
+            int_to_string_impl(result + index, (int64_t)mantissa, length);
+            memmove(result + index + kk + 1,
+                    result + index + kk,
+                    length - kk);
+
+            result[index + kk] = '.';
+
+            index += length + 1;
+            return index;
+        } else {
+            // Case 3: leading zeros
+            result[index++] = '0';
+            result[index++] = '.';
+
+            int32_t zeros = -kk;
+            memset(result + index, '0', zeros);
+            index += zeros;
+
+            int_to_string_impl(result + index, (int64_t)mantissa, length);
+            index += length;
+
+            return index;
+        }
     }
 
-    if (output2 >= 10) {
-        const uint32_t c = output2 << 1;
-        // We can't use memcpy here: the decimal dot goes between these two digits.
-        result[index + olength - i] = digit_pairs[c + 1];
-        result[index] = digit_pairs[c];
-    } else {
-        result[index] = (char)('0' + output2);
-    }
-    
-    // Print decimal point if needed.
-    if (olength > 1) {
-        result[index + 1] = '.';
-        index += olength + 1;
-    } else {
-        index++;
-    }
+    int_to_string_impl(result + index, (int64_t)mantissa, length);
 
-    result[index++] = 'E';
+    // move first digit
+    result[index] = result[index + 1];
+    result[index + 1] = '.';
 
-    int32_t exp = v.exponent + (int32_t) olength - 1;
+    result[index + length + 1] = 'e';
+
+    int32_t exp = kk - 1;
+    int exp_index = index + length + 2;
+
     if (exp < 0) {
-        result[index++] = '-';
+        result[exp_index++] = '-';
         exp = -exp;
     }
 
     if (exp >= 100) {
         int32_t c = exp % 10;
-        memcpy(result + index, digit_pairs + 2 * (exp / 10), 2);
-        result[index + 2] = (char)('0' + c);
-        index += 3;
+        memcpy(result + exp_index, digit_pairs + 2 * (exp / 10), 2);
+        result[exp_index + 2] = (char)('0' + c);
+        exp_index += 3;
     } else if (exp >= 10) {
-        memcpy(result + index, digit_pairs + 2 * exp, 2);
-        index += 2;
+        memcpy(result + exp_index, digit_pairs + 2 * exp, 2);
+        exp_index += 2;
     } else {
-        result[index++] = (char)('0' + exp);
+        result[exp_index++] = (char)('0' + exp);
     }
 
-    return index;
+    return exp_index;
 }
 
-static size_t ryu_double_to_string_impl(char* buf, double d, size_t max_char_nb) {
+static size_t ryu_double_to_string_impl(char* buf, double d) {
     uint64_t d_bits = INTO_TYPE(uint64_t, d);
     bool is_negative = (d_bits >> 63) & 0x1;
     uint32_t ieeeExponent = (uint32_t)((d_bits >> MANTISSA_NB_BITS) & EXPONENT_ALL_1);
@@ -1830,7 +1820,7 @@ static size_t ryu_double_to_string_impl(char* buf, double d, size_t max_char_nb)
 
 
     if ((ieeeExponent == 0 && ieeeMantissa == 0) || ieeeExponent == EXPONENT_ALL_1){
-        return double_to_str_special_strings(buf, is_negative, ieeeExponent, ieeeMantissa, max_char_nb);
+        return double_to_str_special_strings(buf, is_negative, ieeeExponent, ieeeMantissa);
     }
 
     struct double_decimal v;
@@ -1857,73 +1847,11 @@ static size_t ryu_double_to_string_impl(char* buf, double d, size_t max_char_nb)
     return double_decimal_to_chars(v, is_negative, buf);
 }
 
-// TODO : implement ryu or grisu implementation (or both with grisu with ryu as fallback ?)
-static size_t double_to_string_impl(char* buf, double d, size_t max_char_nb){
-    const int MAX_DECIMAL_PLACES = 6;
-    if (d != d){
-        // NAN
-        buf[0] = 'n';
-        buf[1] = 'a';
-        buf[2] = 'n';
-        return 3;
-    }
-
-    if (d == INFINITY){
-        buf[0] = 'i';
-        buf[1] = 'n';
-        buf[2] = 'f';
-        return 3;
-    }
-
-    if (d == -INFINITY){
-        buf[0] = '-';
-        buf[1] = 'i';
-        buf[2] = 'n';
-        buf[3] = 'f';
-        return 4;
-    }
-
-    size_t pos = 0;
-
-    if (d < 0){
-        buf[pos] = '-';
-        pos++;
-        d = -d;
-    }
-
-
-    uint64_t int_part = (uint64_t)d;
-    int int_part_digit_nb = digit_nb_unsigned(int_part);
-    double frac_part = d - (double)int_part;
-
-    int_to_string_impl(buf + pos, (int64_t)int_part, int_part_digit_nb);
-    pos += int_part_digit_nb;
-
-    if (frac_part > 0.0){
-        buf[pos] = '.';
-        pos++;
-
-        int decimal_count = 0;
-
-        while (decimal_count < MAX_DECIMAL_PLACES && pos < max_char_nb) {
-            frac_part *= 10;
-            int digit = (int)frac_part;
-            buf[pos] = '0' + digit;
-            pos++;
-            frac_part -= digit;
-            decimal_count++;
-        }
-    } else {
-        // TODO : keep this or not ?
-        buf[pos++] = '.';
-        buf[pos++] = '0';
-    }
-    return pos;
-}
 
 static void list_format(struct str* str, struct ListNode* list);
 static void ensure_size_string(struct str* s, size_t size);
 
+// TODO : make these functions wrappers for other functions for when we already know that we have allocated to not have to have check the capacity (for ex for the ryu formatting) 
 static void format_int(struct str* str, int64_t i){
     int digit_number = digit_nb(i);
     size_t buf_size = (i < 0) ? digit_number + 1 : digit_number;
@@ -1934,7 +1862,7 @@ static void format_int(struct str* str, int64_t i){
 
 static void format_float(struct str* str, double d){
     ensure_size_string(str, str->len + MAX_DOUBLE_BUF_SIZE);
-    str->len += ryu_double_to_string_impl(str->buf + str->len, d, MAX_DOUBLE_BUF_SIZE);
+    str->len += ryu_double_to_string_impl(str->buf + str->len, d);
 }
 
 static void format_bool(struct str* str, bool b){
