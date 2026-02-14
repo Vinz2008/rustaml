@@ -8,7 +8,7 @@ use pathbuf::pathbuf;
 use std::path::PathBuf;
 
 // TODO : instead install file in filesystem ?
-pub(crate) const STD_C_CONTENT: &str = include_str!("../../std.c");
+pub(crate) const STD_C_CONTENT: &str = include_str!("../../std/std.c");
 
 // TODO : add a way to select the path of bdwgc for building it
 // TODO : add a way to select the path of musl for building it
@@ -173,7 +173,7 @@ pub(crate) fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Pat
     rustaml_context.start_section("std");
 
     let mut clang_std = Command::new("clang");
-    clang_std.arg("-x").arg("c").arg("-emit-llvm").arg(format!("-O{}", opt_level as u32)).arg("-c");
+    clang_std.arg("-x").arg("c").arg("-emit-llvm").arg(format!("-O{}", opt_level as u32)).arg("-c").arg("-DSTD_BUILD");
 
     if !matches!(opt_level, OptimizationLevel::None){
         clang_std.arg("-DNDEBUG");

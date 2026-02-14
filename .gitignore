@@ -13,3 +13,4 @@ profiling.txt
 profiling.json
 ast.dot
 *.s
+std/std.c
