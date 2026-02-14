@@ -29,6 +29,8 @@ pub(crate) fn encountered_any_type() -> ! {
     panic!("Encountered Any when compiling")
 }
 
+
+// TODO : use an enum and then return enum variants to make ti more clear ?
 pub(crate) fn get_type_tag(t : &Type) -> u8 {
     match t {
         Type::Integer => 0,
@@ -39,8 +41,9 @@ pub(crate) fn get_type_tag(t : &Type) -> u8 {
         Type::List(_) => 5,
         Type::Char => 6,
         Type::Unit => 7,
+        Type::Vec(_, _) => 8,
         // TODO : add a type tag for Never ? SumType ? Regex ?
-        Type::Any | Type::Never | Type::Regex | Type::Vec(_, _) | Type::CType(_) | Type::Generic(_) | Type::SumType(_) => panic!("no type tag for this type {:?} !!", t),
+        Type::Any | Type::Never | Type::Regex | Type::CType(_) | Type::Generic(_) | Type::SumType(_) => panic!("no type tag for this type {:?} !!", t),
     }
 }
 

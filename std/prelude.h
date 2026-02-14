@@ -107,6 +107,7 @@ enum TypeTag {
     LIST_TYPE = 5,
     CHAR_TYPE = 6,
     UNIT_TYPE = 7,
+    VEC_TYPE = 8,
 };
 
 typedef uint64_t Val;
@@ -137,6 +138,13 @@ STATIC uint32_t* utf8_decode_str(const char* restrict str, size_t str_len, size_
 
 __attribute__((returns_nonnull))
 const char* __char_to_str(uint32_t c);
+
+// TODO : small vec optimization ?
+struct VecVal {
+    uint8_t element_type_tag;
+    uint32_t size;
+    void* buf;
+};
 
 struct str {
     char* buf;

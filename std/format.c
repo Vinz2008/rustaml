@@ -1165,6 +1165,7 @@ static void list_node_format(struct str* str, uint8_t tag, Val val){
 }
 
 static void list_format(struct str* str, struct ListNode* list){
+    ensure_size_string(str, 2);
     bool first = true;
     str->buf[str->len] = '[';
     str->len++;
@@ -1183,6 +1184,46 @@ static void list_format(struct str* str, struct ListNode* list){
 
     str->buf[str->len] = ']';
     str->len++;
+}
+
+#define VEC_START "vec["
+
+static void vec_format(struct str* str, struct VecVal* vec_val){
+    size_t vec_start_len = sizeof(VEC_START)-1;
+    ensure_size_string(str, vec_start_len);
+    memcpy(str->buf + str->len, VEC_START, vec_start_len);
+    str->len += vec_start_len;
+
+    const char* comma = ", ";
+    
+
+    uint8_t type_tag = vec_val->element_type_tag;
+    if (type_tag == INT_TYPE){
+        const int64_t* int_buf = vec_val->buf;
+        for (uint32_t i = 0; i < vec_val->size; i++){
+            if (i != 0){
+                ensure_size_string(str, 2);
+                memcpy(str->buf + str->len, comma, 2);
+                str->len += 2;
+            }
+            format_int(str, int_buf[i]);
+        }
+    } else if (type_tag == FLOAT_TYPE) {
+        const double* float_buf = vec_val->buf;
+        for (uint32_t i = 0; i < vec_val->size; i++){
+            if (i != 0){
+                ensure_size_string(str, 2);
+                memcpy(str->buf + str->len, comma, 2);
+                str->len += 2;
+            }
+            format_float(str, float_buf[i]);
+        }
+    } else {
+        fprintf(stderr,"Unknown tag of vec in format : %d\n", vec_val->element_type_tag);
+        exit(1);
+    }
+
+    str->buf[str->len++] = ']';
 }
 
 
@@ -1234,8 +1275,11 @@ static char* vformat_string(const char* format, va_list va){
                     case 'l':
                         list_format(&str, va_arg(va, struct ListNode*));
                         break;
+                    case 'v':
+                        vec_format(&str, va_arg(va, struct VecVal*));
+                        break;
+                    // TODO : add ctype like in print
                     // TODO : add unit %u
-                    // TODO : add vec support
                     default:
                         fprintf(stderr, "ERROR : Unknown format\n");
                         exit(1);

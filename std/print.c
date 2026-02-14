@@ -5,13 +5,6 @@
 #endif
 #endif
 
-// TODO : small vec optimization ?
-struct VecVal {
-    uint8_t element_type_tag;
-    uint32_t size;
-    void* buf;
-};
-
 
 static void list_write_file_no_new_line(struct ListNode* list, FILE* f);
 
@@ -97,7 +90,7 @@ static void vec_write_file_no_new_line(struct VecVal* vec_val, FILE* f){
     const char* open_vec = "vec[";
     fwrite(open_vec, sizeof(char), 4, f);
     const char* comma = ", ";
-    // TODO : put the switch to the outside of the for to optimize it ?
+
     uint8_t type_tag = vec_val->element_type_tag;
     if (type_tag == INT_TYPE){
         const int64_t* int_buf = vec_val->buf;
@@ -133,7 +126,7 @@ static void vec_write_file_no_new_line(struct VecVal* vec_val, FILE* f){
             fwrite(buf, sizeof(char), s.len, f);
         }
     } else {
-        fprintf(stderr,"Unknown tag of vec : %d\n", vec_val->element_type_tag);
+        fprintf(stderr,"Unknown tag of vec in print : %d\n", vec_val->element_type_tag);
         exit(1);
     }
 

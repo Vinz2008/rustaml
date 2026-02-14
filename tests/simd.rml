@@ -11,5 +11,8 @@ let s2_float = vec[10.0, 9.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0] ;;
 let _ = print (s1_float +| s2_float) ;;
 let _ = print (s1_float /| s2_float) ;;
 
+
+let formatted = format "test : {}" s2 ;;
+let _ = print formatted ;;
 // TODO
 // let div_splat  = s1_float / splat(2) ;;

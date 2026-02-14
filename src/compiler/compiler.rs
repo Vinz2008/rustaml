@@ -573,7 +573,17 @@ fn compile_format<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>
     let format_str = format_str.get_str(&compile_context.rustaml_context.str_interner);
     let format_str = get_format_string_format(format_str, arg_types.as_slice());
     let mut args= vec![create_string(compile_context, &format_str).into()];
-    let mut args_val = args_val.into_iter().zip(arg_types).map(|(e, t)| promote_val_var_arg(compile_context, &t, e)).collect::<Vec<_>>();
+    let mut args_val = 
+        args_val.into_iter()
+        .zip(arg_types)
+        .map(|(e, t)| {
+            match &t {
+                Type::Vec(e_t, _) => (vec_to_c_struct_ptr(compile_context, e.into_vector_value(), e_t.as_ref()).into(), t),
+                _ => (e, t),
+            }
+        })
+        .map(|(e, t)| promote_val_var_arg(compile_context, &t, e))
+        .collect::<Vec<_>>();
     args.append(&mut args_val);
     let args = args.into_iter().map(|e| e.into()).collect::<Vec<_>>();
     compile_context.builder.build_call(format_fun, &args, "format_string_internal_call").unwrap().try_as_basic_value().unwrap_basic()
