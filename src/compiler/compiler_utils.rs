@@ -119,7 +119,7 @@ pub(crate) fn get_fn_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, llvm_typ
         AnyTypeEnum::IntType(i) => i.fn_type(param_types, is_var_args),
         AnyTypeEnum::PointerType(p) => p.fn_type(param_types, is_var_args),
         AnyTypeEnum::StructType(s) => s.fn_type(param_types, is_var_args),
-        AnyTypeEnum::VectorType(_) => unreachable!(), // TODO ?
+        AnyTypeEnum::VectorType(v) => v.fn_type(param_types, is_var_args),
         AnyTypeEnum::ScalableVectorType(_) => unreachable!(), // TODO ?
         AnyTypeEnum::VoidType(v) => v.fn_type(param_types, is_var_args),
     }

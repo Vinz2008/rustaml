@@ -12,6 +12,8 @@ let _ = print (s1_float +| s2_float) ;;
 let _ = print (s1_float /| s2_float) ;;
 
 
+let simd_fun_mul a b : vec[float, 8] -> vec[float, 8] -> vec[float, 8] = a *| b ;; 
+
 let formatted = format "test : {}" s2 ;;
 let _ = print formatted ;;
 // TODO

@@ -173,9 +173,13 @@ struct BuiltinFunction<'llvm_ctx> {
 }
 
 
-fn new_attribute(llvm_context : &Context, name : &'static str) -> Attribute {
+fn new_enum_attribute(llvm_context : &Context, name : &'static str) -> Attribute {
     let attribute_id = Attribute::get_named_enum_kind_id(name);
     llvm_context.create_enum_attribute(attribute_id, 0)
+}
+
+fn new_string_attr(llvm_context : &Context, key : &'static str, val : &'static str) -> Attribute {
+    llvm_context.create_string_attribute(key, val)
 }
 
 // TODO : replace these strings with an enum ?
@@ -184,10 +188,11 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
     let ptr_type = llvm_context.ptr_type(AddressSpace::default()).into();
     let ptr_type_ret = llvm_context.ptr_type(AddressSpace::default()).into();
 
-    let attr = |n| (AttributeLoc::Function, new_attribute(llvm_context, n));
-    let attr_return = |n| (AttributeLoc::Return, new_attribute(llvm_context, n));
-    let attr_args = |n, idx| (AttributeLoc::Param(idx), new_attribute(llvm_context, n));
-    
+    let attr = |n| (AttributeLoc::Function, new_enum_attribute(llvm_context, n));
+    let attr_return = |n| (AttributeLoc::Return, new_enum_attribute(llvm_context, n));
+    let attr_args = |n, idx| (AttributeLoc::Param(idx), new_enum_attribute(llvm_context, n));
+    let attr_str_args = |key, val, idx| (AttributeLoc::Param(idx), new_string_attr(llvm_context, key, val));
+
     vec![
         BuiltinFunction {
             name: "__init",
@@ -300,7 +305,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             is_variadic: true,
             args: Box::new([ptr_type]),
             ret: Some(llvm_context.void_type().into()),
-            attributes: vec![attr_args("noundef", 0), attr_args("readonly", 0)],
+            attributes: vec![attr_args("noundef", 0), attr_args("readonly", 0), attr_args("noalias", 0), attr_str_args("captures", "none", 0)],
         },
         BuiltinFunction {
             name: "exit",
@@ -1562,13 +1567,13 @@ fn get_var_type<'context>(compile_context: &'context CompileContext<'context, '_
 
 fn default_attributes_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context, t : &Type, attribute_loc : AttributeLoc, function : FunctionValue<'llvm_ctx>){
     match t {
-        Type::Integer | Type::Bool | Type::Float => function.add_attribute(attribute_loc, new_attribute(llvm_context, "noundef")), // make ints, bools, noundef to help optimizations
+        Type::Integer | Type::Bool | Type::Float => function.add_attribute(attribute_loc, new_enum_attribute(llvm_context, "noundef")), // make ints, bools, noundef to help optimizations
         Type::Str => {
-            function.add_attribute(attribute_loc, new_attribute(llvm_context, "noundef"));
-            function.add_attribute(attribute_loc, new_attribute(llvm_context, "nonnull"));
+            function.add_attribute(attribute_loc, new_enum_attribute(llvm_context, "noundef"));
+            function.add_attribute(attribute_loc, new_enum_attribute(llvm_context, "nonnull"));
         }
         Type::List(_) => {
-            function.add_attribute(attribute_loc, new_attribute(llvm_context, "noundef"));
+            function.add_attribute(attribute_loc, new_enum_attribute(llvm_context, "noundef"));
         }
         _ => {}
     }

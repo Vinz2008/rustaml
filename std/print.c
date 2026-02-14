@@ -243,3 +243,5 @@ void __print_val(const char* restrict format, ...){
     vwrite_val_file(format, va, stdout);
     va_end(va);
 }
+
+// TODO : move the printing of a vec to a differrent function that would be __print_vec to prevent stack spilling (look at simd.rml)

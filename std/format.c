@@ -511,20 +511,20 @@ static const uint64_t DOUBLE_POW5_SPLIT[DOUBLE_POW5_TABLE_SIZE][2] = {
 // TODO : manually inline these if used one time (or a couple of times ? keep the asserts ?)
 
 // Returns e == 0 ? 1 : [log_2(5^e)]; requires 0 <= e <= 3528.
-static uint32_t log10Pow2(int32_t e){
+/*static uint32_t log10Pow2(int32_t e){
     // The first value this approximation fails for is 2^1651 which is just greater than 10^297.
     assert(e >= 0);
     assert(e <= 1650);
     return (((uint32_t)e) * 78913) >> 18;
-}
+}*/
 
 // Returns floor(log_10(5^e)); requires 0 <= e <= 2620.
-static uint32_t log10Pow5(int32_t e) {
+/*static uint32_t log10Pow5(int32_t e) {
   // The first value this approximation fails for is 5^2621 which is just greater than 10^1832.
   assert(e >= 0);
   assert(e <= 2620);
   return (((uint32_t) e) * 732923) >> 20;
-}
+}*/
 
 static bool multipleOfPowerOf2(uint64_t value, uint32_t p) {
   assert(value != 0);
@@ -743,7 +743,14 @@ static struct double_decimal create_double_decimal(uint64_t ieeeMantissa, uint32
     bool scaled_val_is_trailing_zeros = false;
     if (exponent2 >= 0){
         // positive exponent (probably very large integer number)
-        uint32_t q = log10Pow2(exponent2) - (exponent2 > 3); // around floor(log10(2^exponent2)) = how many decimal digits 2^exponent2 has
+
+        
+        //uint32_t q = log10Pow2(exponent2) - (exponent2 > 3); // around floor(log10(2^exponent2)) = how many decimal digits 2^exponent2 has
+        // manually inlined log10Pow2
+        assert(exponent2 >= 0);
+        assert(exponent2 <= 1650);
+        uint32_t q = ((((uint32_t)exponent2) * 78913) >> 18) - (exponent2 > 3);
+        
         e10 = (int32_t)q;
 
         // shift amounts
@@ -771,7 +778,12 @@ static struct double_decimal create_double_decimal(uint64_t ieeeMantissa, uint32
     } else {
         // fractional (negative binary exponent)
 
-        uint32_t q = log10Pow5(-exponent2) - (-exponent2 > 1); // = max(0, log10Pow5(-e2) - 1)
+        //uint32_t q = log10Pow5(-exponent2) - (-exponent2 > 1); // = max(0, log10Pow5(-e2) - 1)
+        // manually inlineD log10Pow5
+        assert((-exponent2) >= 0);
+        assert((-exponent2) <= 2620);
+        uint32_t q = ((((uint32_t)(-exponent2)) * 732923) >> 20) - (-exponent2 > 1);  // = max(0, log10Pow5(-e2) - 1)
+
         e10 = (int32_t)q + exponent2;
         int32_t i = -exponent2 - (int32_t) q;
         int32_t k = pow5bits(i) - DOUBLE_POW5_BITCOUNT;
@@ -1278,8 +1290,13 @@ static char* vformat_string(const char* format, va_list va){
                     case 'v':
                         vec_format(&str, va_arg(va, struct VecVal*));
                         break;
+                    case 'u':
+                        ensure_size_string(&str, 2);
+                        const char* s_unit = "()";
+                        memcpy(str.buf + str.len, s_unit, 2);
+                        str.len += 2;
+                        break;
                     // TODO : add ctype like in print
-                    // TODO : add unit %u
                     default:
                         fprintf(stderr, "ERROR : Unknown format\n");
                         exit(1);

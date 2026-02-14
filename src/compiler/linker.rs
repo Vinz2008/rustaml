@@ -173,7 +173,7 @@ pub(crate) fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Pat
     rustaml_context.start_section("std");
 
     let mut clang_std = Command::new("clang");
-    clang_std.arg("-x").arg("c").arg("-emit-llvm").arg(format!("-O{}", opt_level as u32)).arg("-c").arg("-DSTD_BUILD");
+    clang_std.arg("-x").arg("c").arg("-emit-llvm").arg(format!("-O{}", opt_level as u32)).arg("-c").arg("-DSTD_BUILD").arg("-Wall").arg("-Wextra");
 
     if !matches!(opt_level, OptimizationLevel::None){
         clang_std.arg("-DNDEBUG");
