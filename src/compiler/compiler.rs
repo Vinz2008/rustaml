@@ -2,7 +2,7 @@ use core::panic;
 use std::{cell::Cell, fs, hash::{Hash, Hasher}, ops::Range, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use nohash::{IntMap, IntSet};
-use crate::{ast::{ASTNode, ASTRef, CType, Type, TypeTag}, compiler::{cast::cast_val, compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_variant_tag, get_void_val, move_bb_after_current, promote_val_var_arg, vec_to_c_struct_ptr}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}, linker::link_exe}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, CType, Type, TypeTag}, compiler::{cast::cast_val, compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_array_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_variant_tag, get_void_val, llvm_lifetime_end, llvm_lifetime_start, move_bb_after_current, promote_val_var_arg, vec_to_c_struct_ptr}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}, linker::link_exe}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue, ValueKind}};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHasher};
@@ -218,7 +218,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             name: "__list_node_init_static",
             args: Box::new([llvm_context.i8_type().into(), ptr_type, llvm_context.i64_type().into()]),
             ret: Some(ptr_type_ret),
-            attributes: vec![attr_return("noalias")],
+            attributes: vec![attr_return("noalias"), attr_args("noundef", 1), attr_args("readonly", 1), attr_str_args("captures", "none", 1)],
             ..Default::default()
         },
         BuiltinFunction {
@@ -306,6 +306,13 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
             args: Box::new([ptr_type]),
             ret: Some(llvm_context.void_type().into()),
             attributes: vec![attr_args("noundef", 0), attr_args("readonly", 0), attr_args("noalias", 0), attr_str_args("captures", "none", 0)],
+        },
+        BuiltinFunction {
+            name: "__print_vec",
+            args: Box::new([ptr_type]),
+            ret: Some(llvm_context.void_type().into()),
+            attributes: vec![attr_args("noundef", 0), attr_args("readonly", 0), attr_str_args("captures", "none", 0)],
+            ..Default::default()
         },
         BuiltinFunction {
             name: "exit",
@@ -512,16 +519,28 @@ fn get_format_string(print_type : &Type) -> &'static str {
 
 fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, print_val : BasicValueEnum<'llvm_ctx>, print_val_type : &Type) -> BasicValueEnum<'llvm_ctx> {
 
+    match print_val_type {
+        Type::Vec(e, _size) => {
+            let print_vec = compile_context.get_internal_function("__print_vec");
+            let vec_c_struct = vec_to_c_struct_ptr(compile_context, print_val.into_vector_value(), e.as_ref());
+            compile_context.builder.build_call(print_vec, &[vec_c_struct.alloca_struct.into()], "print_vec_internal_call").unwrap();
+            llvm_lifetime_end(compile_context, vec_c_struct.alloca_array, vec_c_struct.alloca_arr_size);
+            llvm_lifetime_end(compile_context, vec_c_struct.alloca_struct, vec_c_struct.alloca_struct_size);
+            return get_void_val(compile_context.context);
+        }
+        _ => {}
+    }
+
     let printf_fun = compile_context.get_internal_function("__print_val");
     let format_str = get_format_string(print_val_type);
     let format_str = create_string(compile_context, format_str);
     let print_val = promote_val_var_arg(compile_context, print_val_type, print_val);
-    let print_val = match (print_val, print_val_type) {
+    /*let print_val = match (print_val, print_val_type) {
         (print_val, Type::Vec(e, _size)) => {
             vec_to_c_struct_ptr(compile_context, print_val.into_vector_value(), e.as_ref()).into()
         }
         _ => print_val,
-    };
+    };*/
     let printf_args = [format_str.into(), print_val.into()];
     compile_context.builder.build_call(printf_fun, &printf_args, "print_internal_call").unwrap();
     get_void_val(compile_context.context)
@@ -578,12 +597,18 @@ fn compile_format<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>
     let format_str = format_str.get_str(&compile_context.rustaml_context.str_interner);
     let format_str = get_format_string_format(format_str, arg_types.as_slice());
     let mut args= vec![create_string(compile_context, &format_str).into()];
+    let mut vec_c_structs = vec![];
+    
     let mut args_val = 
         args_val.into_iter()
         .zip(arg_types)
         .map(|(e, t)| {
             match &t {
-                Type::Vec(e_t, _) => (vec_to_c_struct_ptr(compile_context, e.into_vector_value(), e_t.as_ref()).into(), t),
+                Type::Vec(e_t, _) => {
+                    let vec_c_struct = vec_to_c_struct_ptr(compile_context, e.into_vector_value(), e_t.as_ref());
+                    vec_c_structs.push(vec_c_struct.clone());
+                    (vec_c_struct.alloca_struct.into(), t)
+                },
                 _ => (e, t),
             }
         })
@@ -591,7 +616,14 @@ fn compile_format<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>
         .collect::<Vec<_>>();
     args.append(&mut args_val);
     let args = args.into_iter().map(|e| e.into()).collect::<Vec<_>>();
-    compile_context.builder.build_call(format_fun, &args, "format_string_internal_call").unwrap().try_as_basic_value().unwrap_basic()
+    let formatted = compile_context.builder.build_call(format_fun, &args, "format_string_internal_call").unwrap().try_as_basic_value().unwrap_basic();
+    
+    for vec_c_struct in vec_c_structs {
+        llvm_lifetime_end(compile_context, vec_c_struct.alloca_array, vec_c_struct.alloca_arr_size);
+        llvm_lifetime_end(compile_context, vec_c_struct.alloca_struct, vec_c_struct.alloca_struct_size);
+    }
+    
+    formatted
 }
 
 fn compile_panic<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, message_str : PointerValue<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx>{
@@ -672,7 +704,10 @@ fn compile_regex_has_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, '
 fn compile_black_box<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, arg : BasicValueEnum<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
     let arg_llvm_type = arg.get_type();
     let buf_ptr = create_entry_block_alloca(compile_context, "buf_blackbox", arg_llvm_type.as_any_type_enum());
-    
+    let buf_alloca_size = compile_context.target_data.get_store_size(&arg_llvm_type);
+    let buf_alloca_size = compile_context.context.i64_type().const_int(buf_alloca_size, false);
+    llvm_lifetime_start(compile_context, buf_ptr, buf_alloca_size);
+
     compile_context.builder.build_store(buf_ptr, arg).unwrap();
 
     let inline_asm_ty = get_fn_type(compile_context.context, compile_context.context.void_type().into(), &[compile_context.context.ptr_type(AddressSpace::default()).into()], false);
@@ -682,6 +717,7 @@ fn compile_black_box<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>,
     
     compile_context.builder.build_indirect_call(inline_asm_ty, inline_asm, &[buf_ptr.into()], "black_box").unwrap();
     compile_context.builder.build_load(arg_llvm_type, buf_ptr, "load_black_box").unwrap();
+    llvm_lifetime_end(compile_context, buf_ptr, buf_alloca_size);
     return get_void_val(compile_context.context); // TODO : return what is loaded instead, but would need work to make return generics work (ex : need that every generic have each an unique index, so would need to keep the number of generics in the ast somewhere because of type generics annotation)
 }
 
@@ -1364,6 +1400,10 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm
     let size = create_int(compile_context, list.len() as i128);
     let static_array = create_entry_block_array_alloca(compile_context, "temp_static_list", compile_context.context.i64_type().into(), size); // use a i64 type to prevent type aliasing UB
     
+    let array_type = get_array_type(llvm_element_type, list.len() as u32);
+    let static_arr_size = compile_context.target_data.get_store_size(&array_type);
+    let static_arr_size = compile_context.context.i64_type().const_int(static_arr_size, false);
+    llvm_lifetime_start(compile_context, static_array, static_arr_size);
 
     if std_vals.iter().all(|e| e.is_const()){
         // optimization if all vals are constants
@@ -1391,8 +1431,11 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm
         }
     }
 
-    create_list_init_static_call(compile_context, type_tag_val, static_array, size).as_basic_value_enum()
+    let list_init = create_list_init_static_call(compile_context, type_tag_val, static_array, size).as_basic_value_enum();
+    
+    llvm_lifetime_end(compile_context, static_array, static_arr_size);
 
+    list_init
 }
 
 fn compile_static_vec<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, vec : &[ASTRef], vec_type : &Type) -> BasicValueEnum<'llvm_ctx> {

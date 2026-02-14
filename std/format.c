@@ -1080,7 +1080,7 @@ static void list_format(struct str* str, struct ListNode* list);
 static void ensure_size_string(struct str* s, size_t size);
 
 // TODO : make these functions wrappers for other functions for when we already know that we have allocated to not have to have check the capacity (for ex for the ryu formatting) 
-static void format_int(struct str* str, int64_t i){
+STATIC void format_int(struct str* str, int64_t i){
     int digit_number = digit_nb(i);
     size_t buf_size = (i < 0) ? digit_number + 1 : digit_number;
     ensure_size_string(str, str->len + buf_size);
@@ -1088,7 +1088,7 @@ static void format_int(struct str* str, int64_t i){
     str->len += buf_size;
 }
 
-static void format_float(struct str* str, double d){
+STATIC void format_float(struct str* str, double d){
     ensure_size_string(str, str->len + MAX_DOUBLE_BUF_SIZE);
     str->len += ryu_double_to_string_impl(str->buf + str->len, d);
 }
@@ -1109,7 +1109,7 @@ static void format_str(struct str* str, const char* s){
 }
 
 
-static void format_char(struct str* str, uint32_t c){
+void format_char(struct str* str, uint32_t c){
     if (c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF)) {
         fprintf(stderr, "Invalid UTF-8 codepoint %d\n", c);
         exit(1);

@@ -1,4 +1,4 @@
-use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType, VectorType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, VectorValue}};
+use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, intrinsics::Intrinsic, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, ArrayType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType, VectorType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, VectorValue}};
 
 use crate::{ast::{CType, Type}, compiler::{CompileContext, cast::cast_val, debuginfo::LineColLoc}, rustaml::RustamlContext, string_intern::StringRef};
 
@@ -130,6 +130,19 @@ pub(crate) fn get_vec_type<'llvm_ctx>(llvm_type : AnyTypeEnum<'llvm_ctx>, size :
         AnyTypeEnum::IntType(i) => i.vec_type(size),
         AnyTypeEnum::FloatType(f) => f.vec_type(size),
         AnyTypeEnum::PointerType(p) => p.vec_type(size),
+        _ => unreachable!(),
+    }
+}
+
+pub(crate) fn get_array_type<'llvm_ctx>(llvm_type : AnyTypeEnum<'llvm_ctx>, size : u32) -> ArrayType<'llvm_ctx> {
+    match llvm_type {
+        AnyTypeEnum::IntType(i) => i.array_type(size),
+        AnyTypeEnum::FloatType(f) => f.array_type(size),
+        AnyTypeEnum::ArrayType(a) => a.array_type(size),
+        AnyTypeEnum::PointerType(p) => p.array_type(size),
+        AnyTypeEnum::StructType(s) => s.array_type(size),
+        AnyTypeEnum::VectorType(v) => v.array_type(size),
+        AnyTypeEnum::ScalableVectorType(v) => v.array_type(size),
         _ => unreachable!(),
     }
 }
@@ -331,19 +344,40 @@ fn get_vec_c_struct_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Struct
     ], false)
 }
 
+pub(crate) fn llvm_lifetime_start<'llvm_ctx>(compile_context : &CompileContext<'_, 'llvm_ctx>, alloca_ptr : PointerValue<'llvm_ctx>, alloca_size : IntValue<'llvm_ctx>){
+    let lifetime_start_intrisic = Intrinsic::find("llvm.lifetime.start").unwrap();
+    let lifetime_start_fun = lifetime_start_intrisic.get_declaration(&compile_context.module, &[compile_context.context.ptr_type(AddressSpace::default()).into()]).unwrap();
+    compile_context.builder.build_call(lifetime_start_fun, &[alloca_size.into(), alloca_ptr.into()], "lifetime_start").unwrap();
+}
+
+pub(crate) fn llvm_lifetime_end<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, alloca_ptr : PointerValue<'llvm_ctx>, alloca_size : IntValue<'llvm_ctx>){
+    let lifetime_end_intrisic = Intrinsic::find("llvm.lifetime.end").unwrap();
+    let lifetime_end_fun = lifetime_end_intrisic.get_declaration(&compile_context.module, &[compile_context.context.ptr_type(AddressSpace::default()).into()]).unwrap();
+    compile_context.builder.build_call(lifetime_end_fun, &[alloca_size.into(), alloca_ptr.into()], "lifetime_end").unwrap();
+}
+
+#[derive(Clone)]
+pub(crate) struct VecCStructInfos<'llvm_ctx> {
+    pub(crate) alloca_struct : PointerValue<'llvm_ctx>,
+    pub(crate) alloca_struct_size : IntValue<'llvm_ctx>,
+    pub(crate) alloca_array : PointerValue<'llvm_ctx>,
+    pub(crate) alloca_arr_size : IntValue<'llvm_ctx>,
+}
+
 // convert to a struct with this layout (the type tag is the same as for lists) :
 // struct {
 //    uint8_t type_tag;
 //    uint32_t size;
 //    void* ptr;
 // }
-pub(crate) fn vec_to_c_struct_ptr<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, vec : VectorValue<'llvm_ctx>, vec_element_type : &Type) -> PointerValue<'llvm_ctx> {
+pub(crate) fn vec_to_c_struct_ptr<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, vec : VectorValue<'llvm_ctx>, vec_element_type : &Type) -> VecCStructInfos<'llvm_ctx> {
     let vec_llvm_type = vec.get_type();
 
     let llvm_element_type = vec_llvm_type.get_element_type().as_any_type_enum();
-    
-    let size = compile_context.context.i64_type().const_int(vec_llvm_type.get_size() as u64, false);
-    let alloca_array = create_entry_block_array_alloca(compile_context, "vec_to_c_struct_arr", llvm_element_type, size);
+
+    let size = vec_llvm_type.get_size();
+    let llvm_size = compile_context.context.i64_type().const_int(size as u64, false);
+    let alloca_array = create_entry_block_array_alloca(compile_context, "vec_to_c_struct_arr", llvm_element_type, llvm_size);
 
     let vec_align = compile_context.target_data.get_abi_alignment(&vec_llvm_type.as_any_type_enum());
     
@@ -351,10 +385,17 @@ pub(crate) fn vec_to_c_struct_ptr<'llvm_ctx>(compile_context: &CompileContext<'_
     let alloca_arr_instr = alloca_array.as_instruction_value().unwrap();
     alloca_arr_instr.set_alignment(vec_align).unwrap();
 
+
+    let array_type = vec_llvm_type.get_element_type().array_type(size);
+    let alloca_arr_size = compile_context.target_data.get_store_size(&array_type);
+    let alloca_arr_size = compile_context.context.i64_type().const_int(alloca_arr_size, false);
+    
+    llvm_lifetime_start(compile_context, alloca_array, alloca_arr_size);
+
     compile_context.builder.build_store(alloca_array, vec).unwrap();
     let c_struct_fields: [BasicValueEnum; 3] = [
         get_type_tag_val(compile_context.context, vec_element_type).into(),
-        size.into(),
+        llvm_size.into(),
         alloca_array.into(),
     ];
 
@@ -362,6 +403,11 @@ pub(crate) fn vec_to_c_struct_ptr<'llvm_ctx>(compile_context: &CompileContext<'_
 
     let alloca_struct = create_entry_block_alloca(compile_context, "vec_to_c_struct", struct_type.as_any_type_enum());
     
+    let alloca_struct_size = compile_context.target_data.get_store_size(&struct_type);
+    let alloca_struct_size = compile_context.context.i64_type().const_int(alloca_struct_size, false);
+
+    llvm_lifetime_start(compile_context, alloca_struct, alloca_struct_size);
+
     let i32_type = compile_context.context.i32_type();
     let const_zero = i32_type.const_int(0, false);
 
@@ -375,7 +421,12 @@ pub(crate) fn vec_to_c_struct_ptr<'llvm_ctx>(compile_context: &CompileContext<'_
         };
         compile_context.builder.build_store(struct_gep_ptr, *field).unwrap();
     }
-    alloca_struct
+    VecCStructInfos {
+        alloca_struct,
+        alloca_struct_size,
+        alloca_array,
+        alloca_arr_size,
+    }
 }
 
 pub(crate) fn promote_val_var_arg<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, val_type : &Type, val : BasicValueEnum<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx>{

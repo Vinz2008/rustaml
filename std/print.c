@@ -245,3 +245,8 @@ void __print_val(const char* restrict format, ...){
 }
 
 // TODO : move the printing of a vec to a differrent function that would be __print_vec to prevent stack spilling (look at simd.rml)
+
+void __print_vec(struct VecVal* vec_val){
+    vec_write_file_no_new_line(vec_val, stdout);
+    puts(""); // write newline
+}

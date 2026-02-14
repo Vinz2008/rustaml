@@ -78,7 +78,7 @@ PURE int64_t __list_len(const struct ListNode* list){
     return count;
 }
 
-static struct ListBuilder list_builder_init(struct ListNode* nodes_buf){
+STATIC struct ListBuilder list_builder_init(struct ListNode* nodes_buf){
     return (struct ListBuilder){
         .head = NULL,
         .tail = NULL,
