@@ -298,7 +298,7 @@ fn lex_alphabetic(lexer: &mut Lexer) -> Token {
 
     let range = start_pos..lexer.pos;
 
-    // TODO : use the str_to_char! macro in other places
+    // TODO : use a perfect hash map for it ? (phf ?)
     let tok_data = match buf {
         str_to_char!("let") => TokenData::Let,
         str_to_char!("if") => TokenData::If,
