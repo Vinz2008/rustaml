@@ -151,7 +151,7 @@ pub(crate) fn read_file(filename : &Path) -> String {
 #[allow(unused)]
 pub(crate) fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<FrontendOutput, ()> {
     let content = read_file(filename);
-
+    // TODO : if the whole content string is ascii, just take the bytes and widen them to chars then collect them to prevent the overhead of UTF-8 decoding (TODO : benchmark it with criterion before ?)
     let content_chars = content.chars().collect::<Vec<_>>();
 
     rustaml_context.set_content_chars(&content_chars); // do only do this when compiling (it is only needed for debuginfos so only do when it is activated ?)
