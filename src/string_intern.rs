@@ -73,7 +73,7 @@ impl StringRef {
         let lhs_str = str_interner.lookup(self);
         let rhs_str = str_interner.lookup(rhs);
         let new_str = lhs_str.to_owned() + rhs_str;
-        str_interner.intern_runtime(&new_str)
+        str_interner.intern_runtime(&new_str) // TODO : add a intern_runtime_owned for this case (to not clone the string too much)
     }
 
     pub(crate) fn len(self, str_interner : &StrInterner) -> usize {
@@ -103,7 +103,7 @@ impl StrInterner {
     }
 
     fn intern<'a>(&mut self, name : Cow<'a, str>, is_runtime : bool) -> StringRef {
-
+        
         if let Some(idx) = self.map.get(name.as_ref()) {
             return StringRef(*idx);
         }
