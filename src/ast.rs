@@ -1010,6 +1010,7 @@ fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
                 _ => {
                     let s = buf.iter().collect::<String>();
                     let interned_str = parser.rustaml_context.str_interner.intern_compiler_owned(s);
+                    // TODO : do the is_a_variant before the interning of the string, to not have to re-get the string from the string interner (need to hash it (?))
                     if is_a_variant(parser, interned_str.get_str(&parser.rustaml_context.str_interner)) {
                         Pattern::SumTypeVariant(interned_str)
                     } else {
