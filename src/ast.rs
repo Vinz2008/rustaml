@@ -877,7 +877,7 @@ fn parse_function_call(parser: &mut Parser, mut callee : ASTRef) -> Result<ASTRe
 
 
         while parser.has_tokens_left() && is_function_arg_start(parser.current_tok_data()) {
-            let arg= parse_function_arg(parser)?;
+            let arg = parse_function_arg(parser)?;
             last_arg = Some(arg);
             args.push(arg);
         }
