@@ -12,7 +12,7 @@ use crate::compiler::{CachedCompMeta, CachedCompilation};
 // for now format to json, TODO : format to binary format supported by serde like postcard, MesagePack or another ?
 // TODO : use also in the hash is gc is enabled, the sanitizer is enabled, debuginfos enabled
 // TODO : need to keep the import files and need to hash also the imported files (imagine if the file you are compiling doesn't change, but the imported file change, it could affect the file compilation, monomorphization, need to do an error if function removed, etc)
-
+// TODO : hash the git hash of the last commit
 
 fn get_llvm_ir_hash(content : &str, opt_level : OptimizationLevel) -> Hash {
     let mut hasher = blake3::Hasher::new();
