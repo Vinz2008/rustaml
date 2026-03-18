@@ -13,6 +13,7 @@ use crate::compiler::{CachedCompMeta, CachedCompilation};
 // TODO : use also in the hash is gc is enabled, the sanitizer is enabled, debuginfos enabled
 // TODO : need to keep the import files and need to hash also the imported files (imagine if the file you are compiling doesn't change, but the imported file change, it could affect the file compilation, monomorphization, need to do an error if function removed, etc)
 // TODO : hash the git hash of the last commit
+// TODO : the metadata (the shared library list) is not checked so it is useless (?), so either put all metadata in the metadata struct (so add the optimization level to it), or just hash everything (optimization level, shared libraries and obviously the files) (I think hashing everything would be bettern unless it would increase the chance too much of hash collision, check it)
 
 fn get_llvm_ir_hash(content : &str, opt_level : OptimizationLevel) -> Hash {
     let mut hasher = blake3::Hasher::new();
