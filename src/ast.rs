@@ -972,15 +972,15 @@ fn parse_if(parser: &mut Parser, if_range_start : usize) -> Result<ASTRef, Parse
 fn parse_list_form<T, F>(parser: &mut Parser, parse_elem_fun : F ) -> Result<(Vec<T>, usize), ParserErr>
 where F: Fn(&mut Parser) -> Result<T, ParserErr>
 {
-    let mut iter_nb = 0; // TODO : replace this number with just a boolean is first element, to not have to do an addition for each loop (it is very cheap, but if not useful, why do it ?), just check if first, then if first, put it to false
+    let mut is_first = true;
     let mut elems = Vec::new();
     while !matches!(parser.current_tok_data(), Some(TokenData::ArrayClose)){
-        if iter_nb != 0 {
+        if is_first {
+            is_first = false;
             parser.eat_tok(Some(TokenDataTag::Comma))?;
         }
         let elem_expr = parse_elem_fun(parser)?;
         elems.push(elem_expr);
-        iter_nb += 1;
     }
 
     let array_close_tok = parser.eat_tok(Some(TokenDataTag::ArrayClose))?;
