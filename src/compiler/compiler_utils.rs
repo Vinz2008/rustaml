@@ -1,6 +1,6 @@
 use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, intrinsics::Intrinsic, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, ArrayType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType, VectorType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, VectorValue}};
 
-use crate::{ast::{CType, Type}, compiler::{CompileContext, cast::cast_val, debuginfo::LineColLoc}, rustaml::RustamlContext, string_intern::StringRef};
+use crate::{ast::{CType, Type}, compiler::{CompileContext, cast::cast_val, debuginfo::LineColLoc}, string_intern::StringRef};
 
 
 pub(crate) fn add_function<'llvm_ctx>(compile_context : &CompileContext<'_, 'llvm_ctx>, name : &str, ty: FunctionType<'llvm_ctx>, linkage: Option<Linkage>) -> FunctionValue<'llvm_ctx> {
