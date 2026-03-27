@@ -73,7 +73,7 @@ impl StringRef {
         let lhs_str = str_interner.lookup(self);
         let rhs_str = str_interner.lookup(rhs);
         let new_str = lhs_str.to_owned() + rhs_str;
-        str_interner.intern_runtime(&new_str) // TODO : add a intern_runtime_owned for this case (to not clone the string too much)
+        str_interner.inter_runtime_owned(new_str)
     }
 
     pub(crate) fn len(self, str_interner : &StrInterner) -> usize {
@@ -132,6 +132,10 @@ impl StrInterner {
 
     pub(crate) fn intern_runtime(&mut self, name : &str) -> StringRef {
         self.intern(Cow::Borrowed(name), true)
+    }
+
+    fn inter_runtime_owned(&mut self, name : String) -> StringRef {
+        self.intern(Cow::Owned(name), true)
     }
 
     fn lookup_interned(&self, idx : StringRef) -> &StrInterned {
