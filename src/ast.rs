@@ -1032,9 +1032,10 @@ fn parse_pattern(parser : &mut Parser) -> Result<PatternRef, ParserErr> {
                 str_to_char!("_") => Pattern::Underscore,
                 _ => {
                     let s = buf.iter().collect::<String>();
+                    // TODO : use the syntax sum_t.variant to not have to check every alias ? (to replace is_a_variant)
+                    let is_variant = is_a_variant(parser, &s);
                     let interned_str = parser.rustaml_context.str_interner.intern_compiler_owned(s);
-                    // TODO : do the is_a_variant before the interning of the string, to not have to re-get the string from the string interner (need to hash it (?))
-                    if is_a_variant(parser, interned_str.get_str(&parser.rustaml_context.str_interner)) {
+                    if is_variant {
                         Pattern::SumTypeVariant(interned_str)
                     } else {
                         Pattern::VarName(interned_str)
