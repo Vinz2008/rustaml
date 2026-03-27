@@ -138,8 +138,8 @@ pub(crate) fn _generate_ast_dot(graph : &mut Graph<String, String>, rustaml_cont
         ASTNode::Unit => {
             graph.add_node("()".to_string())
         }
-        ASTNode::Variant { name, arg } => {
-            graph.add_node(name.get_str(&rustaml_context.str_interner).to_string())
+        ASTNode::Variant { sum_type_name, variant_name, arg } => {
+            graph.add_node(format!("{}.{}", sum_type_name.get_str(&rustaml_context.str_interner), variant_name.get_str(&rustaml_context.str_interner)))
         }
         ASTNode::Char { c } => {
             graph.add_node(format!("\'{}\'", c))

@@ -219,7 +219,8 @@ pub(crate) enum ASTNode {
         name : StringRef,
     },
     Variant {
-        name : StringRef,
+        sum_type_name : StringRef,
+        variant_name : StringRef,
         arg : Option<ASTRef>,
     },
     IfExpr {
@@ -894,13 +895,36 @@ fn parse_function_call(parser: &mut Parser, mut callee : ASTRef) -> Result<ASTRe
     Ok(callee)
 }
 
+fn parse_enum_variant_lit(parser : &mut Parser, enum_name : StringRef, enum_str_start : usize) -> Result<ASTRef, ParserErr> {
+    parser.eat_tok(Some(TokenDataTag::Dot))?;
+    let variant_tok = parser.eat_tok(Some(TokenDataTag::Identifier))?;
+    let variant_str = match variant_tok.tok_data {
+        TokenData::Identifier(buf) => buf.iter().collect::<String>(),
+        _ => unreachable!(),
+    };
+    let variant_str = parser.rustaml_context.str_interner.intern_compiler(&variant_str);
+    let enum_variant= ASTNode::Variant {
+        sum_type_name: enum_name,
+        variant_name: variant_str,
+        arg: None,
+    };
+    Ok(parser.rustaml_context.ast_pool.push(enum_variant, enum_str_start..variant_tok.range.end))
+}
+
 fn parse_identifier_expr(parser: &mut Parser, identifier_buf : &[char], identifier_range : Range<usize>) -> Result<ASTRef, ParserErr> {
     if identifier_buf == str_to_char!("vec") {
         return parse_static_vec(parser, identifier_range.start); 
     }
     let s = identifier_buf.iter().collect::<String>();
+
     let identifier = parser.rustaml_context.str_interner.intern_compiler(&s);
-    for t in parser.rustaml_context.type_aliases.values() {
+    
+    // TODO : can we not only have type aliases for it ? (but should we really ? like define the enum then directly use the variant like (Variant1 | Variant2).Variant2)
+    if let Some(TokenData::Dot) = parser.current_tok_data() {
+        return parse_enum_variant_lit(parser, identifier, identifier_range.start);
+    }
+    
+    /*for t in parser.rustaml_context.type_aliases.values() {
         match t {
             Type::SumType(sum_type) => {
                 for v in &sum_type.variants {
@@ -916,7 +940,7 @@ fn parse_identifier_expr(parser: &mut Parser, identifier_buf : &[char], identifi
             }
             _ => {},
         }
-    }
+    }*/
 
 
     Ok(parser.rustaml_context.ast_pool.push(ASTNode::VarUse { name: identifier }, identifier_range))

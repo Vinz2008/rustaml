@@ -1,6 +1,6 @@
 use inkwell::{basic_block::BasicBlock, types::{AnyTypeEnum, BasicTypeEnum}, values::{AnyValue, BasicValue, BasicValueEnum, IntValue, PointerValue}, AddressSpace, FloatPredicate, IntPredicate};
 
-use crate::{ast::{ASTRef, Pattern, PatternRef, Type}, check::{match_fallback_match_nb, match_is_all_range}, compiler::{CompileContext, compile_expr, compiler_utils::{codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_string, create_var, get_current_function, get_llvm_type, get_variant_tag, get_void_val, load_list_tail, load_list_val, move_bb_after_current}, debuginfo::get_debug_loc}};
+use crate::{ast::{ASTRef, Pattern, PatternRef, Type}, check::{match_fallback_match_nb, match_is_all_range}, compiler::{CompileContext, compile_expr, compiler_utils::{codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_string, create_var, get_current_function, get_llvm_type, get_void_val, load_list_tail, load_list_val, move_bb_after_current}, debuginfo::get_debug_loc}, rustaml::RustamlContext, string_intern::StringRef};
 
 // TODO : when will be added or patterns (TODO) (for ex : match a with | [1, 2, 3] | [2, 3, 4]) I can create a more optimized version when matching multiple lists by creating a decision tree in the compiled program
 fn compile_short_circuiting_match_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, list_val : PointerValue<'llvm_ctx>, pattern_list : &[PatternRef], elem_type : &Type) -> IntValue<'llvm_ctx>{
@@ -117,6 +117,15 @@ fn compile_short_circuiting_match_list_destructure<'llvm_ctx>(compile_context: &
 
     phi_node.add_incoming(&incoming_phi);
     phi_node.as_basic_value().into_int_value()
+}
+
+fn get_variant_tag(rustaml_context : &RustamlContext, name : StringRef) -> usize {
+    for t in rustaml_context.type_aliases.values() {
+        if let Type::SumType(sum_type) = t && let Some(pos) = sum_type.variants.iter().position(|v| v.get_name() == name.get_str(&rustaml_context.str_interner)) {
+            return pos;
+        }
+    }
+    unreachable!()
 }
 
 fn compile_pattern_match_bool_val<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, pattern : PatternRef, matched_val : BasicValueEnum<'llvm_ctx>, matched_expr_type : &Type) -> IntValue<'llvm_ctx>{

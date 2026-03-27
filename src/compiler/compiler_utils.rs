@@ -446,12 +446,3 @@ fn get_void_val_basic<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> BasicValu
 pub(crate) fn get_void_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> BasicValueEnum<'llvm_ctx> {
     get_void_val_basic(llvm_context).as_basic_value_enum()
 }
-
-pub(crate) fn get_variant_tag(rustaml_context : &RustamlContext, name : StringRef) -> usize {
-    for t in rustaml_context.type_aliases.values() {
-        if let Type::SumType(sum_type) = t && let Some(pos) = sum_type.variants.iter().position(|v| v.get_name() == name.get_str(&rustaml_context.str_interner)) {
-            return pos;
-        }
-    }
-    unreachable!()
-}

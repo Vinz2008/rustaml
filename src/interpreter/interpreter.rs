@@ -1414,8 +1414,21 @@ fn interpret_cast(context : &mut InterpretContext, _to_type : Type, expr : ASTRe
     val
 }
 
-fn interpret_variant(context : &InterpretContext, name : StringRef, _arg : Option<ASTRef>) -> Val {
-    let mut sum_type_name_variant_nb = None;
+fn interpret_variant(context : &InterpretContext, sum_type_name : StringRef, variant_name : StringRef, _arg : Option<ASTRef>) -> Val {
+    let enum_ref = context.rustaml_context.type_aliases.get(&sum_type_name).unwrap();
+    let variant_nb = match enum_ref {
+        Type::SumType(sum_type) => {
+
+            // TODO : should variants be a hashmap ? (benchmark it)
+            // do intern compiler because it should already be in it (use a get string ref function ?)
+            sum_type.variants.iter()
+            .position(|var| var.get_name() == variant_name.get_str(&context.rustaml_context.str_interner)).unwrap()
+
+        }
+        _ => panic!("trying to use a not enum type to create an enum variant"),
+    };
+    /*let mut sum_type_name_variant_nb = None;
+
     for (k, t) in &context.rustaml_context.type_aliases {
         match t {
             Type::SumType(sum_type) => {
@@ -1428,11 +1441,11 @@ fn interpret_variant(context : &InterpretContext, name : StringRef, _arg : Optio
             _ => {},
         }
     }
-    let (sum_type_name, variant_nb) = sum_type_name_variant_nb.unwrap();
+    let (sum_type_name, variant_nb) = sum_type_name_variant_nb.unwrap();*/
     let sum_type_val = SumTypeVal { 
         sum_type_name, 
         variant_nb, 
-        variant_name: name 
+        variant_name, 
     };
     Val::SumType(sum_type_val)
 }
@@ -1534,7 +1547,7 @@ pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val
         ASTNode::List { list } => Val::List(List::new_from(context, &list.clone())),
         ASTNode::Vec { vec } => interpret_static_vec(context, &vec.clone()),
         ASTNode::Cast { to_type, expr } => interpret_cast(context, to_type.clone(), *expr),
-        ASTNode::Variant { name, arg } => interpret_variant(context, *name, *arg),
+        ASTNode::Variant { sum_type_name: enum_name, variant_name, arg } => interpret_variant(context, *enum_name, *variant_name, *arg),
         ASTNode::TypeAlias { name: _, type_alias: _ } => {
             Val::Unit
         },

@@ -2,7 +2,7 @@ use core::panic;
 use std::{cell::Cell, fs, hash::{Hash, Hasher}, ops::Range, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use nohash::{IntMap, IntSet};
-use crate::{ast::{ASTNode, ASTRef, CType, Type, TypeTag}, compiler::{cast::cast_val, compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_array_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_variant_tag, get_void_val, llvm_lifetime_end, llvm_lifetime_start, move_bb_after_current, promote_val_var_arg, vec_to_c_struct_ptr}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}, linker::link_exe}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, CType, Type, TypeTag}, compiler::{cast::cast_val, compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_array_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_void_val, llvm_lifetime_end, llvm_lifetime_start, move_bb_after_current, promote_val_var_arg, vec_to_c_struct_ptr}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}, linker::link_exe}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue, ValueKind}};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHasher};
@@ -1546,8 +1546,11 @@ fn compile_cast<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, 
     cast_val(compile_context, start_val, &start_type, to_type)
 }
 
-fn compile_variant<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, name : StringRef, _arg : Option<ASTRef>) -> BasicValueEnum<'llvm_ctx> {
-    let variant_nb = get_variant_tag(compile_context.rustaml_context, name);
+fn compile_variant<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, sum_type_name : StringRef, variant_name : StringRef, _arg : Option<ASTRef>) -> BasicValueEnum<'llvm_ctx> {
+    let variant_nb = match compile_context.rustaml_context.type_aliases.get(&sum_type_name).unwrap(){
+        Type::SumType(sum_type) => sum_type.variants.iter().position(|var| var.get_name() == variant_name.get_str(&compile_context.rustaml_context.str_interner)).unwrap(),
+        _ => unreachable!(),
+    };
     create_int(compile_context, variant_nb as i128).into()
 }
 
@@ -1583,7 +1586,7 @@ pub(crate) fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '
         ASTNode::MatchExpr { matched_expr, patterns } => compile_match(compile_context, ast_node, *matched_expr, &patterns.clone()).into(),
         ASTNode::AnonFunc { args, body, type_annotation: _ } => compile_anon_func(compile_context, ast_node, &args.clone(), *body).into(),
         ASTNode::Cast { to_type, expr } => compile_cast(compile_context, &to_type.clone(), *expr).into(),
-        ASTNode::Variant { name, arg } => compile_variant(compile_context, *name, *arg).into(),
+        ASTNode::Variant { sum_type_name, variant_name, arg } => compile_variant(compile_context, *sum_type_name, *variant_name, *arg).into(),
         ASTNode::Unit => get_void_val(compile_context.context).into(),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(&t, compile_context.rustaml_context)), 
     }

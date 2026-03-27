@@ -271,6 +271,7 @@ fn is_underscore(rustaml_context: &RustamlContext, name : StringRef) -> bool {
     name.get_str(&rustaml_context.str_interner) == "_"
 }
 
+
 fn get_variant_type(rustaml_context: &RustamlContext, name : StringRef) -> Type {
     let sum_type = rustaml_context.type_aliases.iter().find(|(_k, t)| {
         match t {
@@ -365,8 +366,9 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
         ASTNode::String { .. } => context.push_constraint(Constraint::IsType(new_type_var, Type::Str), range),
         ASTNode::Boolean { .. } => context.push_constraint(Constraint::IsType(new_type_var, Type::Bool), range),
         ASTNode::Char { .. } => context.push_constraint(Constraint::IsType(new_type_var, Type::Char), range),
-        ASTNode::Variant { name, arg: _ } => {
-            let sum_type = get_variant_type(context.rustaml_context, *name);
+        ASTNode::Variant { sum_type_name, variant_name: _, arg: _ } => {
+            let sum_type = context.rustaml_context.type_aliases.get(sum_type_name).unwrap().clone();
+            //let sum_type = get_variant_type(context.rustaml_context, *name);
             context.push_constraint(Constraint::IsType(new_type_var, sum_type), range)
         },
         ASTNode::List { list } => {
