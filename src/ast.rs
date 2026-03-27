@@ -575,23 +575,22 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
                 str_to_char!("c_type") => {
                     parser.eat_tok(Some(TokenDataTag::Dot))?;
                     let c_type_name_tok = parser.eat_tok(Some(TokenDataTag::Identifier))?;
-                    let c_type_name = match c_type_name_tok.tok_data {
-                        TokenData::Identifier(i) => i.iter().collect::<String>(),
+                    let c_type_name_buf = match c_type_name_tok.tok_data {
+                        TokenData::Identifier(i) => i,
                         _ => unreachable!(),
                     };
 
-                    let c_type = match c_type_name.as_str() {
-                        // TODO : where do you put char ?
-                        "u8" | "uchar" => CType::U8,
-                        "i8" | "char" => CType::I8,
-                        "u16" | "ushort" => CType::U16,
-                        "i16" | "short" => CType::I16,
-                        "u32" | "uint" => CType::U32,
-                        "i32" | "int" => CType::I32,
-                        "u64" | "size_t" => CType::U64,
-                        "i64" | "long" => CType::I64,
-                        "f32" | "float" => CType::F32,
-                        "f64" | "double" => CType::F64,
+                    let c_type = match c_type_name_buf.as_ref() {
+                        str_to_char!("u8") | str_to_char!("uchar") => CType::U8,
+                        str_to_char!("i8") | str_to_char!("char") => CType::I8,
+                        str_to_char!("u16") | str_to_char!("ushort") => CType::U16,
+                        str_to_char!("i16") | str_to_char!("short") => CType::I16,
+                        str_to_char!("u32") | str_to_char!("uint") => CType::U32,
+                        str_to_char!("i32") | str_to_char!("int") => CType::I32,
+                        str_to_char!("u64") | str_to_char!("size_t") => CType::U64,
+                        str_to_char!("i64") | str_to_char!("long") => CType::I64,
+                        str_to_char!("f32") | str_to_char!("float") => CType::F32,
+                        str_to_char!("f64") | str_to_char!("double") => CType::F64,
                         _ => panic!("Invalid c type"),
                     };
 
