@@ -20,3 +20,6 @@ let f_bool a_two : int -> bool = a_two < 6 ;;
 
 let e = format "format a bool : {}" (f_bool 9) ;;
 let _ = print e ;;
+
+let escape = format "% {} %" 1 ;; 
+let _ = print escape ;;

@@ -9,6 +9,7 @@ use rustc_hash::{FxHashMap, FxHasher};
 use cfg_if::cfg_if;
 
 // TODO : add generic enums to have results for error handling
+// TODO : calculate the layout of tuples (and then product types ?) to make warnings about improved layout (only do it when comiler, but do it in check but still verify if compiler is being run to do the warning ? or just do it in compiler ?)
 
 #[cfg(feature = "debug-llvm")]
 use inkwell::support::LLVMString;
@@ -512,6 +513,7 @@ fn get_format_string(print_type : &Type) -> &'static str {
         Type::Any => encountered_any_type(),
         Type::Regex => panic!("Can't print regex"), // TODO ?
         Type::Vec(_, _) => "%v",
+        Type::Tuple(_) => todo!(), // TODO : have syntax for it (for ex to print a lit of two tuples %(d,d) ? or %(dd)) in this case need escaping parenthesis ?
         Type::SumType(_) => unreachable!(), // TODO ?
         Type::Generic(_) => unreachable!(),
     }
@@ -554,10 +556,18 @@ fn compile_rand<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>) 
 fn get_format_string_format(format_str : &str, arg_types : &[Type]) -> String {
     let mut format_string_ret = "".to_string();
     format_string_ret.reserve(format_str.len());
-    let format_str_chars = format_str.chars().collect::<Vec<_>>();
+    let format_str_chars_iter = format_str.chars();
+    let mut format_str_chars = Vec::with_capacity(format_str.len());
+    for c in format_str_chars_iter {
+        match c {
+            '%' => format_str_chars.extend_from_slice(&['\\', '%']),
+            _ => format_str_chars.push(c),
+        }
+    }
+
     let mut arg_idx = 0;
     let mut i = 0;
-    while i < format_str.len() {
+    while i < format_str_chars.len() {
         let c = format_str_chars[i];
         match c {
             '{' => {
@@ -1588,6 +1598,7 @@ pub(crate) fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '
         ASTNode::Cast { to_type, expr } => compile_cast(compile_context, &to_type.clone(), *expr).into(),
         ASTNode::Variant { sum_type_name, variant_name, arg } => compile_variant(compile_context, *sum_type_name, *variant_name, *arg).into(),
         ASTNode::Unit => get_void_val(compile_context.context).into(),
+        ASTNode::Tuple { tuple_vals } => todo!(),
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(&t, compile_context.rustaml_context)), 
     }
 }

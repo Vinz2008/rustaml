@@ -42,6 +42,7 @@ pub(crate) fn get_type_tag(t : &Type) -> u8 {
         Type::Char => 6,
         Type::Unit => 7,
         Type::Vec(_, _) => 8,
+        Type::Tuple(types) => todo!(), // TODO
         // TODO : add a type tag for Never ? SumType ? Regex ?
         Type::Any | Type::Never | Type::Regex | Type::CType(_) | Type::Generic(_) | Type::SumType(_) => panic!("no type tag for this type {:?} !!", t),
     }
@@ -99,8 +100,13 @@ pub(crate) fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, 'll
         Type::Generic(gen_num) => get_llvm_type(compile_context, compile_context.generic_map.get(gen_num).unwrap()),
         Type::SumType(sumtype) => {
             // for now only an int for the tag, will need to support the type of variants, TODO (TODO : dynamic size of types depending of number of tags)
-            get_llvm_type(compile_context, &Type::Integer)
+            if sumtype.has_data(){
+                todo!() // TODO
+            } else {
+                get_llvm_type(compile_context, &Type::Integer)
+            }
         },
+        Type::Tuple(types) => todo!(), // TODO
         Type::Vec(e_type, size) => get_vec_type(get_llvm_type(compile_context, e_type), *size).into(),
         Type::Any => encountered_any_type(),
     }
@@ -287,7 +293,6 @@ pub(crate) fn load_list_tail<'llvm_ctx>(compile_context: &CompileContext<'_, 'll
     compile_context.builder.build_load(compile_context.context.ptr_type(AddressSpace::default()), gep_ptr, "load_tail_gep").unwrap().into_pointer_value()
 }
 
-// TODO : have one api for casting for cast and this ?
 
 pub(crate) fn as_val_in_list<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, val : BasicValueEnum<'llvm_ctx>, val_type : &Type) -> IntValue<'llvm_ctx> {
     match val_type {
@@ -303,6 +308,7 @@ pub(crate) fn as_val_in_list<'llvm_ctx>(compile_context: &CompileContext<'_, 'll
             }
         },
         Type::Regex => todo!(), // TODO
+        Type::Tuple(types) => todo!(), // TODO
         Type::Vec(e, size) => panic!("Can't have a vec in a list"), // TODO : should it be possible
         Type::Any => encountered_any_type(),
         Type::Generic(_) | Type::CType(_) => unreachable!(),
@@ -328,6 +334,7 @@ pub(crate) fn from_val_in_list<'llvm_ctx>(compile_context: &CompileContext<'_, '
                 val.into()
             }
         },
+        Type::Tuple(tuple) => todo!(), // TODO : how to do this ?
         Type::Regex => todo!(), // TODO
         Type::Vec(e, size) => panic!("Can't have a vec in a list"), // TODO : should it be possible
         Type::Any => encountered_any_type(),
@@ -344,16 +351,21 @@ fn get_vec_c_struct_type<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Struct
     ], false)
 }
 
+// for LLVM 21, there needs the size arg, in LLVM 22, no need for it, at some point remove completely the arg alloca_size (TODO)
+// TODO : go to LLVM 22
+
 pub(crate) fn llvm_lifetime_start<'llvm_ctx>(compile_context : &CompileContext<'_, 'llvm_ctx>, alloca_ptr : PointerValue<'llvm_ctx>, alloca_size : IntValue<'llvm_ctx>){
     let lifetime_start_intrisic = Intrinsic::find("llvm.lifetime.start").unwrap();
     let lifetime_start_fun = lifetime_start_intrisic.get_declaration(&compile_context.module, &[compile_context.context.ptr_type(AddressSpace::default()).into()]).unwrap();
-    compile_context.builder.build_call(lifetime_start_fun, &[alloca_size.into(), alloca_ptr.into()], "lifetime_start").unwrap();
+    //compile_context.builder.build_call(lifetime_start_fun, &[alloca_size.into(), alloca_ptr.into()], "lifetime_start").unwrap();
+    compile_context.builder.build_call(lifetime_start_fun, &[alloca_ptr.into()], "lifetime_start").unwrap();
 }
 
 pub(crate) fn llvm_lifetime_end<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, alloca_ptr : PointerValue<'llvm_ctx>, alloca_size : IntValue<'llvm_ctx>){
     let lifetime_end_intrisic = Intrinsic::find("llvm.lifetime.end").unwrap();
     let lifetime_end_fun = lifetime_end_intrisic.get_declaration(&compile_context.module, &[compile_context.context.ptr_type(AddressSpace::default()).into()]).unwrap();
-    compile_context.builder.build_call(lifetime_end_fun, &[alloca_size.into(), alloca_ptr.into()], "lifetime_end").unwrap();
+    //compile_context.builder.build_call(lifetime_end_fun, &[alloca_size.into(), alloca_ptr.into()], "lifetime_end").unwrap();
+    compile_context.builder.build_call(lifetime_end_fun, &[alloca_ptr.into()], "lifetime_end").unwrap();
 }
 
 #[derive(Clone)]

@@ -225,6 +225,9 @@ pub(crate) enum ASTNode {
         variant_name : StringRef,
         arg : Option<ASTRef>,
     },
+    Tuple {
+        tuple_vals : Box<[ASTRef]>,
+    },
     IfExpr {
         cond_expr : ASTRef,
         then_body : ASTRef,
@@ -333,6 +336,7 @@ pub(crate) enum Type {
     Generic(u32),
     CType(CType),
     SumType(SumType), // box it ? (benchmark to see)
+    Tuple(Box<[Type]>),
     // TODO : record/product type
     Regex,
     Unit,
@@ -355,10 +359,10 @@ impl Display for Type {
             Type::Str => f.write_str("str"),
             Type::Char => f.write_str("char"),
             Type::List(e) => {
-                f.write_str(&format!("list[{}]", e.as_ref()))
+                write!(f, "list[{}]", e.as_ref())
             },
             Type::Vec(e, size) => {
-                f.write_str(&format!("vec[{}, {}]", e.as_ref(), size))
+                write!(f, "vec[{}, {}]", e.as_ref(), size)
             }
             Type::Unit => f.write_str("()"),
             Type::Never => f.write_char('!'),
@@ -369,10 +373,23 @@ impl Display for Type {
                     todo!() // TODO
                 }
             },
+            Type::Tuple(types) => {
+                write!(f, "(")?;
+                let mut first = true;
+                for t in types {
+                    if first {
+                        first = false;
+                    } else {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", t)?;
+                }
+                write!(f, ")")
+            }
             Type::Regex => f.write_str("regex"),
             Type::Any => f.write_str("Any"), // TODO
             //Type::Generic(_g_idx) => panic!("Can't print generic type"), // TODO ?
-            Type::Generic(g_idx) => f.write_str(&format!("generic {}", g_idx)), // TODO ?
+            Type::Generic(g_idx) => write!(f, "generic {}", g_idx), // TODO ?
             Type::CType(_) => todo!(), // TODO
             Type::Function(_, _, _) => unreachable!(),
         }
@@ -617,8 +634,21 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
                 Ok((Type::Unit, paren_close_tok.range.end))
             } else {
                 let inner_type_annotation = parse_type_annotation(parser)?.0;
+                let mut paren_types = vec![inner_type_annotation];
+                while let Some(&TokenData::Comma) = parser.current_tok_data(){
+                    parser.eat_tok(Some(TokenDataTag::Comma))?;
+                    let inner_type_annotation = parse_type_annotation(parser)?.0;
+                    paren_types.push(inner_type_annotation);
+                }
                 let paren_close_tok = parser.eat_tok(Some(TokenDataTag::ParenClose))?;
+                let inner_type_annotation = if paren_types.len() == 1 {
+                    paren_types.into_iter().next().unwrap()
+                } else {
+                    // tuple
+                    Type::Tuple(paren_types.into_boxed_slice())
+                };
                 Ok((inner_type_annotation, paren_close_tok.range.end))
+                
             }
             
         },
@@ -667,7 +697,7 @@ fn parse_sum_type(parser: &mut Parser) -> Result<(Type, usize), ParserErr> {
 
 fn parse_type_annotation(parser: &mut Parser) -> Result<(Type, usize), ParserErr> {
     // TODO : should it be annotation simple ? (is it a good idea to declare a sum type in a annotation type for ex as a return or arg type ?)
-    if let Some(current_tok) = parser.current_tok_data() && matches!(current_tok, TokenData::Pipe) {
+    if let Some(&TokenData::Pipe) = parser.current_tok_data() {
         return parse_sum_type(parser);
     }
 
@@ -979,6 +1009,7 @@ where F: Fn(&mut Parser) -> Result<T, ParserErr>
     while !matches!(parser.current_tok_data(), Some(TokenData::ArrayClose)){
         if is_first {
             is_first = false;
+        } else {
             parser.eat_tok(Some(TokenDataTag::Comma))?;
         }
         let elem_expr = parse_elem_fun(parser)?;
@@ -1129,6 +1160,18 @@ fn parse_match(parser: &mut Parser, match_range_start : usize) -> Result<ASTRef,
     }, match_range_start..end_range))
 }
 
+fn parse_tuple(parser : &mut Parser, first_expr : ASTRef, open_paren_range_start : usize) -> Result<ASTRef, ParserErr> {
+    let mut tuple_exprs = vec![first_expr];
+    let mut last_range_end = open_paren_range_start;
+    while let Some(TokenData::Comma) = parser.current_tok_data(){
+        parser.eat_tok(Some(TokenDataTag::Comma))?;
+        let expr = parse_node(parser)?;
+        last_range_end = expr.get_range(&parser.rustaml_context.ast_pool).end;
+        tuple_exprs.push(expr);
+    }
+    parser.eat_tok(Some(TokenDataTag::ParenClose))?;
+    Ok(parser.rustaml_context.ast_pool.push(ASTNode::Tuple { tuple_vals: tuple_exprs.into_boxed_slice() }, open_paren_range_start..last_range_end))
+}
 
 fn parse_parenthesis(parser: &mut Parser, open_paren_range_start : usize) -> Result<ASTRef, ParserErr> {
     if let Some(t) = parser.current_tok_data() && matches!(t, TokenData::ParenClose){
@@ -1140,6 +1183,9 @@ fn parse_parenthesis(parser: &mut Parser, open_paren_range_start : usize) -> Res
     let expr: ASTRef = parse_node(parser)?;
     debug_println!(parser.rustaml_context.is_debug_print, "expr = {:#?}", DebugWrapContext::new(&expr, parser.rustaml_context));
     //dbg_intern!(&expr, &parser.rustaml_context);
+    if let Some(TokenData::Comma) = parser.current_tok_data(){
+        return parse_tuple(parser, expr, open_paren_range_start);
+    }
     parser.eat_tok(Some(TokenDataTag::ParenClose))?;
     debug_println!(parser.rustaml_context.is_debug_print, "EAT END OF PARENTHESE");
     Ok(expr)

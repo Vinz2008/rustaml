@@ -189,7 +189,10 @@ enum Constraint {
     VecType(TypeVarId),
     IsListElementOf { element: TypeVarId, list : TypeVarId },
     IsVecElementOf { element: TypeVarId, vec : TypeVarId },
-    IsVecSize { size: u32, vec: TypeVarId }
+    // TODO : replace these u32 with usizes ? (to remove try_intos)
+    IsVecSize { size: u32, vec: TypeVarId },
+    IsTupleElementType { element: TypeVarId, tuple : TypeVarId, tuple_idx : usize, },
+    IsTupleSize { size: u32, tuple: TypeVarId },
 }
 
 #[derive(Default)]
@@ -371,8 +374,20 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             //let sum_type = get_variant_type(context.rustaml_context, *name);
             context.push_constraint(Constraint::IsType(new_type_var, sum_type), range)
         },
+        ASTNode::Tuple { tuple_vals } => {
+            let tuple_vals = tuple_vals.clone();
+            context.push_constraint(Constraint::IsTupleSize { size: tuple_vals.len().try_into().unwrap(), tuple: new_type_var }, range.clone());
+            for (idx, &e) in tuple_vals.iter().enumerate() {
+                let tuple_e_var_type = collect_constraints(context, e)?;
+                context.push_constraint(Constraint::IsTupleElementType {
+                    element: tuple_e_var_type, 
+                    tuple: new_type_var, 
+                    tuple_idx: idx,
+                }, range.clone());
+            }
+        },
         ASTNode::List { list } => {
-            let list = list.clone();
+            let list = list.clone(); // TODO : remove this clone
             context.push_constraint(Constraint::ListType(new_type_var), range.clone());
 
             let mut first_element = None;
@@ -786,6 +801,25 @@ fn merge_types(t1 : &Type, t2: &Type) -> Option<Type> {
     merged_type
 }
 
+// could use merge types instead, but would need to allocate a vec[Type::Any, Type::Any, ..., t, ..., Type::Any]
+fn insert_type_into_tuple(tuple_type : Type, element_type : &Type, idx : usize) -> Option<Type>{
+    let mut tuple_types = match tuple_type.clone() {
+        Type::Tuple(ts) => ts.into_vec(),
+        Type::Any => vec![],
+        _ => return None,
+    };
+
+
+    if tuple_types.len() <= idx { // at least nb of elements that idx is valid
+        tuple_types.resize(idx+1, Type::Any);
+    }
+
+    let element_type_before = tuple_types.get(idx)?.clone();
+    let element_merged_type = merge_types(&element_type_before, element_type)?;
+    tuple_types[idx] = element_merged_type;
+    Some(Type::Tuple(tuple_types.into_boxed_slice()))
+}
+
 fn set_type_with_changed(type_mut : &mut Option<Type>, t: Type, changed : &mut bool) {
     let new_type = Some(t);
     let old_type = type_mut.take();
@@ -1029,6 +1063,37 @@ fn solve_constraints(table: &mut TypeVarTable, constraints : &[Constraint], cons
                     } else {
                         set_type_with_changed(&mut table.real_types[vec_root.0 as usize], Type::Vec(Box::new(Type::Any), *size), &mut changed);
                     }
+                }
+                Constraint::IsTupleElementType { element, tuple, tuple_idx } => {
+                    let element_root = table.find_root(*element);
+                    let tuple_root = table.find_root(*tuple);
+                    let element_type = table.real_types[element_root.0 as usize].clone();
+                    let tuple_type = table.real_types[tuple_root.0 as usize].clone();
+                    if element_type.is_some() || tuple_type.is_some(){
+                        let merged_tuple_type =  insert_type_into_tuple(tuple_type.unwrap_or(Type::Any), element_type.as_ref().unwrap_or(&Type::Any), *tuple_idx);
+                        if let Some(merged_tuple_type) = merged_tuple_type {
+                            set_type_with_changed(&mut table.real_types[tuple_root.0 as usize], merged_tuple_type, &mut changed);
+                        }
+                    }
+                }
+                Constraint::IsTupleSize { size, tuple } => {
+                    let tuple_root = table.find_root(*tuple);
+                    let tuple_type = table.real_types[tuple_root.0 as usize].clone();
+                    let types = if let Some(tuple_type) = tuple_type {
+                        match tuple_type {
+                            Type::Tuple(tuple_types) => { 
+                                let mut tuple_types = tuple_types.into_vec();
+                                if *size as usize > tuple_types.len(){
+                                    tuple_types.resize(*size as usize, Type::Any);
+                                }
+                                tuple_types.into_boxed_slice()
+                            },
+                            _ => panic!("Error, invalid types, should be tuple"), // TODO : real error
+                        }
+                    } else {
+                        (0..*size).map(|_| Type::Any).collect::<Box<[_]>>()
+                    };
+                    set_type_with_changed(&mut table.real_types[tuple_root.0 as usize], Type::Tuple(types), &mut changed); 
                 }
             }
         }

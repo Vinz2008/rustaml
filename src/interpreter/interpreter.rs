@@ -419,6 +419,7 @@ pub(crate) enum Val {
     SumType(SumTypeVal),
     Regex(Box<RegexWrapper>),
     Vec(VecVal),
+    Tuple(Box<[Val]>),
     Unit,
 }
 
@@ -488,6 +489,24 @@ fn display_vec(v : &VecVal, rustaml_context: &RustamlContext, f: &mut fmt::Forma
     write!(f, "]")
 }
 
+fn display_tuple(tuple : &[Val], rustaml_context: &RustamlContext, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "(")?;
+    let mut first = true;
+    for e in tuple {
+        if !first {
+            write!(f, ", ")?;
+        }
+        let e_wrap = ValWrapDisplay {
+            val: e,
+            rustaml_context,
+        };
+        write!(f, "{}", e_wrap)?;
+
+        first = false;
+    }
+    write!(f, ")")
+}
+
 impl Display for ValWrapDisplay<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.val {
@@ -499,6 +518,7 @@ impl Display for ValWrapDisplay<'_> {
             Val::List(l) => display_list(*l, self.rustaml_context, f),
             Val::Vec(v) => display_vec(v, self.rustaml_context, f),
             Val::Regex(re) => write!(f, "regex({})", re.0.as_str()),
+            Val::Tuple(tuple) => display_tuple(tuple, self.rustaml_context, f),
             Val::Function(_) => write!(f, "function"), // TODO ?
             Val::SumType(_) => todo!(), // TODO
             Val::Unit => write!(f, "()"),
@@ -1457,6 +1477,11 @@ fn interpret_static_vec(context: &mut InterpretContext, vec : &[ASTRef]) -> Val 
     Val::Vec(vec_val)
 }
 
+fn interpret_tuple(context : &mut InterpretContext, tuple : &[ASTRef]) -> Val {
+    let tuple_vals = tuple.iter().map(|e| interpret_node(context, *e)).collect::<Box<[_]>>();
+    Val::Tuple(tuple_vals)
+}
+
 // TODO: add a real call to collect_gc
 
 pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val {
@@ -1548,6 +1573,7 @@ pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val
         ASTNode::Vec { vec } => interpret_static_vec(context, &vec.clone()),
         ASTNode::Cast { to_type, expr } => interpret_cast(context, to_type.clone(), *expr),
         ASTNode::Variant { sum_type_name: enum_name, variant_name, arg } => interpret_variant(context, *enum_name, *variant_name, *arg),
+        ASTNode::Tuple { tuple_vals } => interpret_tuple(context, &tuple_vals.clone()),
         ASTNode::TypeAlias { name: _, type_alias: _ } => {
             Val::Unit
         },

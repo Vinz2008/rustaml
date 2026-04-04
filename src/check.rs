@@ -198,6 +198,11 @@ fn check<'a>(check_context : &CheckContext<'a>, ast : ASTRef) -> Result<(), Chec
                 check(check_context, *e)?;
             }
         }
+        ASTNode::Tuple { tuple_vals } => {
+            for e in tuple_vals {
+                check(check_context, *e)?;
+            }
+        }
         ASTNode::BinaryOp { op: _, lhs, rhs } => {
             check(check_context, *lhs)?;
             check(check_context, *rhs)?;
