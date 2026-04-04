@@ -1,0 +1,13 @@
+let a : (int, int) = (1, 3) ;;
+let _ = print a ;;
+
+
+let f b : int -> (int, int) = (b, 1) ;;
+
+// TODO
+// let g arg : (int, int) -> (int, int) =
+//    match g
+//    (a, b) -> (a+1, b+1) ;;
+
+// TODO : pattern in args to be able to do this : 
+// let f (a, b) = 
