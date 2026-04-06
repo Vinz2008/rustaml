@@ -395,7 +395,8 @@ fn create_jit_value(rustaml_context : &RustamlContext, val : Val) -> JITValue {
         },
         Val::Tuple(tuple) => todo!(), // TODO (also need to check if the types in the tuple are also safe for the JIT, do it before ?)
         Val::Function(_) => todo!(), // do like ffi
-        Val::Regex(_) | Val::SumType(_) | Val::Vec(_) => panic!("Unsupported JIT Value {}", val.display(rustaml_context)),
+        Val::Vec(_) => todo!(), // TODO : very important for jit
+        Val::Regex(_) | Val::SumType(_) => panic!("Unsupported JIT Value {}", val.display(rustaml_context)),
     };
     JITValue { 
         tag, 

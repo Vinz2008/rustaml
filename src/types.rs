@@ -821,11 +821,15 @@ fn insert_type_into_tuple(tuple_type : Type, element_type : &Type, idx : usize) 
 }
 
 fn set_type_with_changed(type_mut : &mut Option<Type>, t: Type, changed : &mut bool) {
+    //println!("SET {:?} -> {:?}", type_mut, &t);
     let new_type = Some(t);
     let old_type = type_mut.take();
     if old_type != new_type {
         *changed = true;
     }
+
+    //println!("TV {:?} -> {:?}", old_type, &new_type);
+    
 
     *type_mut = new_type;
     
