@@ -679,11 +679,16 @@ fn interpret_binop_float(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
     Val::Float(res_nb)
 }
 
+
 fn interpret_binop_bool_short_circuiting(context: &mut InterpretContext, op : Operator, lhs : ASTRef, rhs : ASTRef) -> Val {
-    let lhs_val = interpret_node(context, lhs);
-    let lhs_bool = match lhs_val {
-        Val::Bool(b) => b,
-        _ => unreachable!(),
+
+    let lhs_bool = {
+        // put lhs_val in a scope like that to ensure tail cal
+        let lhs_val = interpret_node(context, lhs);
+        match lhs_val {
+            Val::Bool(b) => b,
+            _ => unreachable!(),
+        }
     };
 
     match op {
@@ -700,14 +705,8 @@ fn interpret_binop_bool_short_circuiting(context: &mut InterpretContext, op : Op
         _ => unreachable!(),
     }
 
-    let rhs_val = interpret_node(context, rhs);
 
-    let rhs_bool = match rhs_val {
-        Val::Bool(b) => b,
-        _ => unreachable!(),
-    };
-
-    Val::Bool(rhs_bool) // if no short circuiting, just verify if the rhs is true
+    interpret_node(context, rhs) // if no short circuiting, just verify if the rhs is true
 }
 
 fn interpret_binop_bool(op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
@@ -1176,8 +1175,6 @@ fn interpret_if_expr(context: &mut InterpretContext, cond_expr : ASTRef, then_bo
     }
 }
 
-// TODO : try to have smallvec for vecs of args that are reused a lot (or have vec in the context that is reused by calling reset ?)
-
 pub(crate) fn call_function(context: &mut InterpretContext, func_def : &FunctionDef, args_val : ArgsVec) -> Val {
     match &func_def.body {
         FunctionBody::Ast(a) => {
@@ -1226,7 +1223,7 @@ pub(crate) fn call_function(context: &mut InterpretContext, func_def : &Function
             res_val
         },
         
-        FunctionBody::Ffi(f) => call_ffi_function(context, f, &args_val),
+        FunctionBody::Ffi(f) => call_ffi_function(context, f, args_val),
     } 
 }
 
@@ -1369,11 +1366,7 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
             }
 
             let tail_val = Val::List(tail);
-            if !interpret_match_pattern(context, &tail_val, tail_pattern){
-                return false;
-            }
-
-            return true;
+            interpret_match_pattern(context, &tail_val, tail_pattern)
         },
     }
 }

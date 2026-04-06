@@ -448,12 +448,12 @@ fn get_ffi_args<'a>(ffi_context : &'a FFIContext, args : &'a [Val]) -> Vec<Arg<'
     ffi_args
 }
 
-pub(crate) fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFIFunc, args : &[Val]) -> Val {
+pub(crate) fn call_ffi_function(context : &mut InterpretContext, ffi_func : &FFIFunc, args : ArgsVec) -> Val {
     let mut ffi_context = FFIContext::new(args.len());
 
     unsafe  {
-        prepare_args_data(context, &mut ffi_context, args);
-        let args = get_ffi_args(&ffi_context, args);
+        prepare_args_data(context, &mut ffi_context, &args);
+        let args = get_ffi_args(&ffi_context, &args);
         let val = match &ffi_func.ret_type {
             Type::Integer => {
                 let i = ffi_func.cif.call(ffi_func.code_ptr, &args);
