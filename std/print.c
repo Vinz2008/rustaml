@@ -220,6 +220,12 @@ static void vwrite_val_file(const char* format, va_list va, FILE* f){
                 struct VecVal* vec_val = (struct VecVal*)va_arg(va, struct VecVal*);
                 vec_write_file_no_new_line(vec_val, f);
                 break;
+
+            case 't':
+                format++;
+                //void* tuple_ptr = (void*)va_arg(va, void*);
+                TODO("tuple print"); // TODO : can't do it because it is generic depending of the struct (have a vtable passed with a print function to an opaque pointer ?)
+                break;
             
             case 'n':
                 fprintf(stderr, "UNREACHABLE : trying to print a never type\n");

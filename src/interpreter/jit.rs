@@ -393,6 +393,7 @@ fn create_jit_value(rustaml_context : &RustamlContext, val : Val) -> JITValue {
             let jit_wrapped_list_ptr = Box::leak(jit_wrapped_list) as *mut _; // TODO : don't leak it
             (JITValueTag::List, jit_wrapped_list_ptr as u64)
         },
+        Val::Tuple(tuple) => todo!(), // TODO (also need to check if the types in the tuple are also safe for the JIT, do it before ?)
         Val::Function(_) => todo!(), // do like ffi
         Val::Regex(_) | Val::SumType(_) | Val::Vec(_) => panic!("Unsupported JIT Value {}", val.display(rustaml_context)),
     };

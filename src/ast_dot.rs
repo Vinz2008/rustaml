@@ -144,6 +144,14 @@ pub(crate) fn _generate_ast_dot(graph : &mut Graph<String, String>, rustaml_cont
         ASTNode::Char { c } => {
             graph.add_node(format!("\'{}\'", c))
         }
+        ASTNode::Tuple { tuple_vals } => {
+            let tuple_node = graph.add_node("tuple".to_string());
+            for (idx, v) in tuple_vals.iter().enumerate() {
+                let node = _generate_ast_dot(graph, rustaml_context, *v);
+                graph.add_edge(tuple_node, node, idx.to_string());
+            }
+            tuple_node
+        }
         ASTNode::TopLevel { nodes } => {
             let toplevel_node = graph.add_node("toplevel".to_string());
             for n in nodes {

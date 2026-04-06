@@ -2,7 +2,7 @@ use core::panic;
 use std::{cell::Cell, fs, hash::{Hash, Hasher}, ops::Range, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use nohash::{IntMap, IntSet};
-use crate::{ast::{ASTNode, ASTRef, CType, Type, TypeTag}, compiler::{cast::cast_val, compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_array_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_void_val, llvm_lifetime_end, llvm_lifetime_start, move_bb_after_current, promote_val_var_arg, vec_to_c_struct_ptr}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}, linker::link_exe}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{self, ASTNode, ASTRef, CType, Type, TypeTag}, compiler::{cast::cast_val, compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_array_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_void_val, llvm_lifetime_end, llvm_lifetime_start, move_bb_after_current, promote_val_var_arg, vec_to_c_struct_ptr}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}, linker::link_exe}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue, ValueKind}};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHasher};
@@ -513,7 +513,11 @@ fn get_format_string(print_type : &Type) -> &'static str {
         Type::Any => encountered_any_type(),
         Type::Regex => panic!("Can't print regex"), // TODO ?
         Type::Vec(_, _) => "%v",
-        Type::Tuple(_) => todo!(), // TODO : have syntax for it (for ex to print a lit of two tuples %(d,d) ? or %(dd)) in this case need escaping parenthesis ?
+        Type::Tuple(tuple_types) => {
+            let s = 
+                tuple_types.iter().map(|e| get_format_string(e)[1..].to_string()).reduce(|acc, e| acc.to_string() + &e).unwrap();
+            format!("%t({})", s).leak() // TODO : fix this ? (is it that much a problem ? if it becomes one fix it (because it can also be used in the jit) use Cow ?)
+        },
         Type::SumType(_) => unreachable!(), // TODO ?
         Type::Generic(_) => unreachable!(),
     }
@@ -561,6 +565,8 @@ fn get_format_string_format(format_str : &str, arg_types : &[Type]) -> String {
     for c in format_str_chars_iter {
         match c {
             '%' => format_str_chars.extend_from_slice(&['\\', '%']),
+            '(' => format_str_chars.extend_from_slice(&['\\', '(']),
+            ')' => format_str_chars.extend_from_slice(&['\\', ')']),
             _ => format_str_chars.push(c),
         }
     }
@@ -1564,6 +1570,20 @@ fn compile_variant<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, s
     create_int(compile_context, variant_nb as i128).into()
 }
 
+fn compile_tuple<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, tuple_vals : &[ASTRef], ast_node : ASTRef) -> BasicValueEnum<'llvm_ctx> {
+    let struct_type = ast_node.get_type(&compile_context.rustaml_context.ast_pool);
+    let struct_type_llvm = get_llvm_type(compile_context, struct_type).into_struct_type();
+    let mut tuple = struct_type_llvm.get_undef();
+
+    for (idx, &val_ast) in tuple_vals.iter().enumerate() {
+        let val = compile_expr(compile_context, val_ast);
+        tuple = compile_context.builder.build_insert_value(tuple, val.into_basic(), idx.try_into().unwrap(), "insert_tuple").unwrap().into_struct_value();
+    }
+
+    
+    tuple.as_basic_value_enum()
+}
+
 pub(crate) fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, ast_node : ASTRef) -> CompilerValue<'llvm_ctx> {
     let range = ast_node.get_range(&compile_context.rustaml_context.ast_pool);
     
@@ -1598,7 +1618,10 @@ pub(crate) fn compile_expr<'llvm_ctx>(compile_context: &mut CompileContext<'_, '
         ASTNode::Cast { to_type, expr } => compile_cast(compile_context, &to_type.clone(), *expr).into(),
         ASTNode::Variant { sum_type_name, variant_name, arg } => compile_variant(compile_context, *sum_type_name, *variant_name, *arg).into(),
         ASTNode::Unit => get_void_val(compile_context.context).into(),
-        ASTNode::Tuple { tuple_vals } => todo!(),
+        ASTNode::Tuple { tuple_vals } => {
+            let tuple_vals = tuple_vals.clone();
+            compile_tuple(compile_context, &tuple_vals, ast_node).into()
+        },
         t => panic!("unknown AST : {:?}", DebugWrapContext::new(&t, compile_context.rustaml_context)), 
     }
 }

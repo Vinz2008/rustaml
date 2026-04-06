@@ -106,7 +106,10 @@ pub(crate) fn get_llvm_type<'llvm_ctx>(compile_context : &CompileContext<'_, 'll
                 get_llvm_type(compile_context, &Type::Integer)
             }
         },
-        Type::Tuple(types) => todo!(), // TODO
+        Type::Tuple(types) => {
+            let field_types = types.iter().map(|e| any_type_to_basic(compile_context.context, get_llvm_type(compile_context, e))).collect::<Vec<_>>();
+            compile_context.context.struct_type(&field_types, false).as_any_type_enum()
+        }, // TODO
         Type::Vec(e_type, size) => get_vec_type(get_llvm_type(compile_context, e_type), *size).into(),
         Type::Any => encountered_any_type(),
     }

@@ -1267,10 +1267,9 @@ static char* vformat_string(const char* format, va_list va){
     while (*format != '\0'){
         switch (*format) {
             case '\\':
-                if (format[1] == '%') {
-                    printf("BACKLASH\n");
+                if (format[1] == '%' || format[1] == '(' || format[1] == ')') {
+                    str_append_with_realloc(&str, format[1]);
                     format++;
-                    str_append_with_realloc(&str, '%');
                 } else {
                     str_append_with_realloc(&str, '\\');
                 }
