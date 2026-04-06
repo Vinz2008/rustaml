@@ -1227,7 +1227,7 @@ pub(crate) fn call_function(context: &mut InterpretContext, func_def : &Function
     } 
 }
 
-fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args : &[ASTRef]) -> Val {
+fn interpret_function_call(context: &mut InterpretContext, callee : ASTRef, args : Box<[ASTRef]>) -> Val {
 
     let args_val = args.iter().map(|e| interpret_node(context, *e)).collect::<ArgsVec>();
 
@@ -1406,14 +1406,14 @@ fn handle_match_pattern_end(context: &mut InterpretContext, pattern : PatternRef
     }
 }
 
-fn interpret_match(context: &mut InterpretContext, matched_expr : ASTRef, patterns : &[(PatternRef, ASTRef)]) -> Val {
+fn interpret_match(context: &mut InterpretContext, matched_expr : ASTRef, patterns : Box<[(PatternRef, ASTRef)]>) -> Val {
     let matched_expr_val = interpret_node(context, matched_expr);
     for (pattern, pattern_expr) in patterns {
 
-        if interpret_match_pattern(context, &matched_expr_val, *pattern) {
-            handle_match_pattern_start(context, *pattern, &matched_expr_val);
-            let res_val = interpret_node(context, *pattern_expr);
-            handle_match_pattern_end(context, *pattern);
+        if interpret_match_pattern(context, &matched_expr_val, pattern) {
+            handle_match_pattern_start(context, pattern, &matched_expr_val);
+            let res_val = interpret_node(context, pattern_expr);
+            handle_match_pattern_end(context, pattern);
             return res_val;
         }
     }
@@ -1463,14 +1463,14 @@ fn interpret_variant(context : &InterpretContext, sum_type_name : StringRef, var
     Val::SumType(sum_type_val)
 }
 
-fn interpret_static_vec(context: &mut InterpretContext, vec : &[ASTRef]) -> Val {
+fn interpret_static_vec(context: &mut InterpretContext, vec : Box<[ASTRef]>) -> Val {
     let vec_val = VecVal { 
         vec: vec.iter().map(|e| interpret_node(context, *e)).collect::<Box<[_]>>(), 
     };
     Val::Vec(vec_val)
 }
 
-fn interpret_tuple(context : &mut InterpretContext, tuple : &[ASTRef]) -> Val {
+fn interpret_tuple(context : &mut InterpretContext, tuple : Box<[ASTRef]>) -> Val {
     let tuple_vals = tuple.iter().map(|e| interpret_node(context, *e)).collect::<Box<[_]>>();
     Val::Tuple(tuple_vals)
 }
@@ -1555,18 +1555,18 @@ pub(crate) fn interpret_node(context: &mut InterpretContext, ast: ASTRef) -> Val
         ASTNode::VarUse { name } => context.vars.get(name).unwrap_or_else(|| panic!("BUG interpreter : unknown var {}", name.get_str(&context.rustaml_context.str_interner))).clone(),
         ASTNode::BinaryOp { op, lhs, rhs } => interpret_binop(context, *op, *lhs, *rhs),
         ASTNode::UnaryOp { op, expr } => interpret_unop(context, *op, *expr),
-        ASTNode::FunctionCall { callee, args } => interpret_function_call(context, *callee, &args.clone()),
+        ASTNode::FunctionCall { callee, args } => interpret_function_call(context, *callee, args.clone()),
         ASTNode::IfExpr { cond_expr, then_body, else_body } => interpret_if_expr(context, *cond_expr, *then_body, *else_body),
         ASTNode::MatchExpr { matched_expr, patterns } => {
             let (matched_expr, patterns) = (*matched_expr, patterns.clone());
-            interpret_match(context, matched_expr, patterns.as_ref())
+            interpret_match(context, matched_expr, patterns)
         },
         ASTNode::String { str } => Val::String(*str),
         ASTNode::List { list } => Val::List(List::new_from(context, &list.clone())),
-        ASTNode::Vec { vec } => interpret_static_vec(context, &vec.clone()),
+        ASTNode::Vec { vec } => interpret_static_vec(context, vec.clone()),
         ASTNode::Cast { to_type, expr } => interpret_cast(context, to_type.clone(), *expr),
         ASTNode::Variant { sum_type_name: enum_name, variant_name, arg } => interpret_variant(context, *enum_name, *variant_name, *arg),
-        ASTNode::Tuple { tuple_vals } => interpret_tuple(context, &tuple_vals.clone()),
+        ASTNode::Tuple { tuple_vals } => interpret_tuple(context, tuple_vals.clone()),
         ASTNode::TypeAlias { name: _, type_alias: _ } => {
             Val::Unit
         },
