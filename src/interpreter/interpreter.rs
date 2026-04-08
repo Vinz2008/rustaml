@@ -6,7 +6,7 @@ use std::cmp::max;
 use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
 use std::rc::Rc;
-use std::{mem, panic};
+use std::panic;
 use debug_with_context::DebugWithContext;
 use rand::prelude::*;
 
@@ -64,54 +64,46 @@ cfg_if! {
 
 // None values are freed lists that can be reused
 #[derive(Clone)]
-pub(crate) struct ListPool(pub(crate) Vec<Option<Gc<List>>>);
+pub(crate) struct ListPool(pub(crate) Vec<Option<Gc<ListNode>>>);
 
 impl ListPool {
     pub(crate) fn new() -> ListPool {
         ListPool(Vec::new())
     }
 
-    // TODO : test if unwrap has better performance when replaced with unwrap_unchecked here
-    fn get(&self, list_node : ListRef) -> &List {
+    fn get(&self, list_node : ListNodeRef) -> &ListNode {
         &self.0[list_node.0 as usize].as_ref().unwrap().data
     }
 
-    fn get_mut(&mut self, list_node : ListRef) -> &mut List {
+    fn get_mut(&mut self, list_node : ListNodeRef) -> &mut ListNode {
         &mut self.0[list_node.0 as usize].as_mut().unwrap().data
     }
-    
-    /*fn get_gc(&self, list_node : ListRef) -> &Gc<List> {
-        self.0[list_node.0 as usize].as_ref().unwrap()
-    }*/
 
-    fn get_gc_mut(&mut self, list_node : ListRef) -> &mut Gc<List> {
+    fn get_gc_mut(&mut self, list_node : ListNodeRef) -> &mut Gc<ListNode> {
         self.0[list_node.0 as usize].as_mut().unwrap()
     }
 
-    fn free(&mut self, list_node : ListRef) {
+    fn free(&mut self, list_node : ListNodeRef) {
         let freed_node = self.0[list_node.0 as usize].take();
 
         let _freed_node = match freed_node {
             Some(n) => n,
             None => panic!("gc tried to free a None list node"),
         };
-        
-        // TODO : drop internal vals ? (would need to have a free function on vals)
-
     }
 
-    fn push(&mut self, node : List) -> ListRef {
+    fn push(&mut self, node : ListNode) -> ListNodeRef {
         for (idx, e) in self.0.iter_mut().enumerate() {
             if e.is_none() {
                 *e = Some(Gc::new(node));
-                return ListRef(idx.try_into().unwrap());
+                return ListNodeRef(idx.try_into().unwrap());
             }
         }
 
 
         let idx = self.0.len();
         self.0.push(Some(Gc::new(node)));
-        ListRef(idx.try_into().expect("too many list nodes in the pool"))
+        ListNodeRef(idx.try_into().expect("too many list nodes in the pool"))
     }
 
     cfg_if! {
@@ -159,15 +151,12 @@ impl DebugWithContext<RustamlContext> for ListPool {
             for e in &self.0 {
                 match e {
                     Some(l) => /*l.data.fmt_with_context(f, rustaml_context)?*/ {
-                        match &l.data {
-                            List::None => debug_l.entry(&"None"),
-                            List::Node(val, next) => debug_l.entry_with(|f| {
-                                f.debug_tuple("Node").field_with(|f| val.fmt_with_context(f, rustaml_context)).field(&next.0).finish()
-                            }),
-                        };
+                        debug_l.entry_with(|f| {
+                            f.debug_tuple("Node").field_with(|f| l.data.val.fmt_with_context(f, rustaml_context)).field(&l.data.next.as_ref().map(|e| e.0)).finish()
+                        })
                     },
                     None => { 
-                        debug_l.entry(&None::<()>);
+                        debug_l.entry(&None::<()>)
                     }
                 };
             }
@@ -178,21 +167,21 @@ impl DebugWithContext<RustamlContext> for ListPool {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub(crate) struct ListRef(u32);
+pub(crate) struct ListNodeRef(u32); // >TODO : use NonZero to improve Option (look at also other refs, need to look if there is a lot of option, but would need to addd a -1 when really accessing data)
 
-impl ListRef {
+impl ListNodeRef {
     /// # Safety
     ///
     /// This function should only be called with known good indexes from the list pool
-    pub(crate) unsafe fn new_unchecked(idx : u32) -> ListRef {
-        ListRef(idx)
+    pub(crate) unsafe fn new_unchecked(idx : u32) -> ListNodeRef {
+        ListNodeRef(idx)
     }
 
-    pub(crate) fn get(self, list_pool : &ListPool) -> &List {
+    pub(crate) fn get(self, list_pool : &ListPool) -> &ListNode {
         list_pool.get(self)
     }
 
-    pub(crate) fn get_mut(self, list_pool : &mut ListPool) -> &mut List {
+    pub(crate) fn get_mut(self, list_pool : &mut ListPool) -> &mut ListNode {
         list_pool.get_mut(self)
     }
 
@@ -200,7 +189,7 @@ impl ListRef {
         list_pool.get_gc(self)
     }*/
     
-    pub(crate) fn get_gc_mut(self, list_pool : &mut ListPool) -> &mut Gc<List> {
+    pub(crate) fn get_gc_mut(self, list_pool : &mut ListPool) -> &mut Gc<ListNode> {
         list_pool.get_gc_mut(self)
     }
 
@@ -209,122 +198,140 @@ impl ListRef {
     }
 }
 
-impl DebugWithContext<RustamlContext> for ListRef {
+impl DebugWithContext<RustamlContext> for ListNodeRef {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
-        self.get(&rustaml_context.list_node_pool).fmt_with_context(f, rustaml_context)
+        List {
+            head: Some(*self),
+        }.fmt_with_context(f, rustaml_context)
     }
 }
 
-// TODO : add JIT (using Inkwell)
-
 // TODO : rework the layout ? (see https://rust-unofficial.github.io/too-many-lists/)
-#[derive(Clone, Default)]
+/*#[derive(Clone, Default)]
 pub(crate) enum List {
     #[default]
     None,
     Node(Val, ListRef)
+}*/
+
+
+#[derive(Clone)]
+pub(crate) struct ListNode {
+    pub val: Val,
+    pub next : Option<ListNodeRef>,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) struct List {
+    pub head: Option<ListNodeRef>,
+}
 
 impl List {
-    fn new(val : Val, next : ListRef) -> List {
-        List::Node(val, next)
-    }
-
     // intepret nodes here instead of doing before the call and passing a Vec<Val> to avoid not necessary allocations
-    fn new_from(context: &mut InterpretContext, v : &[ASTRef]) -> ListRef {
-        let mut list_ref = context.rustaml_context.list_node_pool.push(List::None);
+    fn new_from(context: &mut InterpretContext, v : &[ASTRef]) -> List {
+        let mut list_ref = None;
         for e in v.iter().rev() {
             let val = interpret_node(context, *e);
-            list_ref = list_push_start(&mut context.rustaml_context.list_node_pool, val, list_ref);
+            list_ref = Some(list_push_start(&mut context.rustaml_context.list_node_pool, val, list_ref));
+            
         }
-        
-        list_ref
+        List {
+            head: list_ref,
+        }
     }
 
     #[cfg(feature = "jit")]
-    pub(crate) fn new_from_vals(context: &mut InterpretContext, vals : Vec<Val>) -> ListRef {
-        let mut list_ref = context.rustaml_context.list_node_pool.push(List::None);
+    pub(crate) fn new_from_vals(context: &mut InterpretContext, vals : Vec<Val>) -> List {
+        let mut list_ref = None;
         for val in vals.into_iter().rev() {
-            list_ref = list_push_start(&mut context.rustaml_context.list_node_pool, val, list_ref);
+            list_ref = Some(list_push_start(&mut context.rustaml_context.list_node_pool, val, list_ref));
         }
-        list_ref
-    }
-
-    fn add_list_at_end(&mut self, list_pool : &mut ListPool, list : ListRef){
-        let mut current_ref = match self {
-            List::Node(_, next_ref) => {
-                if let List::None = next_ref.get(list_pool){
-                    *next_ref = list;
-                    return;
-                }
-                *next_ref
-            },
-            List::None => {
-                *self = list.get(list_pool).clone();
-                return;
-            },
-        };
-
-        while let List::Node(_, next) = current_ref.get(list_pool){
-            if let List::None = next.get(list_pool){
-                break;
-            }
-            current_ref = *next;
+        List {
+            head: list_ref,
         }
-
-        let current = current_ref.get_mut(list_pool);
-        let val = match mem::take(current){
-            List::Node(v, _next) => v,
-            List::None => unreachable!(),
-        };
-        *current = List::new(val, list);
-    }
-
-    // TODO : remove this ?
-    /*fn append(&mut self, list_pool: &mut ListPool, val : Val){
-        let tail = list_pool.push(List::None);
-        let new_node = list_pool.push(List::Node(val, tail));
-        self.add_list_at_end(list_pool, new_node);
-    }*/
-
-    pub(crate) fn iter<'a>(&'a self, list_pool : &'a ListPool) -> ListIter<'a> {
-        ListIter { current: self, list_pool }
     }
 
     pub(crate) fn len(&self, list_pool : &ListPool) -> usize {
-        let mut count = 0;
+        match self.head {
+            Some(head) => head.get(list_pool).len(list_pool),
+            None => 0,
+        }
+    }
 
-        let mut current: &List = self;
-        while let List::Node(_, next ) = current {
-            current = next.get(list_pool);
+    fn add_list_at_end(&mut self, list_pool : &mut ListPool, list : List){
+        let mut current_ref = match self.head {
+            Some(head_ref) => {
+                head_ref
+            }
+            None => {
+                self.head = list.head;
+                return;
+            }
+        };
+
+        while let Some(next_ref) = current_ref.get(list_pool).next {
+            current_ref = next_ref;
+        }
+
+        let current = current_ref.get_mut(list_pool);
+        current.next = list.head;
+    }
+
+    pub(crate) fn iter<'a>(self, list_pool : &'a ListPool) -> ListIter<'a> {
+        ListIter { current: self.head, list_pool }
+    }
+
+    pub(crate) fn deep_clone(&self, list_pool : &mut ListPool) -> List {
+        let head = match self.head {
+            Some(l) => Some(l.get(list_pool).clone().deep_clone(list_pool)), // TODO : remove the additional clone ?
+            None => None,
+        };
+        List { head }
+    }
+}
+
+
+impl ListNode {
+    fn new(val : Val, next : ListNodeRef) -> ListNode {
+        ListNode {
+            val,
+            next: Some(next), 
+        }
+    }
+
+
+    pub(crate) fn len(&self, list_pool : &ListPool) -> usize {
+        let mut count = 1;
+
+        let mut current: &ListNode = self;
+        while let Some(next_ref) = current.next {
             count += 1;
+            current = next_ref.get(list_pool);
         }
         count
     }
 
-    fn empty(&self) -> bool {
-        match self {
-            List::None => true,
-            List::Node(_, _) => false
+    pub(crate) fn deep_clone(&self, list_pool : &mut ListPool) -> ListNodeRef {
+        let cloned_val = self.val.clone();
+        let new_node = list_pool.push(ListNode { val: cloned_val, next: None });
+        let head = new_node;
+        let mut last_node = new_node;
+        let mut current_node = self;
+        while let Some(next_ref) = current_node.next {
+            let cloned_val = next_ref.get(list_pool).val.clone();
+            let new_node = list_pool.push(ListNode { val: cloned_val, next: None });
+            last_node.get_mut(list_pool).next = Some(new_node);
+            last_node = new_node;
+            current_node = next_ref.get(list_pool);
         }
-    }
 
-    // TODO : make this more iterative
-    pub(crate) fn deep_clone(&self, list_pool : &mut ListPool) -> List {
-        match self {
-            List::Node(val, l) => {
-                let cloned_tail = l.get(list_pool).clone().deep_clone(list_pool);
-                List::Node(val.clone(), list_pool.push(cloned_tail))
-            }
-            List::None => List::None,
-        }
+        head
     }
 }
 
 
 pub(crate) struct ListIter<'a> {
-    current : &'a List,
+    current : Option<ListNodeRef>,
     list_pool : &'a ListPool,
 }
 
@@ -333,28 +340,30 @@ impl<'a> Iterator for ListIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.current {
-            List::None => None,
-            List::Node(v, next ) => {
-                let current = v;
-                self.current = next.get(self.list_pool);
-                Some(current)
+            Some(current) => {
+                let val = &current.get(self.list_pool).val;
+                let next = current.get(self.list_pool).next;
+                self.current = next;
+                Some(val)
             }
+            None => None,
         }
     }
 }
 
 impl DebugWithContext<RustamlContext> for List {
     fn fmt_with_context(&self, f: &mut fmt::Formatter, rustaml_context: &RustamlContext) -> fmt::Result {
-        let mut current = self;
+        let mut current = self.head;
         let mut iter_nb = 0;
 
-        while let List::Node(v, next ) = current {
+
+        while let Some(node_ref) = current {
             if iter_nb != 0 {
                 write!(f, ", ")?;
             }
-
-            v.fmt_with_context(f, rustaml_context)?;
-            current = next.get(&rustaml_context.list_node_pool);
+            let node = node_ref.get(&rustaml_context.list_node_pool);
+            node.val.fmt_with_context(f, rustaml_context)?;
+            current = node.next;
             iter_nb += 1;
         }
 
@@ -368,7 +377,7 @@ impl DebugWithContext<RustamlContext> for List {
 pub(crate) struct SumTypeVal {
     // TODO : are there other ways to represent this ? (do I really need the sum_type_name and variant_nb ?)
     sum_type_name : StringRef,
-    variant_nb : usize,
+    variant_nb : u32,
     variant_name : StringRef,
     // TODO : add val
 }
@@ -414,7 +423,7 @@ pub(crate) enum Val {
     Bool(bool),
     String(StringRef),
     Char(char),
-    List(ListRef),
+    List(List),
     Function(Rc<FunctionDef>),
     SumType(SumTypeVal),
     Regex(Box<RegexWrapper>),
@@ -441,34 +450,32 @@ pub(crate) struct ValWrapDisplay<'a> {
     rustaml_context: &'a RustamlContext,
 }
 
-fn _display_list(l : ListRef, rustaml_context: &RustamlContext, f: &mut fmt::Formatter<'_>, is_first : bool) -> fmt::Result {
-    match l.get(&rustaml_context.list_node_pool){
-        List::Node(e, l) => {
-            if !is_first {
+// TODO : make this iterative instead of recursive (would make it only 1 function with aux func, but is it already optimized as tail call ? but on debug mode could it blow the stack ?)
+fn _display_list(l : Option<ListNodeRef>, rustaml_context: &RustamlContext, f: &mut fmt::Formatter<'_>, is_first : bool) -> fmt::Result {
+    match l {
+        Some(head_ref) => {
+            if !is_first  {
                 write!(f, ", ")?;
             }
+            let head_node = head_ref.get(&rustaml_context.list_node_pool);
+            let next = head_node.next;
+            let e = &head_node.val;
             let e_wrap = ValWrapDisplay {
                 val: e,
                 rustaml_context,
             };
-
             write!(f, "{}", e_wrap)?;
-
-            _display_list(*l, rustaml_context, f, false)
+            
+            _display_list(next, rustaml_context, f, false)
         },
-        List::None => fmt::Result::Ok(()),
+        None => fmt::Result::Ok(()),
     }
 }
 
-fn display_list(l : ListRef, rustaml_context: &RustamlContext, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match l.get(&rustaml_context.list_node_pool){
-        List::None => write!(f, "[]"),
-        _ => {
-            write!(f, "[")?;
-            _display_list(l, rustaml_context, f, true)?;
-            write!(f, "]")
-        },
-    }
+fn display_list(l : List, rustaml_context: &RustamlContext, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "[")?;
+    _display_list(l.head, rustaml_context, f, true)?;
+    write!(f, "]")
 }
 
 fn display_vec(v : &VecVal, rustaml_context: &RustamlContext, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -749,8 +756,11 @@ fn interpret_binop_str(context: &mut InterpretContext, op : Operator, lhs_val : 
     v
 }
 
-fn list_push_start(list_node_pool : &mut ListPool, lhs_val : Val, rhs_list : ListRef) -> ListRef {
-    list_node_pool.push(List::new(lhs_val, rhs_list))
+fn list_push_start(list_node_pool : &mut ListPool, lhs_val : Val, rhs_list : Option<ListNodeRef>) -> ListNodeRef {
+    list_node_pool.push(ListNode { 
+        val: lhs_val, 
+        next: rhs_list 
+    })
 }
 
 fn interpret_binop_list(context: &mut InterpretContext, op : Operator, lhs_val : Val, rhs_val : Val) -> Val {
@@ -762,7 +772,10 @@ fn interpret_binop_list(context: &mut InterpretContext, op : Operator, lhs_val :
 
     let v = match op {
         // TODO : call add_allocation for gc in these cases
-        Operator::ListAppend => Val::List(list_push_start(&mut context.rustaml_context.list_node_pool, lhs_val, rhs_list)),
+        Operator::ListAppend => {
+            let head = list_push_start(&mut context.rustaml_context.list_node_pool, lhs_val, rhs_list.head);
+            Val::List(List { head: Some(head) })
+        },
         Operator::ListMerge => {
             // TODO : optimize this ?
             let lhs_list = match lhs_val {
@@ -770,12 +783,11 @@ fn interpret_binop_list(context: &mut InterpretContext, op : Operator, lhs_val :
                 _ => unreachable!(),
             };
 
-            let mut cloned_lhs = lhs_list.get(&context.rustaml_context.list_node_pool).clone().deep_clone(&mut context.rustaml_context.list_node_pool);
+            let mut cloned_lhs = lhs_list.deep_clone(&mut context.rustaml_context.list_node_pool);
             cloned_lhs.add_list_at_end(&mut context.rustaml_context.list_node_pool, rhs_list);
 
-            let cloned_lhs_ref = context.rustaml_context.list_node_pool.push(cloned_lhs);
 
-            Val::List(cloned_lhs_ref)
+            Val::List(cloned_lhs)
         }
         _ => unreachable!(),
     };
@@ -983,28 +995,21 @@ fn interpret_map(context: &mut InterpretContext, list_val : Val, fun_val : Val) 
         _ => unreachable!(),
     };
 
-    let mut vals= Vec::new();
-
-    {
-        let mut current = list.get(&context.rustaml_context.list_node_pool);
-
-        while let List::Node(val, next ) = current { 
-            vals.push(val.clone());
-            current = next.get(&context.rustaml_context.list_node_pool);
-        }
-    }
+    let vals= list.iter(&context.rustaml_context.list_node_pool).cloned().collect::<Vec<_>>();
     
-    let mut new_list_ref = context.rustaml_context.list_node_pool.push(List::None);
+    let mut new_list_ref = None;
 
     
     // TODO : create a function which will be another new_from to create from a val slice to not go throught the whole list at each append ?
     for v in vals.into_iter().rev() {
         let new_val = call_function(context, &fun_val, smallvec![v]);
-        new_list_ref = list_push_start(&mut context.rustaml_context.list_node_pool, new_val, new_list_ref);
+        new_list_ref = Some(list_push_start(&mut context.rustaml_context.list_node_pool, new_val, new_list_ref));
     }
 
 
-    Val::List(new_list_ref)
+    Val::List(List {
+        head: new_list_ref,
+    })
 }
 
 
@@ -1019,17 +1024,9 @@ fn interpret_filter(context: &mut InterpretContext, list_val : Val, fun_val : Va
         _ => unreachable!(),
     };
 
-    let mut vals= Vec::new();
-    {
-        let mut current = list.get(&context.rustaml_context.list_node_pool);
+    let vals = list.iter(&context.rustaml_context.list_node_pool).cloned().collect::<Vec<_>>();
 
-        while let List::Node(val, next ) = current { 
-            vals.push(val.clone());
-            current = next.get(&context.rustaml_context.list_node_pool);
-        }
-    }
-
-    let mut new_list_ref = context.rustaml_context.list_node_pool.push(List::None);    
+    let mut new_list_ref = None;    
 
     // TODO : create a function which will be another new_from to create from a val slice to not go throught the whole list at each append ?
     for v in vals.into_iter().rev() {
@@ -1040,11 +1037,13 @@ fn interpret_filter(context: &mut InterpretContext, list_val : Val, fun_val : Va
         };
 
         if should_append_bool {
-            new_list_ref = list_push_start(&mut context.rustaml_context.list_node_pool, v, new_list_ref);
+            new_list_ref = Some(list_push_start(&mut context.rustaml_context.list_node_pool, v, new_list_ref));
         }
     }
 
-    Val::List(new_list_ref)
+    Val::List(List {
+        head: new_list_ref
+    })
 }
 
 fn interpret_chars(context : &mut InterpretContext, str : Val) -> Val {
@@ -1052,11 +1051,13 @@ fn interpret_chars(context : &mut InterpretContext, str : Val) -> Val {
         Val::String(s) => s,
         _ => unreachable!(),
     };
-    let mut new_list_ref = context.rustaml_context.list_node_pool.push(List::None);
+    let mut new_list_ref = None;
     for c in str.get_str(&context.rustaml_context.str_interner).chars().rev() {
-        new_list_ref = list_push_start(&mut context.rustaml_context.list_node_pool, Val::Char(c), new_list_ref);
+        new_list_ref = Some(list_push_start(&mut context.rustaml_context.list_node_pool, Val::Char(c), new_list_ref));
     }
-    Val::List(new_list_ref)
+    Val::List(List {
+        head: new_list_ref,
+    })
 }
 
 fn interpret_regex_create(context : &InterpretContext, str : Val) -> Val {
@@ -1317,15 +1318,13 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
                 _ => unreachable!(),
             };
 
-            let matched_expr_list_node = matched_expr_list.get(&context.rustaml_context.list_node_pool);
-
             // if both empty
-            if l.is_empty() && matches!(matched_expr_list_node, List::None){
+            if l.is_empty() && matched_expr_list.head.is_none() {
                 return true;
             }
 
             // TODO : maybe put len in the node to improve performance/create a cache for length ? (benchmark it/ add it as a feature ?)
-            let matched_expr_list_len = matched_expr_list_node.len(&context.rustaml_context.list_node_pool);
+            let matched_expr_list_len = matched_expr_list.len(&context.rustaml_context.list_node_pool);
 
             if matched_expr_list_len != l.len(){
                 return false;
@@ -1334,7 +1333,7 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
             // TODO : refactor this if it is a performance problem (profile it ?)
             let mut pattern_matched_nb = 0;
             // TODO : remove these clones -need these because we can't borrow as mut context while borrowing those vals)
-            let matched_list = matched_expr_list_node.iter(&context.rustaml_context.list_node_pool).cloned().collect::<Vec<_>>();
+            let matched_list = matched_expr_list.iter(&context.rustaml_context.list_node_pool).cloned().collect::<Vec<_>>();
             for (&p, v) in l.iter().zip(matched_list) {
                 if !interpret_match_pattern(context, &v, p){
                     return false;
@@ -1348,24 +1347,23 @@ fn interpret_match_pattern(context: &mut InterpretContext, matched_val : &Val, p
         },
         Pattern::ListDestructure(head_pattern, tail_pattern) => {
             let matched_expr_list = match matched_val {
-                Val::List(l) => l,
+                Val::List(l) => *l,
                 _ => unreachable!(),
             };
 
-            if matched_expr_list.get(&context.rustaml_context.list_node_pool).empty(){
-                return false;
-            }
-
-            let (head_val, tail) = match matched_expr_list.get(&context.rustaml_context.list_node_pool) {
-                List::Node(head_val, next ) => (head_val.clone(), *next),
-                List::None => unreachable!(),
+            let (head_val, tail) = match matched_expr_list.head {
+                Some(node_ref) => {
+                    let node = node_ref.get(&context.rustaml_context.list_node_pool);
+                    (node.val.clone(), node.next)
+                }
+                None => return false,
             };
 
             if !interpret_match_pattern(context, &head_val, head_pattern){
                 return false;
             }
 
-            let tail_val = Val::List(tail);
+            let tail_val = Val::List(List { head: tail });
             interpret_match_pattern(context, &tail_val, tail_pattern)
         },
     }
@@ -1381,12 +1379,18 @@ fn handle_match_pattern_start(context: &mut InterpretContext, pattern : PatternR
                 Val::List(l) => l,
                 _ => unreachable!(),
             };
-            let (head_val, tail) = match matched_expr_list.get(&context.rustaml_context.list_node_pool) {
-                List::Node(val, next ) => (val.clone(), *next),
-                List::None => unreachable!(),
+
+            let (head_val, tail) = match matched_expr_list.head {
+                Some(node_ref) => {
+                    let node = node_ref.get(&context.rustaml_context.list_node_pool);
+                    (node.val.clone(), node.next)
+                }
+                None => unreachable!(),
             };
+
+
             handle_match_pattern_start(context, head_pattern, &head_val);
-            let tail_val = Val::List(tail);
+            let tail_val = Val::List(List { head: tail });
             handle_match_pattern_start(context, tail_pattern, &tail_val);
         }
         _ => {},
@@ -1435,7 +1439,7 @@ fn interpret_variant(context : &InterpretContext, sum_type_name : StringRef, var
             // TODO : should variants be a hashmap ? (benchmark it)
             // do intern compiler because it should already be in it (use a get string ref function ?)
             sum_type.variants.iter()
-            .position(|var| var.get_name() == variant_name.get_str(&context.rustaml_context.str_interner)).unwrap()
+            .position(|var| var.get_name() == variant_name.get_str(&context.rustaml_context.str_interner)).unwrap().try_into().unwrap()
 
         }
         _ => panic!("trying to use a not enum type to create an enum variant"),

@@ -4,7 +4,7 @@ use debug_with_context::DebugWithContext;
 #[cfg(feature = "gc-test-print")]
 use debug_with_context::DebugWrapContext;
 
-use crate::{interpreter::{InterpretContext, List, ListPool, ListRef, Val}, rustaml::RustamlContext, string_intern::{StrInterned, StrInterner, StringRef}};
+use crate::{interpreter::{InterpretContext, List, ListNode, ListNodeRef, ListPool, Val}, rustaml::RustamlContext, string_intern::{StrInterned, StrInterner, StringRef}};
 
 pub(crate) struct GcContext {
     bytes_allocated : usize,
@@ -69,42 +69,38 @@ fn shrink_list_pool_if_needed(list_node_pool : &mut ListPool){
     }
 }
 
-fn does_list_contain_lists(l : &List) -> bool {
-    match l {
-        List::Node(val, _) => matches!(val, Val::List(_)),
-        List::None => false,
-    }
+// TODO : inline directly this function in the code ?
+fn does_list_contain_lists(l : &ListNode) -> bool {
+    matches!(l.val, Val::List(_))
 }
 
 // only call this on val from a list that you have checked the first element is a list (with does_list_contain_lists), so all elements are
-fn val_to_list_ref_unchecked(val: &Val) -> ListRef {
+fn val_to_list_ref_unchecked(val: &Val) -> List {
     match val {
         Val::List(l) => *l,
         _ => unreachable!(), // TODO : use unreachable unchecked ? (benchmark this)
     }
 }
 
-fn mark_list_ref(list_node_pool : &mut ListPool, grey_stack : &mut VecDeque<ListRef>, l : ListRef){
-    {
-        let l_gc = l.get_gc_mut(list_node_pool);
+fn mark_list_ref(list_node_pool : &mut ListPool, grey_stack : &mut VecDeque<ListNodeRef>, l : List){
+    if let Some(head) = l.head {
+        let l_gc = head.get_gc_mut(list_node_pool);
         l_gc.is_marked = true;
-        match l_gc.data {
-            List::Node(_, next) => {
-                grey_stack.push_back(next);
-            },
-            List::None => {}
+        match l_gc.data.next {
+            Some(next) => grey_stack.push_back(next),
+            None => {},
         }
-    }
 
-    // is node a list
-    // only recursion in case of lists of lists (there is rarely nesting of types in a very deep way, so it is safe)
-    if does_list_contain_lists(l.get(list_node_pool)){
-        // TODO : refactor to not have this vec ?
-        let val_list_refs = l.get(list_node_pool).iter(list_node_pool).map(val_to_list_ref_unchecked).collect::<Vec<_>>();
-        for val_list_ref in val_list_refs {
-            mark_list_ref(list_node_pool, grey_stack, val_list_ref);
+        // is node a list
+        // only recursion in case of lists of lists (there is rarely nesting of types in a very deep way, so it is safe)
+        if does_list_contain_lists(head.get(list_node_pool)){
+            // TODO : refactor to not have this vec ?
+            let val_list_refs = l.iter(list_node_pool).map(val_to_list_ref_unchecked).collect::<Vec<_>>();
+            for val_list_ref in val_list_refs {
+                mark_list_ref(list_node_pool, grey_stack, val_list_ref);
+            }
+            
         }
-        
     }
 }
 
@@ -132,7 +128,7 @@ fn mark_and_sweep_list_nodes(context : &mut InterpretContext){
     while !grey_stack.is_empty(){
         //println!("{:?}", DebugWrapContext::new(&context.rustaml_context.list_node_pool, context.rustaml_context));
         let grey_node = grey_stack.pop_front().unwrap();
-        mark_list_ref(&mut context.rustaml_context.list_node_pool, &mut grey_stack, grey_node);
+        mark_list_ref(&mut context.rustaml_context.list_node_pool, &mut grey_stack, List { head: Some(grey_node) });
     }
 
     #[cfg(feature = "gc-test-print")]
@@ -144,7 +140,7 @@ fn mark_and_sweep_list_nodes(context : &mut InterpretContext){
     for (idx, list) in context.rustaml_context.list_node_pool.0.iter_mut().enumerate() {
         if let Some(l) = list {
             if !l.is_marked {
-                let list_ref = unsafe { ListRef::new_unchecked(idx.try_into().unwrap()) };
+                let list_ref = unsafe { ListNodeRef::new_unchecked(idx.try_into().unwrap()) };
                 lists_to_free.push(list_ref);
             } else {
                 // to make at the end the every node unmarked
@@ -157,8 +153,6 @@ fn mark_and_sweep_list_nodes(context : &mut InterpretContext){
         l.free(&mut context.rustaml_context.list_node_pool);
     }
 
-
-    // TODO : if a certain part of the end of the list pool is None (for example one third), shrink the vec
 
     shrink_list_pool_if_needed(&mut context.rustaml_context.list_node_pool);
 
@@ -191,7 +185,7 @@ fn mark_and_sweep_strings(context : &mut InterpretContext){
     helper_print_strings(&context.rustaml_context.str_interner, true);
 
     // TODO : mark strings that are contained in lists
-    // TODO merge traversal of vals, lists,etc between strings and lists (to improve latency)
+    // TODO merge traversal of vals, lists,etc between strings and lists (to improve latency) (TODO, REALLY NEED REFACTOR)
 
     // mark
     for var_val in context.vars.values() {

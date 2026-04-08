@@ -378,9 +378,9 @@ fn create_jit_value(rustaml_context : &RustamlContext, val : Val) -> JITValue {
         Val::Unit => (JITValueTag::Unit, 0),
         Val::List(l) => {
             // TODO : not copy it ? (traverse it in the wrapper ? is it even possible ?)
-            let len = l.get(&rustaml_context.list_node_pool).len(&rustaml_context.list_node_pool);
+            let len = l.len(&rustaml_context.list_node_pool);
             let mut v = Vec::with_capacity(len);
-            for e in l.get(&rustaml_context.list_node_pool).iter(&rustaml_context.list_node_pool) {
+            for e in l.iter(&rustaml_context.list_node_pool) {
                 v.push(create_jit_value(rustaml_context, e.clone())); // TODO : remove this clone
             }
             let v = v.leak(); // TODO : don't leak it, put in JitContext and then free it at the end of the call

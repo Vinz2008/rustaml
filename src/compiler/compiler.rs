@@ -1,11 +1,11 @@
 use core::panic;
 use std::{cell::Cell, fs, hash::{Hash, Hasher}, ops::Range, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
-use nohash::{IntMap, IntSet};
+use nohash::IntMap;
 use crate::{ast::{ASTNode, ASTRef, CType, Type, TypeTag}, compiler::{cast::cast_val, compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_array_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_void_val, llvm_lifetime_end, llvm_lifetime_start, move_bb_after_current, promote_val_var_arg, vec_to_c_struct_ptr}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}, linker::link_exe}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue, ValueKind}};
 use pathbuf::pathbuf;
-use rustc_hash::{FxHashMap, FxHasher};
+use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use cfg_if::cfg_if;
 
 // TODO : add generic enums to have results for error handling
@@ -87,34 +87,6 @@ cfg_if! {
     }
 }
 
-
-// used to be hashed as ptrs
-#[repr(transparent)]
-pub(crate) struct StaticStr(&'static str);
-
-impl Hash for StaticStr {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_usize(self.0.as_ptr() as usize);
-    }
-}
-
-impl nohash::IsEnabled for StaticStr {}
-
-impl PartialEq for StaticStr {
-    fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.0.as_ptr(), other.0.as_ptr())
-    }
-}
-
-
-impl Eq for StaticStr {}
-
-impl From<&'static str> for StaticStr {
-    fn from(value: &'static str) -> StaticStr {
-        StaticStr(value)
-    }
-}
-
 // what is used a specific monomorphised for a generic function (used to verify if already generated)
 #[derive(Eq, Hash, PartialEq)]
 struct GenericFunIdentifier {
@@ -141,7 +113,7 @@ pub(crate) struct CompileContext<'context, 'llvm_ctx> {
     pub(crate) main_function : FunctionValue<'llvm_ctx>,
     pub(crate) var_vals : IntMap<StringRef, PointerValue<'llvm_ctx>>,
     // TODO : use a wrapper for static str, same as below
-    pub(crate) external_symbols_declared : IntSet<StaticStr>,
+    pub(crate) external_symbols_declared : FxHashSet<&'static str>,
     internal_functions : Vec<BuiltinFunction<'llvm_ctx>>, // TODO : replace this with a hashmap ?
     pub(crate) global_strs : FxHashMap<String, PointerValue<'llvm_ctx>>,
     pub(crate) is_optimized : bool,
@@ -157,7 +129,7 @@ pub(crate) struct CompileContext<'context, 'llvm_ctx> {
     generic_func_def_ast_node : IntMap<StringRef, ASTRef>,
 
     // TOOD : use a wrapper for static str, implement Hash by casting th ptr to usize and hashing, and then use IntMap then
-    pub(crate) monomorphized_internal_fun : IntMap<StaticStr, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>>, // (Type A, Type B) = function List A -> List B
+    pub(crate) monomorphized_internal_fun : FxHashMap<&'static str, FxHashMap<(Type, Type), FunctionValue<'llvm_ctx>>>, // (Type A, Type B) = function List A -> List B
 
     #[cfg(feature = "jit")]
     pub(crate) jit_compile_context : Option<JITCompileContext<'llvm_ctx>>, // needed for JIT to annotate functions with the target features
@@ -361,7 +333,7 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
             monomorphized_internal_fun: init_monomorphized_internal_fun(),
             closure_idx: Cell::new(0),
             var_vals: IntMap::default(),
-            external_symbols_declared: IntSet::default(),
+            external_symbols_declared: FxHashSet::default(),
             global_strs: FxHashMap::default(),
             shared_libs: Vec::new(),
             generic_map: IntMap::default(),
@@ -375,9 +347,10 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
     }
 
     pub(crate) fn get_internal_function(&mut self, name : &'static str) -> FunctionValue<'llvm_ctx> {
-        if self.external_symbols_declared.contains(&name.into()){
+        if self.external_symbols_declared.contains(name){
             self.module.get_function(name).unwrap()
         } else {
+            debug_assert!(self.module.get_function(name).is_none());
             // use find instead of a hashmap because the number of internal functions is low
             let builtin_function = self.internal_functions.iter().find(|f| f.name == name).unwrap();
             let function_type = get_fn_type(self.context, builtin_function.ret.unwrap(), &builtin_function.args, builtin_function.is_variadic);
@@ -394,7 +367,7 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
     // TODO : if this function become more used, make a list like the internal function for builtin_global_vars types
     // or use an enum for name because it is static
     pub(crate) fn get_internal_global_var(&mut self, name : &'static str, type_var : BasicTypeEnum<'llvm_ctx>) -> GlobalValue<'llvm_ctx> {
-        if self.external_symbols_declared.contains(&name.into()){
+        if self.external_symbols_declared.contains(name){
             self.module.get_global(name).unwrap()
         } else {
             let global = self.module.add_global(type_var, None, "stderr");

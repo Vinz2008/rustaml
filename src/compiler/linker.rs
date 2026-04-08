@@ -1,6 +1,6 @@
 use std::{io::Write, path::{MAIN_SEPARATOR, Path}, process::{Command, Stdio}};
 
-use crate::{compiler::OptionalArgs, rustaml::RustamlContext};
+use crate::{compiler::OptionalArgs, debug_println, rustaml::RustamlContext};
 use inkwell::OptimizationLevel;
 use pathbuf::pathbuf;
 
@@ -275,6 +275,8 @@ pub(crate) fn link_exe(rustaml_context: &mut RustamlContext, filename_out : &Pat
     if optional_args.build_bdwgc {
         link_cmd.arg(out_bdwgc_path.as_ref().unwrap());
     }
+
+    debug_println!(rustaml_context.is_debug_print, "link cmd {:?}", link_cmd);
 
     if !link_cmd.spawn().expect("linker failed").wait().unwrap().success() {
         panic!("linker failed");
