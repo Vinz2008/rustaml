@@ -147,6 +147,7 @@ def test_file(filename : str, command : COMMAND, is_release_mode : bool, is_debu
 
     env = os.environ.copy()
     env["LD_LIBRARY_PATH"] = scripts_dir + ":" + env.get("LD_LIBRARY_PATH", "")
+    #env["RUST_BACKTRACE"] = "1"
 
     pipe = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
     out, _ = pipe.communicate()

@@ -140,7 +140,7 @@ fn mark_and_sweep_list_nodes(context : &mut InterpretContext){
     for (idx, list) in context.rustaml_context.list_node_pool.0.iter_mut().enumerate() {
         if let Some(l) = list {
             if !l.is_marked {
-                let list_ref = unsafe { ListNodeRef::new_unchecked(idx.try_into().unwrap()) };
+                let list_ref = unsafe { ListNodeRef::new_unchecked((idx+1).try_into().unwrap()) };
                 lists_to_free.push(list_ref);
             } else {
                 // to make at the end the every node unmarked

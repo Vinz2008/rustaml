@@ -5,6 +5,7 @@ use smallvec::smallvec;
 use std::cmp::max;
 use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
+use std::num::NonZero;
 use std::rc::Rc;
 use std::panic;
 use debug_with_context::DebugWithContext;
@@ -72,19 +73,19 @@ impl ListPool {
     }
 
     fn get(&self, list_node : ListNodeRef) -> &ListNode {
-        &self.0[list_node.0 as usize].as_ref().unwrap().data
+        &self.0[list_node.0.get() as usize - 1].as_ref().unwrap().data
     }
 
     fn get_mut(&mut self, list_node : ListNodeRef) -> &mut ListNode {
-        &mut self.0[list_node.0 as usize].as_mut().unwrap().data
+        &mut self.0[list_node.0.get() as usize - 1].as_mut().unwrap().data
     }
 
     fn get_gc_mut(&mut self, list_node : ListNodeRef) -> &mut Gc<ListNode> {
-        self.0[list_node.0 as usize].as_mut().unwrap()
+        self.0[list_node.0.get() as usize - 1].as_mut().unwrap()
     }
 
     fn free(&mut self, list_node : ListNodeRef) {
-        let freed_node = self.0[list_node.0 as usize].take();
+        let freed_node = self.0[list_node.0.get() as usize - 1].take();
 
         let _freed_node = match freed_node {
             Some(n) => n,
@@ -96,14 +97,14 @@ impl ListPool {
         for (idx, e) in self.0.iter_mut().enumerate() {
             if e.is_none() {
                 *e = Some(Gc::new(node));
-                return ListNodeRef(idx.try_into().unwrap());
+                return ListNodeRef(NonZero::new((idx+1).try_into().unwrap()).unwrap()); // TODO : replace the unwrap with new_unchecked for NonZero
             }
         }
 
 
-        let idx = self.0.len();
+        let idx = self.0.len() + 1;
         self.0.push(Some(Gc::new(node)));
-        ListNodeRef(idx.try_into().expect("too many list nodes in the pool"))
+        ListNodeRef(NonZero::new(idx.try_into().expect("too many list nodes in the pool")).unwrap())
     }
 
     cfg_if! {
@@ -167,14 +168,17 @@ impl DebugWithContext<RustamlContext> for ListPool {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub(crate) struct ListNodeRef(u32); // >TODO : use NonZero to improve Option (look at also other refs, need to look if there is a lot of option, but would need to addd a -1 when really accessing data)
+pub(crate) struct ListNodeRef(NonZero<u32>); // >TODO : use NonZero to improve Option (look at also other refs, need to look if there is a lot of option, but would need to addd a -1 when really accessing data)
 
 impl ListNodeRef {
     /// # Safety
     ///
-    /// This function should only be called with known good indexes from the list pool
+    /// This function should only be called with known good indexes from the list pool (non zero)
+    /// 
     pub(crate) unsafe fn new_unchecked(idx : u32) -> ListNodeRef {
-        ListNodeRef(idx)
+        unsafe {
+            ListNodeRef(NonZero::new_unchecked(idx))
+        }
     }
 
     pub(crate) fn get(self, list_pool : &ListPool) -> &ListNode {
