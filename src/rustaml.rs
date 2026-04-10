@@ -23,7 +23,7 @@ cfg_if! {
 
 // TODO : remove the clone and recursively in every types in it after removing the clone it types_debug
 #[derive(Clone)]
-pub(crate) struct RustamlContext {
+pub struct RustamlContext {
     pub(crate) str_interner : StrInterner,
     pub(crate) ast_pool : ASTPool,
     pub(crate) pattern_pool : PatternPool,
@@ -37,7 +37,7 @@ pub(crate) struct RustamlContext {
 }
 
 impl RustamlContext {
-    pub(crate) fn new(is_debug_print : bool, self_profile : bool) -> RustamlContext {
+    pub fn new(is_debug_print : bool, self_profile : bool) -> RustamlContext {
         RustamlContext { 
             str_interner: StrInterner::new(), 
             ast_pool: ASTPool::new(),
@@ -130,7 +130,7 @@ pub(crate) fn get_ast_from_string(rustaml_context : &mut RustamlContext, content
 }
 
 
-pub(crate) struct FrontendOutput {
+pub struct FrontendOutput {
     pub(crate) ast : ASTRef,
     pub(crate) type_infos : TypeInfos,
     pub(crate) content : String,
@@ -148,8 +148,7 @@ pub(crate) fn read_file(filename : &Path) -> String {
 }
 
 // used for every command (used for code deduplication)
-#[allow(unused)]
-pub(crate) fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<FrontendOutput, ()> {
+pub fn frontend(filename : &Path, rustaml_context : &mut RustamlContext) -> Result<FrontendOutput, ()> {
     let content = read_file(filename);
     // TODO : if the whole content string is ascii, just take the bytes and widen them to chars then collect them to prevent the overhead of UTF-8 decoding (TODO : benchmark it with criterion before ?)
     let content_chars = content.chars().collect::<Vec<_>>();

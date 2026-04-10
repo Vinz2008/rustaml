@@ -1,5 +1,6 @@
 #![allow(clippy::needless_return)]
 #![allow(clippy::let_and_return)]
+#![allow(clippy::boxed_local)]
 #![feature(debug_closure_helpers)]
 
 use std::{path::PathBuf, process::ExitCode};

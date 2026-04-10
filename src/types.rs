@@ -563,11 +563,10 @@ fn collect_constraints(context: &mut TypeContext, ast : ASTRef) -> Result<TypeVa
             }
 
             let ret_type_var = context.table.new_type_var();
-            if let Some(return_type) = return_type {
-                if !matches!(return_type.as_ref(), Type::Any){
-                    context.push_constraint(Constraint::IsType(ret_type_var, *return_type), range.clone());
-                }
+            if let Some(return_type) = return_type && matches!(return_type.as_ref(), Type::Any){
+                context.push_constraint(Constraint::IsType(ret_type_var, *return_type), range.clone());
             }
+            
 
             
 

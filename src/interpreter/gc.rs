@@ -86,9 +86,8 @@ fn mark_list_ref(list_node_pool : &mut ListPool, grey_stack : &mut VecDeque<List
     if let Some(head) = l.head {
         let l_gc = head.get_gc_mut(list_node_pool);
         l_gc.is_marked = true;
-        match l_gc.data.next {
-            Some(next) => grey_stack.push_back(next),
-            None => {},
+        if let Some(next) = l_gc.data.next {
+            grey_stack.push_back(next);
         }
 
         // is node a list
