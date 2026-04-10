@@ -1,4 +1,4 @@
-use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, intrinsics::Intrinsic, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, ArrayType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType, VectorType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, VectorValue}};
+use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, intrinsics::Intrinsic, llvm_sys::{LLVMTypeKind, core::{LLVMGetArrayLength2, LLVMGetElementType, LLVMGetInitializer, LLVMGetTypeKind, LLVMIsAGlobalVariable, LLVMTypeOf}}, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, ArrayType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType, VectorType}, values::{AsValueRef, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, VectorValue}};
 
 use crate::{ast::{CType, Type}, compiler::{CompileContext, cast::cast_val, debuginfo::LineColLoc}, string_intern::StringRef};
 
@@ -236,18 +236,20 @@ pub(crate) fn codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileCont
 pub(crate) fn _codegen_runtime_error<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, message_str : PointerValue<'llvm_ctx>){
     let ptr_type = compile_context.context.ptr_type(AddressSpace::default());
     
-    let fprintf_fun = compile_context.get_internal_function("fprintf");
+    let fwrite_fun = compile_context.get_internal_function("fwrite");
 
     let exit_fun = compile_context.get_internal_function("exit");
 
     let stderr_global = compile_context.get_internal_global_var("stderr", ptr_type.as_basic_type_enum());
     
     let stderr_load = compile_context.builder.build_load(ptr_type, stderr_global.as_pointer_value(), "stderr_load").unwrap();
-    let fprintf_args: Vec<BasicMetadataValueEnum> = vec![stderr_load.into(), message_str.into()];
-    compile_context.builder.build_call(fprintf_fun, &fprintf_args, "error_fprintf").unwrap();
+    let size_t_type = compile_context.context.ptr_sized_int_type(&compile_context.target_data, None);
+    let message_len = str_len(compile_context, message_str);
+    let fwrite_args: &[BasicMetadataValueEnum] = &[message_str.into(), size_t_type.const_int(1, false).into(), message_len.into(), stderr_load.into()];
+    compile_context.builder.build_call(fwrite_fun, fwrite_args, "error_fwrite").unwrap();
 
-    let exit_args = vec![compile_context.context.i32_type().const_int(1, false).into()];
-    compile_context.builder.build_call(exit_fun, &exit_args, "error_exit").unwrap();
+    let exit_args = &[compile_context.context.i32_type().const_int(1, false).into()];
+    compile_context.builder.build_call(exit_fun, exit_args, "error_exit").unwrap();
     compile_context.builder.build_unreachable().unwrap();
 }
 
@@ -460,4 +462,23 @@ fn get_void_val_basic<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> BasicValu
 // dummy val for void, if it is used as a real value, it is a bug
 pub(crate) fn get_void_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> BasicValueEnum<'llvm_ctx> {
     get_void_val_basic(llvm_context).as_basic_value_enum()
+}
+
+fn str_len<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, str : PointerValue<'llvm_ctx>) -> IntValue<'llvm_ctx> {
+    if str.is_const(){
+        unsafe {
+            let init  = LLVMGetInitializer(str.as_value_ref());
+            let str_type = LLVMTypeOf(init);
+            /*if LLVMGetTypeKind(str_type) != LLVMTypeKind::LLVMArrayTypeKind {
+                panic!("Const string should be an array");
+            }*/
+            //let elem_ty = LLVMGetElementType(str_type);
+            let len = LLVMGetArrayLength2(str_type)-1;
+            let size_t_ty = compile_context.context.ptr_sized_int_type(&compile_context.target_data, None);
+            return size_t_ty.const_int(len, false);
+        }
+    }
+    
+    let strlen_fun = compile_context.get_internal_function("strlen");
+    compile_context.builder.build_call(strlen_fun, &[str.into()], "strlen_call").unwrap().try_as_basic_value().unwrap_basic().into_int_value()
 }

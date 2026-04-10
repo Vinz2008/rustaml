@@ -2,6 +2,7 @@
 #![allow(clippy::let_and_return)]
 #![allow(clippy::boxed_local)]
 #![feature(debug_closure_helpers)]
+#![feature(c_size_t)]
 
 use std::{path::PathBuf, process::ExitCode};
 

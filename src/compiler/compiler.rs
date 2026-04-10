@@ -156,16 +156,18 @@ fn new_string_attr(llvm_context : &Context, key : &'static str, val : &'static s
 }
 
 // TODO : replace these strings with an enum ?
-fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<BuiltinFunction<'llvm_ctx>>{
-    // TODO : make these 2 only one
+fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context, target_data : &TargetData) -> Vec<BuiltinFunction<'llvm_ctx>>{
     let ptr_type = llvm_context.ptr_type(AddressSpace::default()).into();
     let ptr_type_ret = llvm_context.ptr_type(AddressSpace::default()).into();
+    let size_t_type = llvm_context.ptr_sized_int_type(target_data, None).into();
+    let size_t_type_ret = llvm_context.ptr_sized_int_type(target_data, None).into();
+
 
     let attr = |n| (AttributeLoc::Function, new_enum_attribute(llvm_context, n));
     let attr_return = |n| (AttributeLoc::Return, new_enum_attribute(llvm_context, n));
     let attr_args = |n, idx| (AttributeLoc::Param(idx), new_enum_attribute(llvm_context, n));
     let attr_str_args = |key, val, idx| (AttributeLoc::Param(idx), new_string_attr(llvm_context, key, val));
-
+    
     vec![
         BuiltinFunction {
             name: "__init",
@@ -267,11 +269,17 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Vec<B
         },
         // TODO : remove this ?
         BuiltinFunction {
-            name: "fprintf",
-            is_variadic: true,
-            args: Box::new([ptr_type, ptr_type]),
-            ret: Some(llvm_context.i32_type().into()),
-            attributes: vec![attr_args("noundef", 0), attr_args("noundef", 1)],
+            name: "fwrite",
+            args: Box::new([ptr_type, size_t_type, size_t_type, ptr_type]),
+            ret: Some(size_t_type_ret),
+            attributes: vec![attr_args("noundef", 0), attr_args("noundef", 3)], // TODO
+            ..Default::default()
+        },
+        BuiltinFunction  {
+            name: "strlen",
+            args: Box::new([ptr_type]),
+            ret: Some(size_t_type_ret),
+            ..Default::default()
         },
         BuiltinFunction {
             name: "__print_val",
@@ -311,7 +319,7 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
             jit_cpu_infos : Option<JITCompileContext<'llvm_ctx>>,
         ) -> CompileContext<'context, 'llvm_ctx> {
         let main_function = get_main_function(context, &module);
-        let internal_functions = get_internal_functions(context);
+        let internal_functions = get_internal_functions(context, &target_data);
 
         #[cfg(not(feature = "jit"))]
         let _ = jit_cpu_infos;
@@ -520,8 +528,8 @@ fn compile_print<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>,
         }
         _ => print_val,
     };*/
-    let printf_args = [format_str.into(), print_val.into()];
-    compile_context.builder.build_call(printf_fun, &printf_args, "print_internal_call").unwrap();
+    let printf_args = &[format_str.into(), print_val.into()];
+    compile_context.builder.build_call(printf_fun, printf_args, "print_internal_call").unwrap();
     get_void_val(compile_context.context)
 }
 
@@ -638,11 +646,11 @@ fn compile_map<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, l
     let list_val = compile_expr(compile_context, list_ast).into_basic();
 
 
-    let args= vec![list_val.into(), fun_val.into()];
+    let args= &[list_val.into(), fun_val.into()];
     
     let map_fun = compile_monomorphized_map(compile_context, &elem_type, &ret_elem_type);
 
-    compile_context.builder.build_call(map_fun, &args, "map_call").unwrap().try_as_basic_value().unwrap_basic()
+    compile_context.builder.build_call(map_fun, args, "map_call").unwrap().try_as_basic_value().unwrap_basic()
 }
 
 fn compile_filter<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, list_ast : ASTRef, fun_ast : ASTRef) -> BasicValueEnum<'llvm_ctx> {
@@ -664,29 +672,29 @@ fn compile_filter<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>
     let list_val = compile_expr(compile_context, list_ast).into_basic();
 
 
-    let args= vec![list_val.into(), fun_val.into()];
+    let args= &[list_val.into(), fun_val.into()];
     
     let filter_fun = compile_monomorphized_filter(compile_context, &elem_type);
 
-    compile_context.builder.build_call(filter_fun, &args, "filter_call").unwrap().try_as_basic_value().unwrap_basic()
+    compile_context.builder.build_call(filter_fun, args, "filter_call").unwrap().try_as_basic_value().unwrap_basic()
 }
 
 fn compile_chars<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, s : PointerValue<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
     let chars_fun = compile_context.get_internal_function("__chars");
-    let args = vec![s.into()];
-    compile_context.builder.build_call(chars_fun, &args, "chars_call").unwrap().try_as_basic_value().unwrap_basic()
+    let args = &[s.into()];
+    compile_context.builder.build_call(chars_fun, args, "chars_call").unwrap().try_as_basic_value().unwrap_basic()
 }
 
 fn compile_regex_create<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, re_str : PointerValue<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
     let create_fun = compile_context.get_internal_function("__regex_create");
-    let args = vec![re_str.into()];
-    compile_context.builder.build_call(create_fun, &args, "regex_create_call").unwrap().try_as_basic_value().unwrap_basic()
+    let args = &[re_str.into()];
+    compile_context.builder.build_call(create_fun, args, "regex_create_call").unwrap().try_as_basic_value().unwrap_basic()
 }
 
 fn compile_regex_has_match<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, re : PointerValue<'llvm_ctx>, str : PointerValue<'llvm_ctx>) -> BasicValueEnum<'llvm_ctx> {
     let has_match_fun = compile_context.get_internal_function("__regex_has_match");
-    let args = vec![re.into(), str.into()];
-    compile_context.builder.build_call(has_match_fun, &args, "regex_has_match_call").unwrap().try_as_basic_value().unwrap_basic()
+    let args = &[re.into(), str.into()];
+    compile_context.builder.build_call(has_match_fun, args, "regex_has_match_call").unwrap().try_as_basic_value().unwrap_basic()
 }
 
 // TODO : generate a monomorphized black_box function to not have a lot of junk stack allocations because of it in the function ?
@@ -1049,15 +1057,15 @@ fn compile_binop_bool<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_
             compile_context.builder.build_float_compare(predicate, f, f2, name).unwrap()
         },
         (BasicValueEnum::PointerValue(p),  BasicValueEnum::PointerValue(p2)) => {
-            let args = vec![p.into(), p2.into()];
+            let args = &[p.into(), p2.into()];
             let cmp_call = match operand_type {
                 Type::List(_) => {
                     let list_cmp_fun = compile_context.get_internal_function("__list_cmp");
-                    compile_context.builder.build_call(list_cmp_fun, &args, name)
+                    compile_context.builder.build_call(list_cmp_fun, args, name)
                 },
                 Type::Str => {
                     let str_cmp_fun = compile_context.get_internal_function("__str_cmp");
-                    compile_context.builder.build_call(str_cmp_fun, &args, name)
+                    compile_context.builder.build_call(str_cmp_fun, args, name)
                 },
                 _ => unreachable!(),
             };
@@ -1072,8 +1080,8 @@ fn compile_binop_str<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_c
     match op {
         Operator::StrAppend => {
             let str_append = compile_context.get_internal_function("__str_append");
-            let args = vec![lhs_val.into(), rhs_val.into()];
-            compile_context.builder.build_call(str_append, &args, name).unwrap().try_as_basic_value().unwrap_basic()
+            let args = &[lhs_val.into(), rhs_val.into()];
+            compile_context.builder.build_call(str_append, args, name).unwrap().try_as_basic_value().unwrap_basic()
         },
         _ => unreachable!()
     }

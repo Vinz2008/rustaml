@@ -1,5 +1,5 @@
 use core::slice;
-use std::{ffi::CStr, io::Write, path::Path, process::{Command, Stdio}, time::Duration};
+use std::{ffi::{CStr, c_size_t}, io::Write, path::Path, process::{Command, Stdio}, time::Duration};
 
 use inkwell::{AddressSpace, OptimizationLevel, context::Context, execution_engine::{ExecutionEngine, JitFunction}, module::{Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, FileType, RelocMode, Target, TargetMachine}, types::{FunctionType, StructType}, values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, StructValue, ValueKind}};
 use libloading::Library;
@@ -219,7 +219,7 @@ type PlaceholderFunType = unsafe extern "C" fn() -> ();
 
 unsafe extern "C" {
     // don't care type, because we just need the ptr
-    unsafe fn fprintf() -> i32;
+    unsafe fn fwrite() -> c_size_t;
     unsafe fn exit() -> usize;
     static mut stderr: *mut (); // TODO : not use fprintf(stderr, ), just use a builtin function that does fprintf(stderr) and exit and call it (to make work on windows because it has no global stderr)
 }
@@ -228,12 +228,13 @@ fn register_external_functions<'llvm_ctx>(std_lib : &Library, module : &Module<'
     for fun in module.get_functions(){
         let bytes = fun.get_name().to_bytes();
         match bytes {
-            b"__str_append" | b"__list_node_append" | b"__chars" | b"__print_val" | b"__format_string" => unsafe {
+            // TODO, to lower overhead, some of these functions (some very small, for ex __str_cmp or __bool_to_str) just generate the code inline in every case, so it doesn't have the overhead of being found by libffi when compiling the jit code
+            b"__str_cmp" | b"__str_append" | b"__list_node_append" | b"__list_node_append_back" | b"__chars" | b"__print_val" | b"__rand" | b"__format_string" => unsafe {
                 let fun_symbol = std_lib.get::<PlaceholderFunType>(bytes).unwrap();
                 execution_engine.add_global_mapping(&fun, fun_symbol.try_as_raw_ptr().unwrap() as usize);
             }
-            b"fprintf" => {
-                execution_engine.add_global_mapping(&fun, fprintf as *const () as usize);
+            b"fwrite" => {
+                execution_engine.add_global_mapping(&fun, fwrite as *const () as usize);
             }
             b"exit" => {
                 execution_engine.add_global_mapping(&fun, exit as *const () as usize);
@@ -291,6 +292,8 @@ pub(crate) fn update_jit_heuristics_function_end_call(context : &mut InterpretCo
 }
 
 fn is_valid_jit_type(t : &Type) -> bool {
+    // TODO : vec
+    // TODO : SumType
     matches!(t, Type::Integer | Type::Float | Type::Bool | Type::Char | Type::Str | Type::List(_) | Type::Unit)
 }
 
