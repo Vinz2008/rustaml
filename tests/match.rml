@@ -44,3 +44,10 @@ let match_find_bug a = match a with
   | _ -> "good" ;;
 
 let _ = print (match_find_bug [1, 2]) ;;
+
+let match_switch_char c = match c with
+  | 'a' -> 1
+  | 'b' -> 2
+  | 'c' -> 3
+  | 'd' -> 4
+  | _ -> 100 ;;

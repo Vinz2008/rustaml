@@ -228,10 +228,10 @@ fn match_can_use_switch_sum_type(matched_val_type : &Type) -> bool {
 
 fn match_can_use_switch(compile_context: &CompileContext<'_, '_>, matched_val_type : &Type, patterns : &[(PatternRef, ASTRef)]) -> bool {
     
-    (matches!(matched_val_type, Type::Integer | Type::Bool) // TODO : what other types match ?
+    (matches!(matched_val_type, Type::Integer | Type::Bool | Type::Char) // TODO : what other types match ?
     || match_can_use_switch_sum_type(matched_val_type)) 
     // TODO : when guard are added, verify that there is no guard
-        && patterns.iter().all(|(p, _)| matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::Integer(_) | Pattern::Bool(_) | Pattern::SumTypeVariant(_) | Pattern::VarName(_) | Pattern::Underscore))
+        && patterns.iter().all(|(p, _)| matches!(p.get(&compile_context.rustaml_context.pattern_pool), Pattern::Integer(_) | Pattern::Bool(_) | Pattern::SumTypeVariant(_) | Pattern::Char(_) | Pattern::VarName(_) | Pattern::Underscore))
         && match_has_enough_fallback_switch(compile_context, matched_val_type, patterns)
 }
 
@@ -277,6 +277,10 @@ fn compile_match_switch<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llv
                 let variant_tag = get_variant_tag(compile_context.rustaml_context, *n);
                 let variant_tag_val = compile_context.context.i64_type().const_int(variant_tag as u64 , false);
                 cases.push((variant_tag_val, *bb))
+            }
+            Pattern::Char(c) => {
+                let char_val = compile_context.context.i32_type().const_int(*c as u64 , false);
+                cases.push((char_val, *bb));
             }
             _ => unreachable!(),
         }

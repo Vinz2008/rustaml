@@ -98,6 +98,7 @@ pub(crate) fn match_is_all_range(rustaml_context : &RustamlContext, matched_val_
             }
             has_empty_pattern && has_more_than_one_pattern
         }
+        // TODO : add char
         _ => false, // TODO
     }
 }
