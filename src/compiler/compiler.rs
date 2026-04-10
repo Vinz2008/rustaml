@@ -215,6 +215,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context, target_d
             ret: Some(ptr_type_ret),
             ..Default::default()
         },
+        // TODO : remove this ?
         BuiltinFunction {
             name: "__list_len",
             args: Box::new([ptr_type]),
@@ -222,6 +223,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context, target_d
             attributes: vec![attr_args("noundef", 0)],
             ..Default::default()
         },
+        // TODO : remove this
         BuiltinFunction {
             name: "__bool_to_str",
             args: Box::new([llvm_context.bool_type().into()]),
@@ -229,6 +231,7 @@ fn get_internal_functions<'llvm_ctx>(llvm_context : &'llvm_ctx Context, target_d
             attributes: vec![attr_return("noundef"), attr_return("nonnull")],
             ..Default::default()
         },
+        // TODO : remove this
         BuiltinFunction {
             name: "__char_to_str",
             args: Box::new([llvm_context.i32_type().into()]),

@@ -229,7 +229,7 @@ fn register_external_functions<'llvm_ctx>(std_lib : &Library, module : &Module<'
         let bytes = fun.get_name().to_bytes();
         match bytes {
             // TODO, to lower overhead, some of these functions (some very small, for ex __str_cmp or __bool_to_str) just generate the code inline in every case, so it doesn't have the overhead of being found by libffi when compiling the jit code
-            b"__str_cmp" | b"__str_append" | b"__list_node_append" | b"__list_node_append_back" | b"__chars" | b"__print_val" | b"__rand" | b"__format_string" => unsafe {
+            b"__str_cmp" | b"__str_append" | b"__list_node_init_static" | b"__list_node_append" | b"__list_node_append_back" | b"__list_node_merge" | b"__rand" | b"__format_string" | b"__chars" | b"__print_val" => unsafe {
                 let fun_symbol = std_lib.get::<PlaceholderFunType>(bytes).unwrap();
                 execution_engine.add_global_mapping(&fun, fun_symbol.try_as_raw_ptr().unwrap() as usize);
             }
