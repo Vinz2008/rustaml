@@ -512,6 +512,7 @@ fn jit_val_ret_to_interpreter_val(context : &mut InterpretContext, ret : JITValu
 
             let vals = 
                 wrapped_list_slice.iter().map(|jit_val| jit_val_ret_to_interpreter_val(context, jit_val.clone(), lib)).collect::<Vec<_>>();
+            // TODO : make new_from_vals accept an iterator or into iterator to not have a vec then put it in list ?
             let list = List::new_from_vals(context, vals);
             Val::List(list)
         },
