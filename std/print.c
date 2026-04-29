@@ -6,13 +6,13 @@
 #endif
 
 
-static void list_write_file_no_new_line(struct ListNode* list, FILE* f);
+STATIC void list_write_file_no_new_line(struct ListNode* list, FILE* f);
 
 
 #define MAX_INT_BUF_SIZE 22
 
 // TODO : transform in the future into a print_val function
-static void list_node_write_file(uint8_t tag, Val val, FILE* f){
+STATIC void list_node_write_file(uint8_t tag, Val val, FILE* f){
     // TODO : transform this into a switch ?
     if (tag == INT_TYPE) {
         char buf[MAX_INT_BUF_SIZE];
@@ -69,7 +69,7 @@ static void list_node_write_file(uint8_t tag, Val val, FILE* f){
     }
 }
 
-static void list_write_file_no_new_line(struct ListNode* list, FILE* f){
+STATIC void list_write_file_no_new_line(struct ListNode* list, FILE* f){
     bool first = true;
     const char open_square_bracket = '[';
     fwrite(&open_square_bracket, sizeof(char), 1, f);
@@ -86,7 +86,7 @@ static void list_write_file_no_new_line(struct ListNode* list, FILE* f){
     fwrite(&close_square_bracket, sizeof(char), 1, f);
 }
 
-static void vec_write_file_no_new_line(struct VecVal* vec_val, FILE* f){
+STATIC void vec_write_file_no_new_line(struct VecVal* vec_val, FILE* f){
     const char* open_vec = "vec[";
     fwrite(open_vec, sizeof(char), 4, f);
     const char* comma = ", ";
@@ -135,7 +135,7 @@ static void vec_write_file_no_new_line(struct VecVal* vec_val, FILE* f){
 }
 
 // print with a \n
-static void vwrite_val_file(const char* format, va_list va, FILE* f){
+STATIC void vwrite_val_file(const char* format, va_list va, FILE* f){
     if (*format == '%'){
         format++;
         switch (*format){
@@ -243,6 +243,7 @@ static void vwrite_val_file(const char* format, va_list va, FILE* f){
     fwrite(&c, sizeof(char), 1, stdout);
 }
 
+// TODO : do not need a variadic function, just add a Val arg ?
 void __print_val(const char* restrict format, ...){
     va_list va;
     va_start(va, format);

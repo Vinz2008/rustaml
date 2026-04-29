@@ -7,7 +7,7 @@
 
 // use this to prevent errors from pessimizing the fast path of execution 
 __attribute__((cold, noreturn))
-static void utf8_error(const char* msg, const uint8_t* b){
+STATIC void utf8_error(const char* msg, const uint8_t* b){
     if (b){
         fprintf(stderr, "Invalid UTF-8 : %s (%x)\n", msg, *b);
     } else {
@@ -21,7 +21,7 @@ static void utf8_error(const char* msg, const uint8_t* b){
 // the data are on the low 6 bits with the 2 highest bits as 0
 #define GET_CONTINUATION_BYTE_DATA(c) (c & 0x3F) // & 00111111
 
-static uint32_t utf8_decode_char(const char* s, size_t* pos, size_t bytes_len){
+STATIC uint32_t utf8_decode_char(const char* s, size_t* pos, size_t bytes_len){
     size_t current_pos = *pos;
     uint8_t c = s[current_pos];
     if ((c & 0x80) == 0){ // & 10000000

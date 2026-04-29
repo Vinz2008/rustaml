@@ -140,7 +140,7 @@ WEAK __attribute__((noreturn)) void __stack_chk_fail(void) {
 #ifndef assert
 #ifndef NDEBUG
 __attribute__((noinline, cold, noreturn))
-static void assert_fail(){
+STATIC void assert_fail(){
     __builtin_trap();
     while (1){}
 }

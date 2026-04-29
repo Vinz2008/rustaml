@@ -14,17 +14,20 @@ CONST const char* __bool_to_str(bool b){
     }
 }
 
-static void str_append_with_realloc(struct str* str, char c){
+STATIC void str_append_with_realloc(struct str* str, char c){
     ASSERT_NOT_NULL(str);
     if (str->len + 1 >= str->capacity){
         str->capacity = str->capacity + str->capacity/2; // str->capacity * 1.5
         str->buf = REALLOC(str->buf, str->capacity);
+        if (!str->buf){
+            ALLOC_ERROR("str append with realloc");
+        }
     }
     str->buf[str->len] = c;
     str->len += 1;
 }
 
-static uint64_t absolute(int64_t i){
+STATIC uint64_t absolute(int64_t i){
     uint64_t u = (uint64_t)i;
     if (i < 0){
         return ~u + 1; // equivalent to doing  ((uint64_t)(i + 1)) + 1 to hande INT_MIN where the - would do an overflow
@@ -56,7 +59,7 @@ static const uint64_t powers_10[] = {
     10000000000000000000ULL
 };
 
-static inline int clz64(uint64_t x) {
+STATIC inline int clz64(uint64_t x) {
 #if defined(_MSC_VER)
     unsigned long index;
     _BitScanReverse64(&index, x);
@@ -66,7 +69,7 @@ static inline int clz64(uint64_t x) {
 #endif
 }
 
-static int digit_nb_unsigned(uint64_t u){
+STATIC int digit_nb_unsigned(uint64_t u){
     if (u == 0){
         return 1;
     }
@@ -77,7 +80,7 @@ static int digit_nb_unsigned(uint64_t u){
     return t + (u >= powers_10[t]); // use the power10 table to correct the approximation (could be off by 1)
 }
 
-static int digit_nb(int64_t i){
+STATIC int digit_nb(int64_t i){
     uint64_t u = absolute(i);
     return digit_nb_unsigned(u);
 }
@@ -95,7 +98,7 @@ static const char digit_pairs[] = {
     '9', '0', '9', '1', '9', '2', '9', '3', '9', '4', '9', '5', '9', '6', '9', '7', '9', '8', '9', '9',
 };
 
-static void int_to_string_impl(char* buf, int64_t integer, int digit_number){
+STATIC void int_to_string_impl(char* buf, int64_t integer, int digit_number){
     int start = 0;
     if (integer < 0){
         buf[0] = '-';
@@ -132,7 +135,7 @@ struct double_decimal {
 
 // to enable fast path for doubles that are can be represented as just an int
 // in the small int case, also create the double_decimal struct
-static bool is_small_int(uint64_t ieeeMantissa, uint32_t ieeeExponent, struct double_decimal* v){
+STATIC bool is_small_int(uint64_t ieeeMantissa, uint32_t ieeeExponent, struct double_decimal* v){
     uint64_t mantissa2 = (1ULL << MANTISSA_NB_BITS) | ieeeMantissa; // create a 1 then the digits of the mantissa (1[MANTISSA]) to have the same as 1.mantissa
     // the 1.mantissa is mantissa2/2^52; but the double value is mantissa * 2^(exponent-bias) = (mantissa2/2^52) * 2^(exponent-bias)
     // = mantissa2 * 2^(exponent - bias - 53)
@@ -526,7 +529,7 @@ static const uint64_t DOUBLE_POW5_SPLIT[DOUBLE_POW5_TABLE_SIZE][2] = {
   return (((uint32_t) e) * 732923) >> 20;
 }*/
 
-static bool multipleOfPowerOf2(uint64_t value, uint32_t p) {
+STATIC bool multipleOfPowerOf2(uint64_t value, uint32_t p) {
   assert(value != 0);
   assert(p < 64);
   // __builtin_ctzll doesn't appear to be faster here.
@@ -534,7 +537,7 @@ static bool multipleOfPowerOf2(uint64_t value, uint32_t p) {
 }
 
 // Returns e == 0 ? 1 : ceil(log_2(5^e)); requires 0 <= e <= 3528.
-static int32_t pow5bits(int32_t e) {
+STATIC int32_t pow5bits(int32_t e) {
   // This approximation works up to the point that the multiplication overflows at e = 3529.
   // If the multiplication were done in 64 bits, it would fail at 5^4004 which is just greater
   // than 2^9297.
@@ -543,7 +546,7 @@ static int32_t pow5bits(int32_t e) {
   return (int32_t)(((((uint32_t) e) * 1217359) >> 19) + 1);
 }
 
-static uint32_t pow5Factor(uint64_t value) {
+STATIC uint32_t pow5Factor(uint64_t value) {
   const uint64_t m_inv_5 = 14757395258967641293u; // 5 * m_inv_5 = 1 (mod 2^64)
   const uint64_t n_div_5 = 3689348814741910323u;  // #{ n | n = 0 (mod 2^64) } = 2^64 / 5
   uint32_t count = 0;
@@ -560,7 +563,7 @@ static uint32_t pow5Factor(uint64_t value) {
 
 
 // Returns true if value is divisible by 5^p.
-static bool multipleOfPowerOf5(uint64_t value, uint32_t p) {
+STATIC bool multipleOfPowerOf5(uint64_t value, uint32_t p) {
   // I tried a case distinction on p, but there was no performance difference.
   return pow5Factor(value) >= p;
 }
@@ -569,13 +572,13 @@ static bool multipleOfPowerOf5(uint64_t value, uint32_t p) {
 typedef __uint128_t uint128_t;
 
 // Best case: use 128-bit type.
-static uint64_t mulShift64(uint64_t m, const uint64_t* mul, int32_t j) {
+STATIC uint64_t mulShift64(uint64_t m, const uint64_t* mul, int32_t j) {
   uint128_t b0 = ((uint128_t)m) * mul[0];
   uint128_t b2 = ((uint128_t)m) * mul[1];
   return (uint64_t) (((b0 >> 64) + b2) >> (j - 64));
 }
 
-static inline uint64_t mulShiftAll64(const uint64_t m, const uint64_t* const mul, const int32_t j,
+STATIC inline uint64_t mulShiftAll64(const uint64_t m, const uint64_t* const mul, const int32_t j,
   uint64_t* const upper_bound, uint64_t* const lower_bound, const uint32_t mmShift) {
   *upper_bound = mulShift64(4 * m + 2, mul, j);
   *lower_bound = mulShift64(4 * m - 1 - mmShift, mul, j);
@@ -587,7 +590,7 @@ static inline uint64_t mulShiftAll64(const uint64_t m, const uint64_t* const mul
 #include <intrin.h>
 
 // Returns the lower 64 bits of (hi*2^64 + lo) >> dist, with 0 < dist < 64.
-static inline uint64_t shiftright128(const uint64_t lo, const uint64_t hi, const uint32_t dist) {
+STATIC inline uint64_t shiftright128(const uint64_t lo, const uint64_t hi, const uint32_t dist) {
   // For the __shiftright128 intrinsic, the shift value is always
   // modulo 64.
   // In the current implementation of the double-precision version
@@ -602,7 +605,7 @@ static inline uint64_t shiftright128(const uint64_t lo, const uint64_t hi, const
   return __shiftright128(lo, hi, (unsigned char) dist);
 }
 
-static uint64_t mulShift64(uint64_t m, const uint64_t* mul, int32_t j) {
+STATIC uint64_t mulShift64(uint64_t m, const uint64_t* mul, int32_t j) {
   // m is maximum 55 bits
   uint64_t high1;                                   // 128
   const uint64_t low1 = _umul128(m, mul[1], &high1); // 64
@@ -615,7 +618,7 @@ static uint64_t mulShift64(uint64_t m, const uint64_t* mul, int32_t j) {
   return shiftright128(sum, high1, j - 64);
 }
 
-static inline uint64_t mulShiftAll64(uint64_t m, const uint64_t* const mul, int32_t j,
+STATIC inline uint64_t mulShiftAll64(uint64_t m, const uint64_t* const mul, int32_t j,
   uint64_t* upper_bound, uint64_t* lower_bound, uint32_t mmShift) {
   *upper_bound = mulShift64(4 * m + 2, mul, j);
   *lower_bound = mulShift64(4 * m - 1 - mmShift, mul, j);
@@ -624,7 +627,7 @@ static inline uint64_t mulShiftAll64(uint64_t m, const uint64_t* const mul, int3
 
 #else
 
-static uint64_t umul128(uint64_t a, uint64_t b, uint64_t* productHi) {
+STATIC uint64_t umul128(uint64_t a, uint64_t b, uint64_t* productHi) {
   // The casts here help MSVC to avoid calls to the __allmul library function.
   const uint32_t aLo = (uint32_t)a;
   const uint32_t aHi = (uint32_t)(a >> 32);
@@ -654,14 +657,14 @@ static uint64_t umul128(uint64_t a, uint64_t b, uint64_t* productHi) {
   return pLo;
 }
 
-static uint64_t shiftright128(uint64_t lo, uint64_t hi, uint32_t dist) {
+STATIC uint64_t shiftright128(uint64_t lo, uint64_t hi, uint32_t dist) {
   // We don't need to handle the case dist >= 64 here (see above).
   assert(dist < 64);
   assert(dist > 0);
   return (hi << (64 - dist)) | (lo >> dist);
 }
 
-static uint64_t mulShift64(uint64_t m, const uint64_t* mul, int32_t j) {
+STATIC uint64_t mulShift64(uint64_t m, const uint64_t* mul, int32_t j) {
   // m is maximum 55 bits
   uint64_t high1;                                   // 128
   uint64_t low1 = umul128(m, mul[1], &high1); // 64
@@ -675,7 +678,7 @@ static uint64_t mulShift64(uint64_t m, const uint64_t* mul, int32_t j) {
 }
 
 // This is faster if we don't have a 64x64->128-bit multiplication.
-static inline uint64_t mulShiftAll64(uint64_t m, const uint64_t* const mul, const int32_t j,
+STATIC inline uint64_t mulShiftAll64(uint64_t m, const uint64_t* const mul, const int32_t j,
   uint64_t* const vp, uint64_t* const vm, const uint32_t mmShift) {
   m <<= 1;
   // m is maximum 55 bits
@@ -710,7 +713,7 @@ static inline uint64_t mulShiftAll64(uint64_t m, const uint64_t* const mul, cons
 #endif
 
 // create a double decimal, except for the small int case
-static struct double_decimal create_double_decimal(uint64_t ieeeMantissa, uint32_t ieeeExponent){
+STATIC struct double_decimal create_double_decimal(uint64_t ieeeMantissa, uint32_t ieeeExponent){
     int32_t exponent2;
     uint64_t mantissa2;
 
@@ -905,7 +908,7 @@ static struct double_decimal create_double_decimal(uint64_t ieeeMantissa, uint32
 #define NAN_STR "nan"
 #define ZERO_STR "0.0"
 
-static size_t double_to_str_special_strings(char* buf, bool is_negative, uint32_t ieeeExponent, uint64_t ieeeMantissa){
+STATIC size_t double_to_str_special_strings(char* buf, bool is_negative, uint32_t ieeeExponent, uint64_t ieeeMantissa){
     if (ieeeMantissa != 0){
         memcpy(buf, NAN_STR, sizeof(NAN_STR) - 1);
         return sizeof(NAN_STR) - 1;
@@ -928,7 +931,7 @@ static size_t double_to_str_special_strings(char* buf, bool is_negative, uint32_
 }
 
 
-static uint32_t decimalLength17(uint64_t v) {
+STATIC uint32_t decimalLength17(uint64_t v) {
     // This is slightly faster than a loop.
     // The average output length is 16.38 digits, so we check high-to-low.
     // Function precondition: v is not an 18, 19, or 20-digit number.
@@ -954,7 +957,7 @@ static uint32_t decimalLength17(uint64_t v) {
 }
 
 
-static int double_decimal_to_chars(struct double_decimal v, bool sign, char* result) {
+STATIC int double_decimal_to_chars(struct double_decimal v, bool sign, char* result) {
     int index = 0;
 
     if (sign){
@@ -1040,7 +1043,7 @@ static int double_decimal_to_chars(struct double_decimal v, bool sign, char* res
     return exp_index;
 }
 
-static size_t ryu_double_to_string_impl(char* buf, double d) {
+STATIC size_t ryu_double_to_string_impl(char* buf, double d) {
     uint64_t d_bits = INTO_TYPE(uint64_t, d);
     bool is_negative = (d_bits >> 63) & 0x1;
     uint32_t ieeeExponent = (uint32_t)((d_bits >> MANTISSA_NB_BITS) & EXPONENT_ALL_1);
@@ -1076,8 +1079,8 @@ static size_t ryu_double_to_string_impl(char* buf, double d) {
 }
 
 
-static void list_format(struct str* str, struct ListNode* list);
-static void ensure_size_string(struct str* s, size_t size);
+STATIC void list_format(struct str* str, struct ListNode* list);
+STATIC void ensure_size_string(struct str* s, size_t size);
 
 // TODO : make these functions wrappers for other functions for when we already know that we have allocated to not have to have check the capacity (for ex for the ryu formatting) 
 STATIC void format_int(struct str* str, int64_t i){
@@ -1093,7 +1096,7 @@ STATIC void format_float(struct str* str, double d){
     str->len += ryu_double_to_string_impl(str->buf + str->len, d);
 }
 
-static void format_bool(struct str* str, bool b){
+STATIC void format_bool(struct str* str, bool b){
     const char* bool_str = __bool_to_str(b);
     size_t bool_str_len = strlen(bool_str);
     ensure_size_string(str, str->len + bool_str_len);
@@ -1101,7 +1104,7 @@ static void format_bool(struct str* str, bool b){
     str->len += bool_str_len;
 }
 
-static void format_str(struct str* str, const char* s){
+STATIC void format_str(struct str* str, const char* s){
     size_t len_s = strlen(s);
     ensure_size_string(str, str->len + len_s);
     memcpy(str->buf + str->len, s, len_s);
@@ -1145,7 +1148,7 @@ void format_char(struct str* str, uint32_t c){
 }
 
 // TODO : deduplicate this code with the normal format
-static void list_node_format(struct str* str, uint8_t tag, Val val){
+STATIC void list_node_format(struct str* str, uint8_t tag, Val val){
     switch (tag) {
         case INT_TYPE:
             format_int(str, INTO_TYPE(int64_t, val));
@@ -1176,7 +1179,7 @@ static void list_node_format(struct str* str, uint8_t tag, Val val){
     }
 }
 
-static void list_format(struct str* str, struct ListNode* list){
+STATIC void list_format(struct str* str, struct ListNode* list){
     ensure_size_string(str, 2);
     bool first = true;
     str->buf[str->len] = '[';
@@ -1200,7 +1203,7 @@ static void list_format(struct str* str, struct ListNode* list){
 
 #define VEC_START "vec["
 
-static void vec_format(struct str* str, struct VecVal* vec_val){
+STATIC void vec_format(struct str* str, struct VecVal* vec_val){
     size_t vec_start_len = sizeof(VEC_START)-1;
     ensure_size_string(str, vec_start_len);
     memcpy(str->buf + str->len, VEC_START, vec_start_len);
@@ -1239,7 +1242,7 @@ static void vec_format(struct str* str, struct VecVal* vec_val){
 }
 
 
-static void ensure_size_string(struct str* s, size_t size){
+STATIC void ensure_size_string(struct str* s, size_t size){
     if (size > s->capacity){
         while (size > s->capacity){
             s->capacity *= 2;
@@ -1248,7 +1251,7 @@ static void ensure_size_string(struct str* s, size_t size){
     }
 }
 
-static struct str str_init(size_t default_capacity) {
+STATIC struct str str_init(size_t default_capacity) {
     char* buf = MALLOC_NO_PTR(sizeof(char) * default_capacity);
     if (!buf){
         ALLOC_ERROR("str init");
@@ -1261,7 +1264,7 @@ static struct str str_init(size_t default_capacity) {
 }
 
 __attribute__((returns_nonnull))
-static char* vformat_string(const char* format, va_list va){
+STATIC char* vformat_string(const char* format, va_list va){
     struct str str = str_init(5);
 
     while (*format != '\0'){

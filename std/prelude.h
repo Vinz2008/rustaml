@@ -120,6 +120,7 @@ typedef uint64_t Val;
         _dst; \
     }) \
 
+// TODO : if in release mode (when NDEBUG), not use the s/use empty string, to not have big debug strings that accumulate and increase the std object file size
 #define ALLOC_ERROR(s) alloc_error(__func__, s)
 
 #define TODO(str) do { \
@@ -183,3 +184,5 @@ STATIC void format_float(struct str* str, double d);
 STATIC void format_char(struct str* str, uint32_t c);
 
 CONST const char* __bool_to_str(bool b);
+
+PURE uint8_t __list_cmp(const struct ListNode* list1, const struct ListNode* list2);

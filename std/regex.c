@@ -33,7 +33,7 @@ struct Regex {
 };
 
 
-static NodeRef nfa_add_node(struct Regex* re){
+STATIC NodeRef nfa_add_node(struct Regex* re){
     if (re->nfa_nodes){
         if (re->node_count == re->node_capacity){
             re->node_capacity *= 2;
@@ -49,7 +49,7 @@ static NodeRef nfa_add_node(struct Regex* re){
     return res;
 }
 
-static void _nfa_add_transition(struct Regex* re, NodeRef start, struct Transition transition){
+STATIC void _nfa_add_transition(struct Regex* re, NodeRef start, struct Transition transition){
     // add a capacity field to not realloc each time
     struct Node* node = &re->nfa_nodes[start];
     if (node->outgoing_transitions){
@@ -62,7 +62,7 @@ static void _nfa_add_transition(struct Regex* re, NodeRef start, struct Transiti
     node->transitions_nb++;
 }
 
-static void nfa_add_transition_epsilon(struct Regex* re, NodeRef start, NodeRef end){
+STATIC void nfa_add_transition_epsilon(struct Regex* re, NodeRef start, NodeRef end){
     _nfa_add_transition(re, start, (struct Transition){
         .is_epsilon = true,
         .char_start = 0,
@@ -71,7 +71,7 @@ static void nfa_add_transition_epsilon(struct Regex* re, NodeRef start, NodeRef 
     });
 }
 
-static void nfa_add_transition(struct Regex* re, NodeRef start, uint32_t c, NodeRef end){
+STATIC void nfa_add_transition(struct Regex* re, NodeRef start, uint32_t c, NodeRef end){
     _nfa_add_transition(re, start, (struct Transition){
         .char_start = c,
         .char_end = c,
@@ -80,7 +80,7 @@ static void nfa_add_transition(struct Regex* re, NodeRef start, uint32_t c, Node
     });
 }
 
-static void nfa_add_transition_range(struct Regex* re, NodeRef start, uint32_t char_start, uint32_t char_end, NodeRef end){
+STATIC void nfa_add_transition_range(struct Regex* re, NodeRef start, uint32_t char_start, uint32_t char_end, NodeRef end){
     _nfa_add_transition(re, start, (struct Transition){
         .char_start = char_start,
         .char_end = char_end,
@@ -144,7 +144,7 @@ struct RegexASTNode {
 };
 
 
-static void free_ast(struct RegexASTNode* ast){
+STATIC void free_ast(struct RegexASTNode* ast){
     // TODO : should it be run when gc is enabled ?? (add a ifdef for it ?)
     switch (ast->tag){
         case AST_CHAR:
@@ -194,7 +194,7 @@ struct RegexParseContext {
 
 #define CHARS_AVAILABLE(context) (context->pos < context->codepoints_len)
 
-static struct RegexASTNode* new_ast_node(struct RegexASTNode ast_node){
+STATIC struct RegexASTNode* new_ast_node(struct RegexASTNode ast_node){
     struct RegexASTNode* res = MALLOC(sizeof(struct RegexASTNode));
     if (!res){
         ALLOC_ERROR("regex new node");
@@ -203,7 +203,7 @@ static struct RegexASTNode* new_ast_node(struct RegexASTNode ast_node){
     return res;
 }
 
-static struct RegexASTNode* parse_char(struct RegexParseContext* context){
+STATIC struct RegexASTNode* parse_char(struct RegexParseContext* context){
     assert(CHARS_AVAILABLE(context));
     uint32_t c = ADVANCE(context);
     assert(c != U'|' && c != U')' && c != U'*' && c != U'+' && c != U'?');
@@ -215,7 +215,7 @@ static struct RegexASTNode* parse_char(struct RegexParseContext* context){
     return leaf;
 }
 
-static void add_char_class_range(struct CharClassRanges* ranges, struct CharClassRange range){
+STATIC void add_char_class_range(struct CharClassRanges* ranges, struct CharClassRange range){
     if (!ranges->ranges){
         ranges->ranges = MALLOC_NO_PTR(sizeof(struct CharClassRange));
         *ranges->ranges = range;
@@ -226,7 +226,7 @@ static void add_char_class_range(struct CharClassRanges* ranges, struct CharClas
     ranges->len++;
 }
 
-static struct RegexASTNode* parse_char_class(struct RegexParseContext* context){
+STATIC struct RegexASTNode* parse_char_class(struct RegexParseContext* context){
     // TODO : grow with capacity the patterns list
     struct CharClassRanges ranges = (struct CharClassRanges){0};
     PASS(context, '[');
@@ -284,9 +284,9 @@ static struct RegexASTNode* parse_char_class(struct RegexParseContext* context){
     return char_class_node;
 }
 
-static struct RegexASTNode* parse_regex_ast(struct RegexParseContext* context);
+STATIC struct RegexASTNode* parse_regex_ast(struct RegexParseContext* context);
 
-static struct RegexASTNode* parse_regex_ast_leaf(struct RegexParseContext* context){
+STATIC struct RegexASTNode* parse_regex_ast_leaf(struct RegexParseContext* context){
     assert(CHARS_AVAILABLE(context));
     uint32_t c = PEEK(context);
     if (c == U'('){
@@ -302,7 +302,7 @@ static struct RegexASTNode* parse_regex_ast_leaf(struct RegexParseContext* conte
 
 
 // plus, kleene star and optional
-static struct RegexASTNode* parse_postfix(struct RegexParseContext* context){
+STATIC struct RegexASTNode* parse_postfix(struct RegexParseContext* context){
     struct RegexASTNode* re = parse_regex_ast_leaf(context);
     while (CHARS_AVAILABLE(context)){
         uint32_t c = PEEK(context);
@@ -331,7 +331,7 @@ static struct RegexASTNode* parse_postfix(struct RegexParseContext* context){
     return re;
 }
 
-static struct RegexASTNode* parse_concat(struct RegexParseContext* context){
+STATIC struct RegexASTNode* parse_concat(struct RegexParseContext* context){
     struct RegexASTNode* lhs = parse_postfix(context);
     while (CHARS_AVAILABLE(context)){
         uint32_t c = PEEK(context);
@@ -351,7 +351,7 @@ static struct RegexASTNode* parse_concat(struct RegexParseContext* context){
     return lhs;
 }
 
-static struct RegexASTNode* parse_regex_alternative(struct RegexParseContext* context){
+STATIC struct RegexASTNode* parse_regex_alternative(struct RegexParseContext* context){
     struct RegexASTNode* lhs = parse_concat(context);
     while (CHARS_AVAILABLE(context) && PEEK(context) == '|'){
         ADVANCE(context);
@@ -367,11 +367,11 @@ static struct RegexASTNode* parse_regex_alternative(struct RegexParseContext* co
     return lhs;
 }
 
-static struct RegexASTNode* parse_regex_ast(struct RegexParseContext* context){
+STATIC struct RegexASTNode* parse_regex_ast(struct RegexParseContext* context){
     return parse_regex_alternative(context);
 }
 
-static struct RegexASTNode* create_regex_ast(const char* str, size_t str_len) {
+STATIC struct RegexASTNode* create_regex_ast(const char* str, size_t str_len) {
     // TODO : what to do if empty regex (for now bug/UB)
 
     size_t codepoints_len;
@@ -398,7 +398,7 @@ struct NFAFragment {
 
 // TODO : create functions to create epsilon transition and simple transition to make the code simpler ?
 
-static struct NFAFragment regex_create_char_class(struct Regex* re, struct CharClass char_class){
+STATIC struct NFAFragment regex_create_char_class(struct Regex* re, struct CharClass char_class){
     // TODO : need a lot of change for unicode support (especially for negation)
     bool is_negated = char_class.is_negated;
     NodeRef start = nfa_add_node(re);
@@ -471,7 +471,7 @@ static struct NFAFragment regex_create_char_class(struct Regex* re, struct CharC
     };
 }
 
-static struct NFAFragment regex_create_from_ast(struct Regex* restrict re, const struct RegexASTNode* restrict ast){
+STATIC struct NFAFragment regex_create_from_ast(struct Regex* restrict re, const struct RegexASTNode* restrict ast){
     NodeRef start;
     NodeRef end;
     switch (ast->tag){
@@ -595,7 +595,7 @@ struct NodeQueue {
     size_t len;
 };
 
-static struct NodeQueue init_queue(size_t start_capacity){
+STATIC struct NodeQueue init_queue(size_t start_capacity){
     assert(start_capacity > 0);
     struct NodePointer* pointers = MALLOC_NO_PTR(start_capacity * sizeof(struct NodePointer));
     if (!pointers){
@@ -609,11 +609,11 @@ static struct NodeQueue init_queue(size_t start_capacity){
     };
 }
 
-static size_t queue_real_pos(const struct NodeQueue* node_pointers, size_t pos){
+STATIC size_t queue_real_pos(const struct NodeQueue* node_pointers, size_t pos){
     return (node_pointers->front + pos) % node_pointers->capacity;
 }
 
-static void ensure_size_node_pointers(struct NodeQueue* node_pointers, size_t min_capacity){
+STATIC void ensure_size_node_pointers(struct NodeQueue* node_pointers, size_t min_capacity){
     if (node_pointers->capacity < min_capacity){
         size_t new_capacity = node_pointers->capacity;
         while (new_capacity < min_capacity){
@@ -633,7 +633,7 @@ static void ensure_size_node_pointers(struct NodeQueue* node_pointers, size_t mi
     }
 }
 
-static void push_node_pointer(struct NodeQueue* node_pointers, NodeRef node, size_t str_pos){
+STATIC void push_node_pointer(struct NodeQueue* node_pointers, NodeRef node, size_t str_pos){
     ensure_size_node_pointers(node_pointers, node_pointers->len+1);
     
     node_pointers->pointers[queue_real_pos(node_pointers, node_pointers->len)] = (struct NodePointer){
@@ -643,7 +643,7 @@ static void push_node_pointer(struct NodeQueue* node_pointers, NodeRef node, siz
     node_pointers->len++;
 }
 
-static struct NodePointer pop_node_pointer(struct NodeQueue* node_pointers){
+STATIC struct NodePointer pop_node_pointer(struct NodeQueue* node_pointers){
     assert(node_pointers->len > 0);
     struct NodePointer node = node_pointers->pointers[node_pointers->front];
     node_pointers->front = (node_pointers->front + 1) % node_pointers->capacity;
@@ -651,7 +651,7 @@ static struct NodePointer pop_node_pointer(struct NodeQueue* node_pointers){
     return node;
 }
 
-static void free_queue(struct NodeQueue node_pointers){
+STATIC void free_queue(struct NodeQueue node_pointers){
     FREE(node_pointers.pointers);
 }
 
@@ -660,7 +660,7 @@ static void free_queue(struct NodeQueue node_pointers){
 #define BITSET_BITSIZE 64
 
 // use 64 bits to improve perfomance
-static uint64_t* create_visited(size_t visited_count){
+STATIC uint64_t* create_visited(size_t visited_count){
     size_t size = (visited_count + (BITSET_BITSIZE-1))/BITSET_BITSIZE;
     uint64_t* visited = MALLOC_NO_PTR(size * sizeof(uint64_t));
     if (!visited){
@@ -672,7 +672,7 @@ static uint64_t* create_visited(size_t visited_count){
     return visited;
 }
 
-static void mark_visited(uint64_t* visited, struct NodePointer node_pointer, size_t pos_count){
+STATIC void mark_visited(uint64_t* visited, struct NodePointer node_pointer, size_t pos_count){
     size_t idx = node_pointer.node_ref * pos_count + node_pointer.str_pos;
     uint64_t* word = visited + idx/BITSET_BITSIZE;
     uint8_t bit = idx % BITSET_BITSIZE;
@@ -680,7 +680,7 @@ static void mark_visited(uint64_t* visited, struct NodePointer node_pointer, siz
     *word = *word | ((uint64_t)1 << bit);
 }
 
-static bool is_visited(const uint64_t* visited, struct NodePointer node_pointer, size_t pos_count){
+STATIC bool is_visited(const uint64_t* visited, struct NodePointer node_pointer, size_t pos_count){
     size_t idx = node_pointer.node_ref * pos_count + node_pointer.str_pos;
     uint8_t word = visited[idx/BITSET_BITSIZE];
     uint8_t bit = idx % BITSET_BITSIZE;

@@ -5,14 +5,14 @@
 #endif
 #endif
 
-static void _list_node_init(struct ListNode* l, uint8_t type_tag, Val val) {
+STATIC void _list_node_init(struct ListNode* l, uint8_t type_tag, Val val) {
     l->type_tag = type_tag;
     l->val = val;
     l->next = NULL;
 }
 
 __attribute__((malloc, alloc_size(1)))
-static struct ListNode* list_node_init(uint8_t type_tag, Val val) {
+STATIC struct ListNode* list_node_init(uint8_t type_tag, Val val) {
     struct ListNode* l = MALLOC(sizeof(struct ListNode));
     if (!l){
         ALLOC_ERROR("ListNode");
@@ -107,7 +107,7 @@ STATIC void list_builder_append_back(struct ListBuilder* list_builder, uint8_t t
 }
 
 // clone the list nodes, but doesn't clone the list vals
-static struct ListBuilder clone_list(const struct ListNode* list){
+STATIC struct ListBuilder clone_list(const struct ListNode* list){
     const struct ListNode* current = list;
     int64_t list_len = __list_len(list);
     struct ListNode* list_nodes_buf = MALLOC(list_len * sizeof(struct ListNode));
@@ -184,7 +184,7 @@ struct JitWrappedList* __list_node_jit_wrap_return_val(const struct ListNode* li
 
 // end of code for JIT
 
-static PURE bool list_node_cmp(uint8_t tag1, Val val1, uint8_t tag2, Val val2){
+STATIC PURE bool list_node_cmp(uint8_t tag1, Val val1, uint8_t tag2, Val val2){
     if (tag1 != tag2){
         return false;
     }
@@ -211,7 +211,7 @@ static PURE bool list_node_cmp(uint8_t tag1, Val val1, uint8_t tag2, Val val2){
         ASSERT_NOT_NULL(list1);
         struct ListNode* list2 = INTO_TYPE(struct ListNode*, val2);
         ASSERT_NOT_NULL(list2);
-        return list_node_cmp(list1->type_tag, list1->val, list2->type_tag, list2->val);
+        return __list_cmp(list1, list2);
     }
 
     fprintf(stderr, "ERROR : WRONG TAGS IN LIST IN CMP (BUG IN COMPILER  \?\?)\n");

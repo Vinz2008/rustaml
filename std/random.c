@@ -24,7 +24,7 @@ static RandState rand_state = {false, 0, 0};
 #endif
 
 #ifndef FREESTANDING
-static void fallback_seed() {
+STATIC void fallback_seed() {
 
 #ifdef _WIN32
     time_t t = time(NULL);
@@ -64,11 +64,11 @@ static void fallback_seed() {
 #ifdef SYSTEM_UNIX
 #include <fcntl.h>
 
-static void seed_random(){
+STATIC void seed_random(){
     int fd = open("/dev/urandom", O_RDONLY);
 
     if (fd >= 0) {
-        read(fd, &rand_state.state, sizeof(sizeof(uint64_t) * 2));
+        read(fd, &rand_state.state, sizeof(rand_state.state));
         close(fd);
     } else {
         fallback_seed();
@@ -91,7 +91,7 @@ extern __inline__ uint64_t rdtsc(void) {
 }
 #endif
 // A simple mixing function to reduce correlation between consecutive rdtsc values
-static inline uint64_t mix(uint64_t x) {
+STATIC inline uint64_t mix(uint64_t x) {
     x ^= x >> 33;
     x *= 0xff51afd7ed558ccdULL;
     x ^= x >> 33;
@@ -100,7 +100,7 @@ static inline uint64_t mix(uint64_t x) {
     return x;
 }
 
-static void seed_random(){
+STATIC void seed_random(){
     uint64_t r[8];
     for (int i = 0; i < 8; i++) {
         r[i] = mix(rdtsc());
@@ -116,7 +116,7 @@ static void seed_random(){
 }
 
 #else
-static void seed_random(){
+STATIC void seed_random(){
     fallback_seed();
 }
 
