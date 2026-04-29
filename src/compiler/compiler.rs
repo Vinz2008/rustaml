@@ -369,7 +369,7 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
             for &(attr_loc, attr) in &builtin_function.attributes {
                 function_decl.add_attribute(attr_loc, attr);
             }
-            self.external_symbols_declared.insert(name.into());
+            self.external_symbols_declared.insert(name);
             function_decl
         }
     }
@@ -383,7 +383,7 @@ impl<'context, 'llvm_ctx> CompileContext<'context, 'llvm_ctx> {
         } else {
             let global = self.module.add_global(type_var, None, "stderr");
             global.set_linkage(inkwell::module::Linkage::External);
-            self.external_symbols_declared.insert(name.into());
+            self.external_symbols_declared.insert(name);
             global
         }
     }

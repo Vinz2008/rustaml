@@ -606,6 +606,7 @@ fn parse_annotation_simple(parser: &mut Parser) -> Result<(Type, usize), ParserE
                         str_to_char!("i16") | str_to_char!("short") => CType::I16,
                         str_to_char!("u32") | str_to_char!("uint") => CType::U32,
                         str_to_char!("i32") | str_to_char!("int") => CType::I32,
+                        // TODO : have a special c_type for size_t because it depends on arch ?
                         str_to_char!("u64") | str_to_char!("size_t") => CType::U64,
                         str_to_char!("i64") | str_to_char!("long") => CType::I64,
                         str_to_char!("f32") | str_to_char!("float") => CType::F32,

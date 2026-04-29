@@ -286,10 +286,7 @@ impl List {
     }
 
     pub(crate) fn deep_clone(&self, list_pool : &mut ListPool) -> List {
-        let head = match self.head {
-            Some(l) => Some(l.get(list_pool).clone().deep_clone(list_pool)), // TODO : remove the additional clone ?
-            None => None,
-        };
+        let head = self.head.map(|l| l.get(list_pool).clone().deep_clone(list_pool)); // TODO : remove the additional clone ?
         List { head }
     }
 }
