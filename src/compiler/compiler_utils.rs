@@ -1,4 +1,4 @@
-use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, intrinsics::Intrinsic, llvm_sys::{core::{LLVMGetArrayLength2, LLVMGetInitializer, LLVMTypeOf}}, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, ArrayType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType, VectorType}, values::{AsValueRef, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, VectorValue}};
+use inkwell::{AddressSpace, basic_block::BasicBlock, builder::Builder, context::Context, intrinsics::Intrinsic, llvm_sys::core::{LLVMGetArrayLength2, LLVMGetInitializer, LLVMTypeOf}, module::{Linkage, Module}, types::{AnyType, AnyTypeEnum, ArrayType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType, VectorType}, values::{AnyValueEnum, AsValueRef, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, StructValue, VectorValue}};
 
 use crate::{ast::{CType, Type}, compiler::{CompileContext, cast::cast_val, debuginfo::LineColLoc}, string_intern::StringRef};
 
@@ -296,6 +296,19 @@ pub(crate) fn load_list_tail<'llvm_ctx>(compile_context: &CompileContext<'_, 'll
     let list_type = get_list_type(compile_context.context);
     let gep_ptr = compile_context.builder.build_struct_gep(list_type, list, 0, "load_list_tail_gep").unwrap();
     compile_context.builder.build_load(compile_context.context.ptr_type(AddressSpace::default()), gep_ptr, "load_tail_gep").unwrap().into_pointer_value()
+}
+
+pub(crate) fn get_const_list_node<'llvm_ctx>(compile_context: &CompileContext<'_, 'llvm_ctx>, val : IntValue<'llvm_ctx>, val_type : &Type, next : PointerValue<'llvm_ctx>) -> StructValue<'llvm_ctx> {
+    let list_type = get_list_type(compile_context.context);
+    
+    let type_tag = get_type_tag(val_type);
+    let type_tag = compile_context.context.i8_type().const_int(type_tag as u64, false);
+    let struct_fields = &[
+        next.into(),
+        val.into(),
+        type_tag.into(),
+    ];
+    list_type.const_named_struct(struct_fields)
 }
 
 

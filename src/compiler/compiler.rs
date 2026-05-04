@@ -2,7 +2,7 @@ use core::panic;
 use std::{cell::Cell, fs, hash::{Hash, Hasher}, ops::Range, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
 use debug_with_context::DebugWrapContext;
 use nohash::IntMap;
-use crate::{ast::{ASTNode, ASTRef, CType, Type, TypeTag}, compiler::{cast::cast_val, compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_array_type, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_void_val, llvm_lifetime_end, llvm_lifetime_start, move_bb_after_current, promote_val_var_arg, vec_to_c_struct_ptr}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}, linker::link_exe}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
+use crate::{ast::{ASTNode, ASTRef, CType, Type, TypeTag}, compiler::{cast::cast_val, compile_match::compile_match, compiler_utils::{_codegen_runtime_error, add_function, any_type_to_basic, any_type_to_metadata, as_val_in_list, codegen_lang_runtime_error, create_br_conditional, create_br_unconditional, create_entry_block_alloca, create_entry_block_array_alloca, create_int, create_string, create_var, encountered_any_type, get_array_type, get_const_list_node, get_current_function, get_fn_type, get_list_type, get_llvm_type, get_main_function, get_type_tag_val, get_void_val, llvm_lifetime_end, llvm_lifetime_start, move_bb_after_current, promote_val_var_arg, vec_to_c_struct_ptr}, debuginfo::{DebugInfo, DebugInfosInner, TargetInfos, get_debug_loc}, internal_monomorphized::{compile_monomorphized_filter, compile_monomorphized_map, init_monomorphized_internal_fun}, linker::link_exe}, debug_println, lexer::Operator, mangle::mangle_name_external, rustaml::{FrontendOutput, RustamlContext}, string_intern::StringRef, types::{TypeInfos, VarId}};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel, attributes::{Attribute, AttributeLoc}, basic_block::BasicBlock, builder::Builder, context::Context, debug_info::{DWARFEmissionKind, DWARFSourceLanguage}, intrinsics::Intrinsic, module::{FlagBehavior, Linkage, Module}, passes::PassBuilderOptions, targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine}, types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum}, values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, GlobalValue, IntValue, PointerValue, ValueKind}};
 use pathbuf::pathbuf;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -1396,18 +1396,17 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm
     let vals = list.iter().map(|e| compile_expr(compile_context, *e)).collect::<Vec<_>>();
     let std_vals = vals.iter().map(|e| as_val_in_list(compile_context, e.into_basic(), list_element_type)).collect::<Vec<_>>();
 
-    let llvm_element_type = get_llvm_type(compile_context, list_element_type);
-    let size = create_int(compile_context, list.len() as i128);
-    let static_array = create_entry_block_array_alloca(compile_context, "temp_static_list", compile_context.context.i64_type().into(), size); // use a i64 type to prevent type aliasing UB
+    /*
     
-    let array_type = get_array_type(llvm_element_type, list.len() as u32);
-    let static_arr_size = compile_context.target_data.get_store_size(&array_type);
-    let static_arr_size = compile_context.context.i64_type().const_int(static_arr_size, false);
-    llvm_lifetime_start(compile_context, static_array, static_arr_size);
+    
+    
+    
+    */
+    
 
-    if std_vals.iter().all(|e| e.is_const()){
+    let list_init = if std_vals.iter().all(|e| e.is_const()){
         // optimization if all vals are constants
-        let array_type = compile_context.context.i64_type().array_type(list.len().try_into().unwrap());
+        /*let array_type = compile_context.context.i64_type().array_type(list.len().try_into().unwrap());
         let const_array = compile_context.context.i64_type().const_array(&std_vals);
         let global_const_array = compile_context.module.add_global(array_type.as_basic_type_enum(), None, "const_array");
         global_const_array.set_initializer(&const_array);
@@ -1417,8 +1416,61 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm
         let val_size = 8; // a val is 8 bytes
         let size_size_t = size_t_type.const_int((list.len() * val_size) as u64, false);
         let unknown_align = 1; // unknown alignement so put 1
-        compile_context.builder.build_memcpy(static_array, unknown_align, global_const_array.as_pointer_value(), unknown_align, size_size_t).unwrap();
+        compile_context.builder.build_memcpy(static_array, unknown_align, global_const_array.as_pointer_value(), unknown_align, size_size_t).unwrap();*/
+        let mut last_node = compile_context.context.ptr_type(AddressSpace::default()).const_null();
+        let list_node_struct_type = get_list_type(compile_context.context);
+        let node_array_type = list_node_struct_type.array_type(std_vals.len().try_into().unwrap());
+        let global_node_array = compile_context.module.add_global(node_array_type, None, "const_list_arr");
+        
+        global_node_array.set_constant(true);
+        global_node_array.set_linkage(Linkage::Internal);
+        global_node_array.set_unnamed_addr(true);
+
+        let mut const_nodes = Vec::with_capacity(std_vals.len());
+        let zero = compile_context.context.i64_type().const_zero();
+        for (idx, node) in std_vals.iter().rev().enumerate(){
+            let const_node = get_const_list_node(compile_context, *node, list_element_type, last_node);
+            const_nodes.push(const_node);
+            let const_gep_idx = &[
+                zero,
+                compile_context.context.i64_type().const_int(idx.try_into().unwrap(), false),
+            ];
+            last_node = unsafe {
+                global_node_array.as_pointer_value().const_gep(node_array_type, const_gep_idx)
+            };
+        }
+        
+        let const_arr = list_node_struct_type.const_array(&const_nodes);
+        global_node_array.set_initializer(&const_arr);
+        
+
+        
+
+        /*for node in std_vals.iter().rev() {
+            let const_node = get_const_list_node(compile_context, *node, list_element_type, last_node);
+            let global_node = compile_context.module.add_global(list_type, None, "static_list_node");
+            global_node.set_constant(true);
+            global_node.set_initializer(&const_node);
+            global_node.set_linkage(Linkage::Internal);
+            global_node.set_unnamed_addr(true);
+            last_node = global_node.as_pointer_value();
+        }*/
+        //last_node.into()
+        let const_gep_idx = &[
+            zero,
+            compile_context.context.i64_type().const_int((std_vals.len()-1) as u64, false),
+        ];
+        unsafe {
+            global_node_array.as_pointer_value().const_gep(node_array_type, const_gep_idx).into()
+        }
     } else {
+        let size = create_int(compile_context, list.len() as i128);
+        let static_array = create_entry_block_array_alloca(compile_context, "temp_static_list", compile_context.context.i64_type().into(), size); // use a i64 type to prevent type aliasing UB
+        let llvm_element_type = get_llvm_type(compile_context, list_element_type);
+        let array_type = get_array_type(llvm_element_type, list.len() as u32);
+        let static_arr_size = compile_context.target_data.get_store_size(&array_type);
+        let static_arr_size = compile_context.context.i64_type().const_int(static_arr_size, false);
+        llvm_lifetime_start(compile_context, static_array, static_arr_size);
         let basic_element_type = any_type_to_basic(compile_context.context, llvm_element_type);
         for (idx, v) in std_vals.iter().enumerate() {
             let ordered_indexes = &[create_int(compile_context, idx as i128)];
@@ -1429,11 +1481,11 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm
             let basic_val = v.as_basic_value_enum();
             compile_context.builder.build_store(gep_ptr, basic_val).unwrap();
         }
-    }
-
-    let list_init = create_list_init_static_call(compile_context, type_tag_val, static_array, size).as_basic_value_enum();
-    
-    llvm_lifetime_end(compile_context, static_array, static_arr_size);
+        
+        let list_init = create_list_init_static_call(compile_context, type_tag_val, static_array, size).as_basic_value_enum();
+        llvm_lifetime_end(compile_context, static_array, static_arr_size);
+        list_init
+    };
 
     list_init
 }
