@@ -1443,19 +1443,6 @@ fn compile_static_list<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm
         let const_arr = list_node_struct_type.const_array(&const_nodes);
         global_node_array.set_initializer(&const_arr);
         
-
-        
-
-        /*for node in std_vals.iter().rev() {
-            let const_node = get_const_list_node(compile_context, *node, list_element_type, last_node);
-            let global_node = compile_context.module.add_global(list_type, None, "static_list_node");
-            global_node.set_constant(true);
-            global_node.set_initializer(&const_node);
-            global_node.set_linkage(Linkage::Internal);
-            global_node.set_unnamed_addr(true);
-            last_node = global_node.as_pointer_value();
-        }*/
-        //last_node.into()
         let const_gep_idx = &[
             zero,
             compile_context.context.i64_type().const_int((std_vals.len()-1) as u64, false),
