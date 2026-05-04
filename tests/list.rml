@@ -1,2 +1,28 @@
 let a = [1, 2, 3, 4] ;;
-let _ = print a ;;
+let b = [5, 6, 7, 8] ;;
+let merged = a @ b ;;
+let _ = print merged ;;
+
+let big_list n = 
+  if n == 0 then []
+  else n :: big_list (n - 1) ;;
+
+// for benchmarking only
+// let list = big_list 100000 ;;
+let list = big_list 1000 ;;
+
+// TODO : make function generics
+let len l : list[int] -> int = match l with
+  | [] -> 0
+  | e :: li -> 1 + len li ;;
+
+let len_list = len list ;;
+let _ = print len_list ;;
+
+let sum l = match l with 
+  | [] -> 0
+  | e :: l -> e + sum l ;;
+
+let s = sum list ;;
+
+let _ = print s ;;
