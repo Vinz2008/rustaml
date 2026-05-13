@@ -1,7 +1,7 @@
 use std::{env, ffi::OsStr, fs, iter, path::PathBuf, process::Command};
 
 fn main(){
-    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rustc-link-lib=m");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let target_dir = out_dir.ancestors().nth(3).unwrap().to_path_buf();

@@ -55,49 +55,99 @@ fn get_ffi_type(t : &Type) -> FFIType {
     }
 }
 
+#[cfg(target_os = "linux")]
+const LIBM_CANDIDATES: &[&str] = &[
+    "libm.so.6", // glibc
+    "libm.so",   // musl / some systems
+    "libc.so",   // musl often exposes math via libc
+];
+
+#[cfg(target_os = "macos")]
+const LIBM_CANDIDATES: &[&str] = &[
+    "/usr/lib/libSystem.B.dylib",
+];
+
+#[cfg(target_os = "freebsd")]
+const LIBM_CANDIDATES: &[&str] = &[
+    "libm.so",
+];
+
+#[cfg(target_os = "windows")]
+const LIBM_CANDIDATES: &[&str] = &[
+    "ucrtbase.dll",
+    "msvcrt.dll",
+];
+
+pub(crate) fn get_this_ffi_lib() -> Library {
+    #[cfg(unix)]
+    let lib = libloading::os::unix::Library::this();
+
+    #[cfg(windows)]
+    let lib = libloading::os::windows::Library::this().unwrap();
+
+    lib.into()
+}
+
+fn try_libm_get_ffi_func(mangled_name_bytes : &[u8]) -> Option<(Library, *const c_void)>{
+    for &candidate in LIBM_CANDIDATES {
+        let lib = unsafe {
+            Library::new(candidate).unwrap()
+        };
+        if let Ok(sym) =  unsafe { lib.get(mangled_name_bytes) }{
+            let func_ptr = *sym;
+            return Some((lib.into(), func_ptr));
+        }
+    }
+    None
+}
+
 // TODO : return a result and do better error handling
 pub(crate) fn get_ffi_func(context : &InterpretContext, name: StringRef, func_type : Type, external_lang : ExternLang, so_str : Option<StringRef>) -> FFIFunc {
     let mangled_name = mangle_name_external(name.get_str(&context.rustaml_context.str_interner), &func_type, external_lang);
 
 
-    let lib = if let Some(so_name) = so_str {
+    let (lib, function_ptr) = if let Some(so_name) = so_str {
 
         let path = pathbuf![so_name.get_str(&context.rustaml_context.str_interner)];
-        unsafe { 
+        let lib = unsafe { 
             Library::new(path).unwrap()
-        }
+        };
+        let function_ptr: *const c_void = unsafe {
+            *lib.get(mangled_name.as_bytes()).unwrap()
+        };
+        (Rc::new(lib), function_ptr)
     }  else {
-        #[cfg(unix)]
-        let lib = libloading::os::unix::Library::this();
+        let this_lib = context.lib_this_ffi.clone();
 
-        #[cfg(windows)]
-        let lib = libloading::os::windows::Library::this().unwrap();
-
-        lib.into()
+        match unsafe { this_lib.get(mangled_name.as_bytes()) }{
+            Ok(sym) => {
+                let func_ptr = *sym;
+                (this_lib, func_ptr)
+            },
+            Err(_) => {
+                let (lib, func_ptr) = try_libm_get_ffi_func(mangled_name.as_bytes()).unwrap();
+                (Rc::new(lib), func_ptr)
+            },
+        }
     };
 
     let (ret_type, arg_types) = match func_type {
         Type::Function(args, ret, _) => (ret, args),
         _ => unreachable!(),
     };
-
-    unsafe {
-        let function_ptr: *const c_void = *lib.get(mangled_name.as_bytes()).unwrap();
         
-        let code_ptr = CodePtr::from_ptr(function_ptr);
+    let code_ptr = CodePtr::from_ptr(function_ptr);
 
-        let ret_type_ffi = get_ffi_type(ret_type.as_ref());
-        let arg_types = arg_types.iter().map(get_ffi_type).collect::<Vec<_>>();
+    let ret_type_ffi = get_ffi_type(ret_type.as_ref());
+    let arg_types = arg_types.iter().map(get_ffi_type).collect::<Vec<_>>();
 
-        let cif = Cif::new(arg_types, ret_type_ffi);
+    let cif = Cif::new(arg_types, ret_type_ffi);
 
-        FFIFunc {
-            code_ptr,
-            cif,
-            ret_type: *ret_type,
-            _lib : Some(Rc::new(lib)),
-        }
-
+    FFIFunc {
+        code_ptr,
+        cif,
+        ret_type: *ret_type,
+        _lib : Some(lib),
     }
 }
 

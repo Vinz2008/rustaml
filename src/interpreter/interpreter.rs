@@ -1,3 +1,4 @@
+use libloading::Library;
 use nohash::IntMap;
 use regex::Regex;
 use smallvec::SmallVec;
@@ -16,6 +17,7 @@ use crate::ast::PatternRef;
 use crate::ast::TypeTag;
 use crate::debug_println;
 
+use crate::interpreter::ffi::get_this_ffi_lib;
 use crate::interpreter::gc::{try_gc_collect, Gc, GcContext};
 
 use crate::rustaml::ensure_stack;
@@ -575,6 +577,7 @@ pub(crate) struct InterpretContext<'context> {
     pub(crate) rustaml_context : &'context mut RustamlContext,
     pub(crate) gc_context : GcContext,
     rng : ThreadRng,
+    pub(crate) lib_this_ffi : Rc<Library>,
 
     #[cfg(feature = "jit")]
     pub(crate) jit_context : JitContext,
@@ -1586,6 +1589,7 @@ pub(crate) fn interpret_with_val(ast: ASTRef, rustaml_context: &mut RustamlConte
         rustaml_context,
         gc_context: GcContext::new(),
         rng: rand::rng(),
+        lib_this_ffi: Rc::new(get_this_ffi_lib()),
 
         #[cfg(feature = "jit")]
         jit_context: JitContext::new(type_infos, dump_jit_ir, dump_jit_asm),

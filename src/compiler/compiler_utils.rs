@@ -479,7 +479,7 @@ pub(crate) fn get_void_val<'llvm_ctx>(llvm_context : &'llvm_ctx Context) -> Basi
 
 fn str_len<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, str : PointerValue<'llvm_ctx>) -> IntValue<'llvm_ctx> {
     if str.is_const(){
-        unsafe {
+        let len = unsafe {
             let init  = LLVMGetInitializer(str.as_value_ref());
             let str_type = LLVMTypeOf(init);
             /*if LLVMGetTypeKind(str_type) != LLVMTypeKind::LLVMArrayTypeKind {
@@ -487,9 +487,10 @@ fn str_len<'llvm_ctx>(compile_context: &mut CompileContext<'_, 'llvm_ctx>, str :
             }*/
             //let elem_ty = LLVMGetElementType(str_type);
             let len = LLVMGetArrayLength2(str_type)-1;
-            let size_t_ty = compile_context.context.ptr_sized_int_type(&compile_context.target_data, None);
-            return size_t_ty.const_int(len, false);
-        }
+            len
+        };
+        let size_t_ty = compile_context.context.ptr_sized_int_type(&compile_context.target_data, None);
+        return size_t_ty.const_int(len, false);
     }
     
     let strlen_fun = compile_context.get_internal_function("strlen");
